@@ -1,0 +1,18 @@
+node_modules
+.output
+.wxt
+*.zip
+coverage
+.eslintcache
+# CI staging: the JUnit report (CI=1 npm test) and the release artifacts the build job collects.
+test-results
+artifacts
+.env
+.env.*.local
+.DS_Store
+stats.html
+
+# Editor / IDE
+.idea
+.vscode
+*.iml

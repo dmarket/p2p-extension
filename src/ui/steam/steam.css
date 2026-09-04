@@ -1,0 +1,327 @@
+/* Styles for the Steam on-page UI (banner + onboarding modals), scoped inside a Shadow DOM.
+   Variables are set on both :host (shadow root) and .dmp (each component root) so the styles work
+   whether mounted in a shadow root or a plain container. */
+:host,
+.dmp {
+  --dm-ext-accent: #59ed90;
+  --dm-ext-panel: #121212;
+  --dm-ext-banner-bg: #0f0f10;
+  --dm-ext-border-strong: #202020;
+  --dm-ext-text-primary: #e5e5e5;
+  --dm-ext-text-strong: #ffffff;
+  --dm-ext-text-muted: rgba(255, 255, 255, 0.5);
+  --dm-ext-btn-text: #121212;
+}
+
+.dmp,
+.dmp * {
+  box-sizing: border-box;
+  font-family: 'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.icon-box {
+  border-radius: 14px;
+  background:
+    linear-gradient(220.72deg, rgba(0, 133, 255, 0.8) 4.73%, rgba(89, 255, 150, 0.8) 92.44%),
+    #59ed90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.icon-box img {
+  display: block;
+}
+
+/* Activated: solid accent green (design node 2131-49). */
+.icon-box--ok {
+  background: var(--dm-ext-accent);
+}
+
+/* Account mismatch: pink -> red with a red glow and a hairline border (design node 2100-40). */
+.icon-box--mismatch {
+  background: linear-gradient(220.72deg, #fe8df9 4.73%, #ff5030 92.44%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 111px 0 rgba(186, 83, 66, 0.8);
+}
+
+/* ---- Banner ---------------------------------------------------------------- */
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 24px 32px;
+  margin: 0 0 12px;
+  border-radius: 8px;
+  background: var(--dm-ext-banner-bg);
+  overflow: hidden;
+}
+
+.banner__icon {
+  width: 56px;
+  height: 56px;
+}
+
+.banner__icon img {
+  width: 35px;
+  height: 34px;
+}
+
+.banner__text {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.banner__title {
+  margin: 0;
+  font-weight: 700;
+  font-size: 20px;
+  line-height: 1.3;
+  color: var(--dm-ext-text-strong);
+}
+
+.banner__subtitle {
+  margin: 0;
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--dm-ext-text-muted);
+}
+
+/* The DMarket-linked Steam id inside the wrong-account subtitle: tabular digits so 17 of them stay
+   readable, and selectable so it can be pasted into a profile URL or a support message. */
+.banner__subtitle-value {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--dm-ext-text-primary);
+  user-select: all;
+}
+
+.banner__subtitle-link {
+  color: var(--dm-ext-accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.banner__subtitle-link:hover {
+  text-decoration: underline;
+}
+
+/* "Trade tracking is ON" — slightly smaller title, with ON in accent green (design node 2131-49). */
+.banner__title--on {
+  font-size: 18px;
+}
+
+.banner__title-accent {
+  color: var(--dm-ext-accent);
+}
+
+/* Warning triangle beside the mismatch title (design node 2100-40). */
+.banner__title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.banner__warning {
+  flex: none;
+  width: 21px;
+  height: 18px;
+  display: block;
+}
+
+.button--accent,
+.button--light {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 24px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--dm-ext-btn-text);
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
+  /* .button--light renders as an <a> (native javascript: logout link) — keep the button look. */
+  text-decoration: none;
+}
+
+.button--accent {
+  background: var(--dm-ext-accent);
+}
+
+/* White "Switch account" button on the mismatch banner (design node 2100-40). */
+.button--light {
+  background: #ffffff;
+}
+
+.button--accent:disabled,
+.button--light:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ---- Modal ----------------------------------------------------------------- */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.modal {
+  position: relative;
+  width: 600px;
+  max-width: 100%;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  border-radius: 8px;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.02)),
+    var(--dm-ext-panel);
+}
+
+.modal__header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border-bottom: 1px solid var(--dm-ext-border-strong);
+}
+
+.modal__header-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+}
+
+.modal__header-icon img {
+  width: 20px;
+  height: 19px;
+}
+
+.modal__title {
+  margin: 0;
+  flex: 1 1 auto;
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--dm-ext-text-primary);
+}
+
+.modal__close {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.modal__close img {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+
+.modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  padding: 24px 16px 16px;
+}
+
+.rules__intro {
+  margin: 0;
+  padding: 0 16px;
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--dm-ext-text-primary);
+}
+
+.rules__list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.rule {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 0 16px;
+  cursor: pointer;
+}
+
+.rule__box {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  border: 1px solid var(--dm-ext-accent);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rule__box--checked {
+  background: var(--dm-ext-accent);
+}
+
+.rule__box svg {
+  display: block;
+}
+
+.rule__label {
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--dm-ext-text-primary);
+}
+
+/* ---- Success modal --------------------------------------------------------- */
+
+.success {
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+  padding: 48px 16px 16px;
+}
+
+.success__body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}
+
+.success__icon {
+  width: 64px;
+  height: 64px;
+  display: block;
+}
+
+.success__text {
+  margin: 0;
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--dm-ext-text-primary);
+}

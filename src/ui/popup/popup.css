@@ -1,0 +1,585 @@
+:root {
+  --dm-ext-bg: #000000;
+  --dm-ext-header-bg: #040308;
+  --dm-ext-border: #1f2123;
+  --dm-ext-text: #ffffff;
+  --dm-ext-text-secondary: #c8c7cc;
+  --dm-ext-accent: #49bc74;
+  --dm-ext-btn-bg: #403f42;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Present for assistive tech, absent visually. Used where the visible affordance is an icon whose tooltip
+   sighted users can hover but screen readers cannot. Not `display: none` — that hides it from AT too. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+html,
+body {
+  margin: 0;
+}
+
+body {
+  width: 500px;
+  height: 547px;
+  overflow: hidden;
+  background: var(--dm-ext-bg);
+  color: var(--dm-ext-text);
+  font-family: 'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Preact mounts into #app; it must carry the full height so the flex column below can stretch and
+   the flex-grow spacers push the footer buttons to the window's bottom edge (per Figma). Without
+   this, #app collapses to content height and the buttons float directly after the content. */
+#app {
+  height: 100%;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ---- Header ---------------------------------------------------------------- */
+
+.header {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--dm-ext-header-bg);
+  border-bottom: 1px solid var(--dm-ext-border);
+  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.15);
+}
+
+.header__brand {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1 0 0;
+  min-width: 0;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.header__logo {
+  width: 28px;
+  height: 28px;
+  flex: none;
+}
+
+.header__wordmark {
+  font-family: 'Squada One', sans-serif;
+  font-size: 15px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--dm-ext-text);
+  white-space: nowrap;
+}
+
+.header__tabs {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  justify-content: flex-end;
+}
+
+.tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.tab__icon {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+
+/* Green underline aligned to the header's bottom edge under the active tab. */
+.tab--active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -15px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--dm-ext-accent);
+}
+
+/* ---- Screen container ------------------------------------------------------ */
+
+.screen {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* While the activation/blocking-reason storage reads are in flight the home area shows a neutral
+   loading surface. It must be visible on the black background: the reads normally resolve in a few
+   milliseconds, but on a cold service-worker start they can lag, and an all-black window reads as
+   "the popup did not open". */
+.screen-loading {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.screen-loading__spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--dm-ext-border);
+  border-top-color: var(--dm-ext-accent);
+  border-radius: 50%;
+  animation: screen-loading-spin 0.8s linear infinite;
+}
+
+@keyframes screen-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- Home screens (Inactive / Active / Mismatch) --------------------------- */
+
+.home {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+  padding: 64px 16px 16px;
+}
+
+/* ---- Activity badge (ActiveScreen, Figma 2006:1524) ------------------------ */
+
+/* Top-right pill overlaying the home area, above the app icon. Absolute so it never disturbs the
+   centered app-icon/title/body column shared with the other home screens. */
+.activity-badge {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: #131313;
+  border-radius: 1111px;
+}
+
+.activity-badge__icon {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  display: block;
+}
+
+.activity-badge__label {
+  font-weight: 500;
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--dm-ext-text-secondary);
+  white-space: nowrap;
+}
+
+/* Red count chip. A single digit is a 24px circle; "99+" widens it into a pill via min-width +
+   horizontal padding while staying pinned to the right of the label. */
+.activity-badge__count {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 111px;
+  background: #f05438;
+  color: var(--dm-ext-text);
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.app-icon {
+  position: relative;
+  width: 88px;
+  height: 88px;
+  flex: none;
+}
+
+.app-icon__box {
+  width: 88px;
+  height: 88px;
+  border-radius: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-icon__box--inactive {
+  background: linear-gradient(
+    220.72deg,
+    rgba(244, 240, 255, 0.8) 4.73%,
+    rgba(139, 140, 140, 0.8) 92.44%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 111px 0 rgba(124, 113, 152, 0.5);
+}
+
+/* Activated + Steam account matches: cyan -> green with a teal glow (design node 2006-1499). */
+.app-icon__box--active {
+  background: linear-gradient(220.72deg, #42ddff 4.73%, #49bc74 92.44%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 111px 0 rgba(72, 182, 156, 0.5);
+}
+
+/* Wrong Steam account: pink -> red with a red glow and a hairline border (design node 2121-107). */
+.app-icon__box--mismatch {
+  background: linear-gradient(220.72deg, #fe8df9 4.73%, #ff5030 92.44%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 111px 0 rgba(186, 83, 66, 0.8);
+}
+
+.app-icon__glyph {
+  width: 42px;
+  height: 40px;
+  display: block;
+}
+
+/* Missing-connection "mood_bad" face (design node 2137-130) — square, slightly smaller. */
+.app-icon__glyph--sad {
+  width: 33px;
+  height: 33px;
+}
+
+.app-icon__badge {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  width: 24px;
+  height: 24px;
+}
+
+.app-icon__badge--check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--dm-ext-accent);
+  box-shadow: 0 4px 30px 20px rgba(0, 0, 0, 0.25);
+}
+
+.app-icon__badge--check img {
+  width: 13px;
+  height: 11px;
+}
+
+.home__body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 24px;
+  width: 100%;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 700;
+  font-size: 18px;
+  color: var(--dm-ext-text);
+  text-align: center;
+}
+
+.title__warning {
+  width: 20px;
+  height: 18px;
+  flex: none;
+}
+
+.title__flag {
+  width: 24px;
+  height: 24px;
+  flex: none;
+}
+
+.title__accent {
+  color: var(--dm-ext-accent);
+}
+
+.body-text {
+  margin: 0;
+  width: 468px;
+  max-width: 100%;
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--dm-ext-text-secondary);
+  text-align: center;
+}
+
+/* A quiet supporting detail under .body-text — currently the linked Steam id on the wrong-account
+   screen. Deliberately smaller and dimmer than the body copy: it is a reference value, not instruction. */
+.body-note {
+  margin: 0;
+  width: 468px;
+  max-width: 100%;
+  font-weight: 500;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--dm-ext-text-secondary);
+  opacity: 0.75;
+  text-align: center;
+}
+
+/* The id itself: tabular so 17 digits stay readable and comparable against a Steam profile URL. */
+.body-note__value {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--dm-ext-text);
+  user-select: all;
+}
+
+.link {
+  color: var(--dm-ext-accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ---- Buttons --------------------------------------------------------------- */
+
+.button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 48px;
+  padding: 16px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--dm-ext-btn-bg);
+  color: var(--dm-ext-text);
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.button__icon {
+  width: 24px;
+  height: 24px;
+  /* The exported asset is a left-pointing arrow_back; mirror it to point forward (right). */
+  transform: scaleX(-1);
+}
+
+/* ---- Info screen ----------------------------------------------------------- */
+
+.info {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 16px 16px;
+}
+
+.info__intro {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.info__intro-warning {
+  width: 21px;
+  height: 18px;
+  flex: none;
+  margin-top: 2px;
+}
+
+.info__intro-text {
+  margin: 0;
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--dm-ext-text);
+}
+
+.info__list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.info__list li {
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--dm-ext-text-secondary);
+}
+
+.info__list a {
+  color: var(--dm-ext-text);
+  text-decoration: underline;
+  word-break: break-word;
+}
+
+.info__spacer {
+  flex: 1 1 auto;
+}
+
+/* ---- Error-reporting opt-out ------------------------------------------------- */
+
+.info__toggle {
+  position: relative; /* the containing block for the hint bubble below */
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  padding: 8px 0 2px;
+  cursor: pointer;
+  border-top: 1px solid var(--dm-ext-border);
+}
+
+.info__toggle input {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  accent-color: var(--dm-ext-accent);
+  cursor: pointer;
+}
+
+/* Secondary by design: this is a settings row, not something the user came to the Help tab to read. The
+   full disclosure is the row's `title` tooltip (see ErrorReportingToggle.tsx). */
+.info__toggle-label {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.3;
+  color: var(--dm-ext-text-secondary);
+}
+
+/* The "there is more to read here" marker, and the only thing that carries the tooltip. Circled `?` drawn
+   in CSS so it inherits the label colour and stays sharp at any DPI — the SVGs in src/assets ship
+   pre-coloured for <img>. */
+.info__toggle-more {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 1;
+  color: inherit;
+  cursor: help;
+  border: 1px solid currentcolor;
+  border-radius: 50%;
+  opacity: 0.75;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+
+/* Keyed on the icon, not the row: the highlight has to point at the thing the tooltip belongs to. */
+.info__toggle-more:hover {
+  color: var(--dm-ext-text);
+  opacity: 1;
+}
+
+/* The hint bubble.
+ *
+ * Not a `title` attribute: that waits roughly a second before appearing, and the delay belongs to the
+ * browser — no CSS or JS shortens it. This shows with no transition at all, so it is there on the same frame
+ * the pointer arrives.
+ *
+ * The icon stays `position: static`, so this absolute box resolves against `.info__toggle` — which is why it
+ * can span the row's full width and wrap, rather than trailing off a 12px anchor. It opens UPWARD because
+ * the row sits at the bottom of the tab and `.screen` is a scroll container that would clip anything
+ * extending past its edge. */
+.info__toggle-more::after {
+  content: attr(data-tip);
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  bottom: calc(100% - 4px);
+  left: 0;
+  padding: 8px 10px;
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--dm-ext-text);
+  text-align: left;
+  white-space: normal;
+  visibility: hidden;
+  background: var(--dm-ext-btn-bg);
+  border: 1px solid var(--dm-ext-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 55%);
+  opacity: 0;
+  pointer-events: none; /* never let the bubble swallow the click that toggles the checkbox */
+}
+
+/* `focus-within` so a keyboard user reaching the checkbox sees the same thing a pointer user does — the
+ * icon itself is deliberately not a tab stop. */
+.info__toggle-more:hover::after,
+.info__toggle:focus-within .info__toggle-more::after {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* ---- Dev-only debug link (absent from production builds) -------------------- */
+
+.debug-link {
+  flex: none;
+  padding: 2px 8px;
+  font: 500 10px/1 'Montserrat', sans-serif;
+  color: var(--dm-ext-text-secondary);
+  background: var(--dm-ext-btn-bg);
+  border: 1px solid var(--dm-ext-border);
+  border-radius: 6px;
+  opacity: 0.6;
+  cursor: pointer;
+}
+
+.debug-link:hover {
+  opacity: 1;
+}

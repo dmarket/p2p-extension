@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DMarket Trade Tracker</title>
+  </head>
+  <body>
+    <!--
+      The loading state, in HTML, so it paints WITHOUT waiting for JS.
+
+      `body` is a solid 500x547 black panel, and `#app` stays empty until the popup's ~74 kB module has
+      been fetched, compiled and executed — so up to that moment the popup is a black rectangle, which is
+      indistinguishable from a popup that has not opened. App.tsx already renders a spinner while its two
+      storage reads are in flight, but that only helps AFTER the bundle runs; this covers the window
+      before it, which is the one that hurts: right after an install nothing is in V8's code cache and the
+      service worker is at its busiest (1.35 MB core eval + first heartbeat + content-script
+      re-injection), so it is exactly when the module takes longest.
+
+      Classes are reused from popup.css verbatim — `.app` + `.screen` give the flex column the spinner
+      centres in, so this needs no CSS of its own. main.tsx removes this node immediately before Preact's
+      first render, rather than letting Preact diff against it: the trees differ, and a deterministic
+      remove beats relying on how excess DOM children are reconciled.
+    -->
+    <div id="app">
+      <div id="boot" class="app">
+        <div class="screen">
+          <div class="screen-loading" aria-busy="true">
+            <div class="screen-loading__spinner"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>
