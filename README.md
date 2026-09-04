@@ -11,6 +11,17 @@
 [![CircleCI](https://dl.circleci.com/status-badge/img/gh/dmarket/p2p-extension/tree/main.svg?style=shield&circle-token=CCIPRJ_KSg6ehUbqZjU39e6DXJv8U_e3345193ce36d1c052b935d3d7797834724f944d)](https://dl.circleci.com/status-badge/redirect/gh/dmarket/p2p-extension/tree/main)
 [![Release](https://img.shields.io/github/v/release/dmarket/p2p-extension?include_prereleases&sort=semver)](https://github.com/dmarket/p2p-extension/releases)
 
+<!--
+  `align` is obsolete in HTML, but GitHub's markdown sanitizer strips `style` from both `<p>` and
+  `<div>`, so it is the only way left to centre an image in a README. No `width` either: GitHub adds
+  `max-width: 100%` to every image itself, so a 1280px source is capped to the content column and
+  only ever scaled DOWN, which keeps the text sharp when the page is zoomed.
+-->
+
+<p align="center">
+  <img src=".github/assets/trade-tracker-banner.png" alt="DMarket Trade Tracker — track your Steam trades automatically">
+</p>
+
 A browser extension (Chrome, Manifest V3) that watches your Steam trade offers and verifies P2P
 trades against your DMarket deals. It bundles the DMarket P2P trade-tracker core (compiled from
 Kotlin Multiplatform) and drives it from a Manifest V3 service worker.
