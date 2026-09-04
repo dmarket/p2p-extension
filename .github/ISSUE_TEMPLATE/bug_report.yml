@@ -1,0 +1,65 @@
+name: Bug report
+description: Report a defect in the DMarket Trade Tracker extension
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please search existing issues first to avoid duplicates.
+
+        ⚠️ **Do not report security vulnerabilities here.** Use private reporting instead — see the
+        [Security Policy](https://github.com/dmarket/p2p-extension/blob/main/SECURITY.md).
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of the bug and its impact.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the popup while …
+        2. …
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include console errors from the popup, the service worker, or the page (redact tokens and cookies).
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Extension version
+      description: The `version_name` shown on the extension card in chrome://extensions (or a commit SHA for an unpacked build).
+      placeholder: "e.g. 1.0.0-beta.1"
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and OS
+      placeholder: "e.g. Chrome 151 on macOS 15"
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Confirmation
+      options:
+        - label: This is not a security vulnerability (those are reported privately via the Security Policy).
+          required: true
+        - label: I have searched existing issues and this is not a duplicate.
+          required: true

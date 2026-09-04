@@ -1,0 +1,37 @@
+name: Feature request
+description: Suggest an enhancement to the extension
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion! Please search existing issues first.
+
+        Note: the trade-tracking logic lives in the separate
+        [p2p-tracker-core](https://github.com/dmarket/p2p-tracker-core) library. This repository owns the
+        extension shell (service worker, popup, on-page onboarding, page bridge).
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What are you trying to do, and what's getting in the way?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+    validations:
+      required: false

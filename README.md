@@ -3,8 +3,9 @@
 <!--
   `circle-token` below is a CircleCI status-badge token: read-only, scoped to this branch's build
   status alone (no logs, artifacts, env, contexts or pipeline control). A private project's badge 404s
-  without it, hence it is committed. Rotate in Project Settings → Status Badges; drop the parameter
-  once this repo is public — public badges need no token.
+  without it, hence it is committed. The CircleCI project is kept private even though this repository
+  is public ("Free and Open Source" is off in Project Settings → Advanced), so the token stays. Rotate it
+  in Project Settings → Status Badges; do not "fix" the badge by removing the parameter.
 -->
 
 [![CircleCI](https://dl.circleci.com/status-badge/img/gh/dmarket/p2p-extension/tree/main.svg?style=shield&circle-token=CCIPRJ_KSg6ehUbqZjU39e6DXJv8U_e3345193ce36d1c052b935d3d7797834724f944d)](https://dl.circleci.com/status-badge/redirect/gh/dmarket/p2p-extension/tree/main)
