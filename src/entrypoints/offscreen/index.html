@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>TLSN prover</title>
+  </head>
+  <body>
+    <!--
+      Invisible by construction: an offscreen document is never rendered and never appears as a tab.
+      It exists only because the TLSN prover cannot run in the service worker — its rayon pool needs
+      real Web Workers, which ServiceWorkerGlobalScope does not expose, and Chrome does not fully
+      implement cross-origin isolation there either. Nothing here draws; see main.ts.
+    -->
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

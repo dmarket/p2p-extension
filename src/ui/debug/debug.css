@@ -1,0 +1,537 @@
+/* Debug console styles. Ported from the tracker-core debug dashboard (tools/debug-extension/
+   dashboard.html) — dependency-free syntax highlighting via light-dark() (MV3 CSP forbids remote
+   code) — plus the storage-inspector table. Dev-only page; not shipped to production. */
+
+:root {
+  color-scheme: light dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  margin: 0;
+}
+
+.debug {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  height: 100vh;
+}
+
+header {
+  padding: 8px 14px;
+  border-bottom: 1px solid #8884;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+header h1 {
+  font-size: 14px;
+  margin: 0 8px 0 0;
+}
+
+/* The header's left-hand group: everything you read. `flex: 1` + its own wrap, so text that grows here
+   (a cookie light gaining "(sim)") wraps inside this group rather than pushing the buttons to a new line. */
+header .header-left {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+
+/* The header's right-hand group (simulation / prover / cookie lights / action buttons). Its own wrapping
+   flex row pushed right with `margin-left: auto`, so the buttons keep a fixed home instead of landing
+   wherever the state pills on the left happen to end. */
+header .header-right {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-left: auto;
+  /* Pinned to the top of the row rather than centred in it: when the left group wraps to a second line the
+     row grows, and centring slid the buttons down with it. */
+  align-self: flex-start;
+}
+
+button {
+  font: inherit;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+.pill {
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: #8882;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.pill.on {
+  background: #2ecc7133;
+}
+.pill.off {
+  background: #e74c3c33;
+}
+
+/* Scrape-status traffic lights: green = present, red = not present / logged out. (`.pill.orange` below
+   has no dot — it is the transient result pill for force tick / refresh config.) */
+.pill.scrape {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+}
+.pill .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #8888;
+}
+.pill.green .dot {
+  background: #2ecc71;
+}
+.pill.green {
+  background: #2ecc7133;
+}
+.pill.orange {
+  background: #f39c1233;
+}
+.pill.red .dot {
+  background: #e74c3c;
+}
+.pill.red {
+  background: #e74c3c33;
+}
+
+.muted {
+  opacity: 0.6;
+}
+
+/* Env / base-URL switcher row. */
+.settings {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+  border-bottom: 1px solid #8884;
+}
+.settings label {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.settings input {
+  padding: 2px 4px;
+}
+.settings input.url {
+  width: 260px;
+}
+
+/* Env prefill buttons (Prod/Stage/Dev) — shortcuts that fill the fields, not a dropdown. */
+.env-presets {
+  display: inline-flex;
+  gap: 4px;
+}
+.env-presets .preset {
+  padding: 3px 10px;
+  border-radius: 6px;
+  opacity: 0.75;
+}
+.env-presets .preset.active {
+  opacity: 1;
+  border-color: #2ecc71;
+  background: #2ecc7133;
+  font-weight: 600;
+}
+
+/* Two-column body: log viewer (left) + storage inspector (right). */
+.body {
+  display: grid;
+  grid-template-columns: 1fr 460px;
+  min-height: 0;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.panel + .panel {
+  border-left: 1px solid #8884;
+}
+
+.toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+  border-bottom: 1px solid #8884;
+}
+.toolbar strong {
+  margin-right: 4px;
+}
+.scroll {
+  overflow-y: auto;
+  padding: 10px 14px;
+}
+
+/* ---- log entries ---- */
+.entry {
+  border: 1px solid #8884;
+  border-radius: 4px;
+  margin-bottom: 6px;
+}
+summary.head {
+  padding: 3px 8px;
+  background: #8881;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+}
+summary.head::-webkit-details-marker {
+  display: none;
+}
+summary.head > span:first-child::before {
+  content: '▸';
+  opacity: 0.5;
+  margin-right: 4px;
+}
+.entry[open] > summary.head > span:first-child::before {
+  content: '▾';
+}
+.entry pre {
+  margin: 0;
+  padding: 6px 8px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.cat {
+  padding: 0 5px;
+  border-radius: 6px;
+  font-size: 11px;
+}
+.cat-network {
+  background: #3498db33;
+}
+.cat-command {
+  background: #2ecc7133;
+}
+.cat-lifecycle {
+  background: #9b59b633;
+}
+.seq {
+  opacity: 0.55;
+}
+.status-err {
+  color: light-dark(#cf222e, #ff7b72);
+}
+/* `warn` is a degraded-but-expected outcome (a blocked force tick, an armed simulation), so it must not
+   read as the same severity as an `error`. Orange, not red. */
+.status-warn {
+  color: light-dark(#bc4c00, #ffa657);
+}
+.tickdiv {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 6px;
+  color: #3498db;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.tickdiv::before,
+.tickdiv::after {
+  content: '';
+  flex: 1;
+  height: 2px;
+  background: currentColor;
+  opacity: 0.35;
+}
+.blocklabel {
+  padding: 5px 8px 0;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  opacity: 0.5;
+}
+.blocklabel.req {
+  color: #9b59b6;
+  opacity: 0.85;
+}
+.blocklabel.resp {
+  color: #3498db;
+  opacity: 0.85;
+}
+.blocklabel.err {
+  color: #e74c3c;
+  opacity: 0.9;
+}
+
+/* Syntax highlighting (theme-aware; no external lib). */
+.tok-key {
+  color: light-dark(#0550ae, #79b8ff);
+}
+.tok-str {
+  color: light-dark(#0a7d33, #7ee787);
+}
+.tok-num {
+  color: light-dark(#953800, #ffab70);
+}
+.tok-bool {
+  color: light-dark(#8250df, #d2a8ff);
+}
+.tok-null {
+  color: light-dark(#8250df, #d2a8ff);
+  font-style: italic;
+}
+.tok-cmd {
+  color: light-dark(#cf222e, #ff7b72);
+  font-weight: bold;
+}
+.tok-flag {
+  color: light-dark(#0969da, #79c0ff);
+}
+
+/* ---- storage inspector ---- */
+.store-row {
+  border: 1px solid #8884;
+  border-radius: 4px;
+  margin-bottom: 6px;
+}
+.store-row > summary {
+  padding: 4px 8px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+}
+.store-row > summary::-webkit-details-marker {
+  display: none;
+}
+.store-key {
+  font-weight: 600;
+  word-break: break-all;
+}
+.store-type {
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: #8882;
+  text-transform: uppercase;
+}
+.store-type.unknown {
+  background: #f39c1233;
+}
+.store-desc {
+  padding: 2px 8px 6px;
+  font-size: 11px;
+  opacity: 0.6;
+}
+.store-body {
+  padding: 6px 8px;
+}
+.store-body pre {
+  margin: 0 0 6px;
+  padding: 6px 8px;
+  background: #8881;
+  border-radius: 4px;
+  /* pre-wrap + anywhere: keep the JSON indentation, and wrap only lines that genuinely don't fit
+     (long regex/URL values) instead of hiding them behind a horizontal scroll. */
+  white-space: pre-wrap;
+  word-break: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+  /* No max-height: an inner scrollbar makes a long document (p2p_tracker_config) much harder to read
+     than simply growing the row — the panel column scrolls, and rows are collapsed by default. */
+}
+.store-body textarea {
+  width: 100%;
+  /* Tall enough to edit a whole config document; still resizable. */
+  min-height: 180px;
+  padding: 6px;
+  resize: vertical;
+  line-height: 1.45;
+  white-space: pre;
+}
+.store-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.store-actions .spacer {
+  flex: 1;
+}
+.danger {
+  color: light-dark(#cf222e, #ff7b72);
+}
+.add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px dashed #8884;
+  border-radius: 4px;
+  padding: 8px;
+  margin-bottom: 10px;
+}
+/* The key/value fields fill the form; a CHECKBOX must not. `.add-form input` used to match the "parse as
+   JSON" box too, stretching it across the row and pushing it off its own label. */
+.add-form input:not([type='checkbox']),
+.add-form textarea {
+  width: 100%;
+  padding: 4px 6px;
+}
+.parse-note {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+/* ---- blocking-state chain (the tracker.blockingReason row) ----
+   One row per state: a checkbox in its own grid column, one title line, detail behind a disclosure. The
+   grid column is the point — with a flex row the control drifted onto a second line whenever a title was
+   long enough to wrap, so no two rows lined up. Detail is collapsed because six states of three dense
+   lines each is a wall of text in a 460px column. */
+/* Where the core's verdict lands after a change — below the switcher. The height is RESERVED: the pill
+   clears itself after a few seconds, and a slot that collapsed when empty would shift everything under it
+   twice per click. */
+.sim-status {
+  display: flex;
+  align-items: center;
+  min-height: 19px;
+  margin: 2px 0 4px;
+}
+/* Set apart from the state switches below it with the panel's own divider: it is a different KIND of
+   control — it arms the whole thing, rather than choosing which state to show. */
+/* ---- the freshness-mark injector (DemandPanel) ---- */
+
+/* Same two-column shape as a simulator row so the two pinned panels read as siblings. No padding of its
+   own: the row's `.store-body` supplies it, like every other storage row — a second copy here is how this
+   panel came to sit flush against the border while its neighbours were inset. */
+.demand-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.demand-field {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.demand-field input {
+  width: 100%;
+}
+
+.sim-master {
+  display: block;
+  margin: 0 0 10px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid #8884;
+}
+/* The switcher: every state's checkbox in one wrapping strip, so changing state is one glance and one
+   click. Chips rather than rows for the same reason the env presets are buttons — a control strip should
+   read as a control strip. */
+.sim-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+.sim-chip {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  white-space: nowrap;
+  padding: 2px 8px 2px 5px;
+  border-radius: 10px;
+  background: #8882;
+  cursor: pointer;
+}
+.sim-chip.on {
+  /* Ticked = being simulated. Orange, not green: none of this is the extension's real state. */
+  background: #f39c1233;
+}
+.sim-chip.real {
+  /* The state the CORE resolved. Deliberately a different signal from the tick (outline vs fill), because
+     while an override is live the two are different facts and both matter. */
+  box-shadow: inset 0 0 0 1px #e74c3c99;
+}
+/* The healthy state is not a problem: its fill and outline are green, everywhere red would say otherwise. */
+.sim-chip.ok.on {
+  background: #2ecc7133;
+}
+.sim-chip.ok.real {
+  box-shadow: inset 0 0 0 1px #2ecc7199;
+}
+.sim-chip.off {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* The reference list: one collapsed line per state, no controls. */
+.sim-row {
+  border-top: 1px solid #8884;
+  padding: 3px 0 3px 6px;
+}
+.sim-row.live {
+  /* An inset shadow rather than a border, so a row lighting up cannot shift the text by a pixel. */
+  box-shadow: inset 3px 0 0 #e74c3c;
+  background: #e74c3c10;
+}
+.sim-row.live.ok {
+  box-shadow: inset 3px 0 0 #2ecc71;
+  background: #2ecc7110;
+}
+.sim-row > summary {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  cursor: pointer;
+  list-style: none;
+}
+.sim-row > summary::-webkit-details-marker {
+  display: none;
+}
+.sim-rank {
+  opacity: 0.45;
+}
+.sim-title {
+  font-weight: 600;
+}
+.sim-detail {
+  padding: 4px 0 2px;
+  font-size: 11px;
+  opacity: 0.65;
+}
+.error-banner {
+  color: light-dark(#cf222e, #ff7b72);
+  padding: 4px 0;
+  font-size: 11px;
+}

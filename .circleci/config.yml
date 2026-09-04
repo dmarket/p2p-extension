@@ -1,0 +1,294 @@
+version: 2.1
+
+# CI/CD for the DMarket Trade Tracker browser extension (WXT + Preact, Chrome MV3).
+#
+# WHAT RUNS ON EVERY PUSH
+#   - check       : `npm run compile` (tsc + the three guard scripts), `npm run lint`, `npm test`.
+#   - build-prod  : production zip   -> .output/chrome-mv3      (no debug console)
+#   - build-debug : development zip  -> .output/chrome-mv3-dev  (debug console included)
+#   `check` GATES both builds; the two builds then run in parallel with each other (the reasoning is at
+#   the `ci` workflow). Both zips are downloadable from the job's Artifacts tab and are meant to be
+#   installed by hand: unzip, then chrome://extensions -> Developer mode -> Load unpacked.
+#
+# RELEASE MODEL — version bump PROPOSES a release; a human approves it.
+#   Bump `version` in package.json, add the matching `## [x.y.z]` section to CHANGELOG.md, merge to
+#   `main`, then approve `hold_release` in the CircleCI UI. Only then does `release` tag `v<version>`
+#   and publish a GitHub Release. WXT derives the manifest version from package.json, so that field is
+#   the single source of truth. A push to `main` whose version is already tagged releases nothing and
+#   exits green, so ordinary merges are safe even if someone approves the hold.
+#
+#   THREE things make a push a non-release, all of them clean skips rather than failures:
+#     - the tag for that version already exists (i.e. the version was not bumped);
+#     - `[skip release]` (case-insensitive) in the commit message — checks and builds still run;
+#       contrast with CircleCI's own `[skip ci]`, which skips the entire pipeline;
+#     - the build was made against a `-SNAPSHOT` core. package.json pins an exact core version, so
+#       this does not happen by drift — but `npm run core:latest` deliberately moves onto the newest
+#       snapshot for development, and a snapshot can be unpublished from npm, which would make a
+#       published build unreproducible. This is the extension's equivalent of the core repo's rule
+#       that a `-SNAPSHOT` version is never tagged and gets no GitHub Release. Releasing therefore
+#       requires the pin to be back on a stable core version.
+#
+#   WHAT IS PUBLISHED: the production zip, its sourcemaps archive, the production manifest and
+#   SHA256SUMS. NOT the debug zip — it is not what ships, and it inlines internal hostnames; it stays
+#   in the `build-debug` job's Artifacts tab.
+#
+# PRODUCTION DEPLOY — a separate pipeline, triggered by the tag the release job pushes, holding on a
+#   manual approval. It is a STUB: it verifies the published artifact and prints the publish command
+#   it would run, because there is no store listing to publish to yet. See `deploy_production`.
+#   It lives in its own workflow ON PURPOSE: an approval job inside `ci` would leave every push to
+#   main sitting "On Hold" forever, including the majority that release nothing.
+#
+# ENVIRONMENT — no .env file is ever written in CI. Vite folds `process.env` keys matching its
+#   envPrefix (WXT sets `['VITE_','WXT_']`) into `import.meta.env`, taking precedence over .env
+#   files, and wxt.config.ts's manifest hooks read `process.env.WXT_*` directly. So plain context
+#   variables are enough.
+#
+#   context `p2p-extension-ci`      -> build jobs only. WXT_COLLECTOR_URL, WXT_FIREBASE_API_KEY,
+#     WXT_FIREBASE_PROJECT_ID, WXT_FIREBASE_APP_ID (production build: these derive two host
+#     permissions that MUST be in the first published build), plus WXT_DEV_*/WXT_STAGE_* so the debug
+#     artifact points at the internal endpoints. `check` deliberately gets NO context — the suite is
+#     env-independent (every env-sensitive test pins its own value with vi.stubEnv), and the job that
+#     runs the most code should hold the fewest secrets.
+#   context `org-global`            -> release + deploy only. Supplies GITHUB_TOKEN. This is the
+#     org-wide context the dmarket org already maintains for every repo (per @dmytro.tkachuk,
+#     2026-09-02), which is why there is no project-scoped release context: a second GITHUB_TOKEN
+#     would be a second thing to rotate. Two consequences worth knowing.
+#     - It is SHARED and BROAD: any job in any project of the org can read it, and the token is not
+#       scoped to this repository the way a fine-grained PAT would be. Nothing here can narrow that;
+#       it is the org's credential, not ours.
+#     - It is NOT verified to carry `contents: write` on dmarket/p2p-extension. If it does not, the
+#       first `release` run fails at the tag push and `scripts/ci/release.sh` prints which of the
+#       four causes it is (see `diagnose_push_denied` there) — read that output before asking anyone
+#       for a new token.
+#     The CHROME_* set for the real store upload does NOT belong here — put it in a project-scoped
+#     context when `deploy_production` stops being a stub, and list both contexts on that job.
+#
+# WHERE THE SHELL LIVES — `scripts/ci/*.sh`, not inline here, and that is not a style preference:
+#   - CircleCI caps a single config expression at **2048 characters** and REJECTS the whole config
+#     otherwise ("Expressions must be less than 2048 characters"). The release job's publish step was
+#     3951 and the deploy stub 2479, so this config was unprocessable until they moved out.
+#   - A YAML block scalar re-indents heredoc bodies and hides quoting bugs that only surface at run
+#     time (two were found this way: a multibyte ellipsis folded into a `$VAR` name, and backticks in
+#     an unquoted heredoc executing `wxt submit`).
+#   - A real file can be run and reviewed as shell: `bash scripts/ci/release.sh guard` standalone.
+# Keep the steps here one-liners. If a step needs more than a command, it belongs in scripts/ci/.
+#
+# GOTCHA: never run `npm run core:latest` here, and never add it back to `build:debug`. It installs
+# the newest `snapshot` core over the exact pin in package.json, which breaks lockfile determinism,
+# can drift the installed core out of step with the `check-core-params` guard, and would make every
+# CI build's provenance depend on whatever was published that minute. CI builds only what the
+# lockfile says: `npx wxt zip --mode <mode>`.
+
+executors:
+  node:
+    docker:
+      # wxt declares engines.node >= 22; vite wants ^20.19 || >=22.12. Same image family as the core
+      # repo's publish job.
+      - image: cimg/node:24.18
+    resource_class: medium
+    environment:
+      REPO_SLUG: dmarket/p2p-extension
+
+commands:
+  install_deps:
+    description: >
+      Restore the npm cache, install from the lockfile, save the cache. `npm ci` also runs the
+      `postinstall` hook (`wxt prepare`), which generates .wxt/tsconfig.json — tsconfig.json extends
+      it, so nothing type-checks without this. The npm cache is cached rather than node_modules
+      (161 MB, mostly small files): `npm ci` wipes node_modules anyway.
+    steps:
+      - restore_cache:
+          keys:
+            - npm-v1-{{ checksum "package-lock.json" }}
+            - npm-v1-
+      - run:
+          name: Install dependencies
+          command: npm ci
+      - save_cache:
+          key: npm-v1-{{ checksum "package-lock.json" }}
+          paths:
+            - ~/.npm
+
+jobs:
+  check:
+    executor: node
+    steps:
+      - checkout
+      - install_deps
+      # `when: always` on the later steps so one red run reports every failure, not just the first.
+      - run:
+          name: Type-check + guards (tsc, core params, surface priority, create-trade cause)
+          command: npm run compile
+      - run:
+          name: Lint
+          when: always
+          command: npm run lint
+      - run:
+          name: Unit tests
+          when: always
+          command: npm test
+      # No `when:` on these two, and none is needed: store steps run even when an earlier step failed,
+      # which is the case they exist for. They read test-results/junit.xml, which vitest.config.ts
+      # writes unconditionally — if it is ever missing, CircleCI reports "an issue with the output"
+      # and the real cause is upstream (the tests never ran), not the report.
+      - store_test_results:
+          path: test-results
+      - store_artifacts:
+          path: test-results
+          destination: test-results
+
+  build:
+    executor: node
+    parameters:
+      mode:
+        description: WXT build mode. `production` strips the debug console; `development` includes it.
+        type: enum
+        enum: [production, development]
+      outdir:
+        description: >
+          Where WXT writes this mode's build. Declared next to the mode rather than derived in shell so
+          the verify step stays a one-liner. If the two ever disagree the verify step says so loudly
+          (a development directory checked as production fails six ways), so this cannot drift silently.
+        type: string
+    steps:
+      - checkout
+      - install_deps
+      - run:
+          name: Build and zip (<< parameters.mode >>)
+          # `wxt zip` builds first and then zips the output directory, so the `build:done` hook that
+          # copies the ~10 MB TLSN prover (pkg/, transport/) into the output is inside the zip.
+          command: npx wxt zip --mode << parameters.mode >>
+      - run:
+          name: Verify the artifact (<< parameters.mode >>)
+          command: node scripts/verify-build.mjs << parameters.outdir >> --mode << parameters.mode >>
+      - run:
+          name: Collect artifacts
+          command: bash scripts/ci/collect-artifacts.sh << parameters.mode >>
+      - store_artifacts:
+          path: artifacts
+      - persist_to_workspace:
+          root: .
+          paths:
+            - artifacts
+
+  release:
+    executor: node
+    steps:
+      # No install_deps: this job needs node, git and curl only. scripts/verify-build.mjs has no
+      # dependencies for exactly this reason.
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          name: Resolve the version and decide whether this is a release
+          command: bash scripts/ci/release.sh resolve
+      - run:
+          name: Guard — CHANGELOG section and the production privilege surface
+          command: bash scripts/ci/release.sh guard
+      - run:
+          name: Tag
+          command: bash scripts/ci/release.sh tag
+      - run:
+          name: GitHub Release + assets
+          command: bash scripts/ci/release.sh publish
+
+  deploy_production:
+    executor: node
+    steps:
+      # Checked out at the tag. Nothing below needs the tree today; it is here so that enabling the
+      # real upload (the commented block at the end) is the one-line change it looks like.
+      - checkout
+      - run:
+          name: STUB — production deploy (approved, nothing is published)
+          command: bash scripts/ci/deploy-production.sh
+
+workflows:
+  ci:
+    jobs:
+      - check
+      # The two builds run in parallel with EACH OTHER, but both wait for `check`.
+      #
+      # Not an optimisation traded away lightly — gating costs roughly a minute of wall clock per push
+      # (locally, warm: compile 3s + lint 6s + test 1s against an 8s build; on CI both jobs are
+      # dominated by `npm ci` and the build additionally copies the ~10 MB prover). It buys two things:
+      #   - No installable artifact ever exists on a pipeline whose own checks failed. These zips exist
+      #     to be handed to a human and loaded unpacked, so one that came from a red pipeline is a trap.
+      #   - Specifically `check-core-params`: when that guard fails, the extension's positional config
+      #     orders disagree with the installed core, and the bundle a build would produce carries a
+      #     CORRUPTED config (a cookie name written into a regex slot, a trust anchor into a read
+      #     definition). `verify-build.mjs` cannot catch that — it checks the manifest and the payload,
+      #     not config slots — so the artifact would look perfectly valid and behave wrongly.
+      - build:
+          name: build-prod
+          mode: production
+          outdir: .output/chrome-mv3
+          requires:
+            - check
+          context:
+            - p2p-extension-ci
+      - build:
+          name: build-debug
+          mode: development
+          outdir: .output/chrome-mv3-dev
+          requires:
+            - check
+          context:
+            - p2p-extension-ci
+      # Releasing is a manual act. Nothing is tagged or published until someone approves this, so a
+      # version bump reaching main is a proposal, not a publication.
+      #
+      # The cost, stated because it looks like a defect otherwise: EVERY push to main parks a workflow
+      # "On Hold", including the majority that would release nothing (version unchanged, or a snapshot
+      # core). Approving one of those is harmless — `release` then just prints "Nothing to release" and
+      # goes green. Making the hold appear only when a release is actually due needs CircleCI dynamic
+      # config (a setup workflow + the continuation orb), which is a large amount of machinery for the
+      # amount of noise; revisit if main becomes busy.
+      #
+      # Deliberately NOT waiting for `build-debug`: only the production build is published, so a broken
+      # debug build must not block a release. `check` is transitively required through `build-prod`;
+      # listed anyway so removing a build's gate cannot quietly make a release possible on a red check.
+      - hold_release:
+          type: approval
+          requires:
+            - check
+            - build-prod
+          filters:
+            branches:
+              only: main
+      - release:
+          requires:
+            - hold_release
+          context:
+            - org-global
+          filters:
+            branches:
+              only: main
+
+  # Triggered by the tag the `release` job pushes. Jobs in `ci` carry no tag filter, so they are not
+  # re-run by that push. If tag pipelines turn out to be disabled for this project, move these two
+  # jobs into `ci` behind `requires: [release]` and have the deploy job exit early when RELEASE=false
+  # — at the cost of an "On Hold" workflow on every push to main.
+  #
+  # The tag pattern accepts an optional SemVer prerelease suffix (`v1.0.0-beta.1`). It has to: the tag
+  # is `v` + package.json's version, and WXT supports a prerelease version by splitting it across
+  # `manifest.version` / `version_name`. A numbers-only pattern would silently never match a beta tag,
+  # so this deploy gate would simply not appear — the quietest possible failure.
+  production_deploy:
+    jobs:
+      - hold_production_deploy:
+          type: approval
+          filters:
+            tags:
+              only: /^v\d+(\.\d+){0,3}(-[0-9A-Za-z.-]+)?$/
+            branches:
+              ignore: /.*/
+      - deploy_production:
+          requires:
+            - hold_production_deploy
+          context:
+            - org-global
+          filters:
+            tags:
+              only: /^v\d+(\.\d+){0,3}(-[0-9A-Za-z.-]+)?$/
+            branches:
+              ignore: /.*/

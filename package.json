@@ -1,0 +1,52 @@
+{
+  "name": "dmarket-p2p-extension",
+  "description": "Browser extension that tracks Steam trade offers and verifies P2P trades against DMarket deals.",
+  "private": true,
+  "version": "1.0.0-beta.1",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "wxt",
+    "build": "wxt build",
+    "core:latest": "npm install @dmarket/p2p-tracker-core@snapshot --prefer-online --no-audit --no-fund",
+    "build:debug": "wxt build --mode development",
+    "build:debug:firefox": "wxt build -b firefox --mode development",
+    "build:firefox": "wxt build -b firefox",
+    "zip": "wxt zip",
+    "zip:debug": "wxt zip --mode development",
+    "zip:firefox": "wxt zip -b firefox",
+    "verify:build": "node scripts/verify-build.mjs",
+    "compile": "tsc --noEmit && node scripts/check-core-params.mjs && node scripts/check-surface-priority.mjs && node scripts/check-create-trade-cause.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "check": "npm run compile && npm run lint && npm run test",
+    "check:core-params": "node scripts/check-core-params.mjs",
+    "check:surface-priority": "node scripts/check-surface-priority.mjs",
+    "check:create-trade-cause": "node scripts/check-create-trade-cause.mjs",
+    "postinstall": "wxt prepare"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@preact/preset-vite": "2.10.5",
+    "@types/node": "^26.4.0",
+    "esbuild": "0.28.2",
+    "eslint": "^10.9.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.11.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "^8.68.0",
+    "vite": "8.1.5",
+    "vitest": "^4.1.11",
+    "wxt": "0.21.4"
+  },
+  "dependencies": {
+    "@dmarket/p2p-tracker-core": "1.0.0-beta.1",
+    "@fontsource/montserrat": "^5.2.8",
+    "@fontsource/squada-one": "^5.2.8",
+    "preact": "10.29.7"
+  }
+}
