@@ -1,6 +1,11 @@
 import { defineConfig } from 'vitest/config';
 import { WxtVitest } from 'wxt/testing/vitest-plugin';
-import { CORE_DOMAIN_ALIAS } from './core-domain-alias';
+// The extension is explicit on purpose, and an IDE will offer to drop it. Vite's `configLoader: 'native'`
+// — planned to become its default — cannot resolve an extensionless relative import in a config file, and
+// warns about this exact line on every test run. `allowImportingTsExtensions` is already set by WXT's
+// generated tsconfig, so `tsc` accepts the form. wxt.config.ts keeps its extensionless twin: that file is
+// loaded by jiti via c12, not by Vite, so the native loader never sees it.
+import { CORE_DOMAIN_ALIAS } from './core-domain-alias.ts';
 
 // Vitest config for the unit suite (`npm test`).
 //
