@@ -146,7 +146,12 @@ function traceWebSockets(): void {
       progress = undefined;
     };
     const send = sock.send.bind(sock);
-    sock.send = (data: string | ArrayBufferLike | Blob | ArrayBufferView): void => {
+    // Parameter type taken FROM the method being wrapped rather than spelled out: a hand-written union
+    // can only ever be as current as the lib it was copied from. TypeScript 6 narrowed `WebSocket.send`
+    // to `string | Blob | BufferSource`, which no longer admits the `SharedArrayBuffer` that
+    // `ArrayBufferLike` carries — so the old spelling declared a wrapper accepting more than it could
+    // forward, and the bump failed to compile on this one line.
+    sock.send = (data: Parameters<typeof send>[0]): void => {
       const n = byteLength(data);
       if (sent === 0) firstByte('send', n);
       sent += n;
