@@ -16,6 +16,7 @@
 # Environment:
 #   REPO_SLUG      owner/repo (set by the executor in .circleci/config.yml)
 #   GITHUB_TOKEN   contents:write — needed by `tag` and `publish` only
+#   CIRCLE_BRANCH  the release branch (`release/vX.Y.Z`); its version must match package.json's
 #   BASH_ENV       CircleCI's per-job env file, sourced before every step
 set -euo pipefail
 
@@ -40,10 +41,27 @@ core_version() {
 
 # ── resolve ───────────────────────────────────────────────────────────────────────────────────────
 resolve() {
-  local version tag release messages
+  local version tag release messages branch_version
   version="$(node -p "require('./package.json').version")"
   tag="v$version"
   release=true
+
+  # --- The branch name is the human-visible declaration of what is being released; package.json is
+  # what actually drives the tag, the manifest and the zip names. If they disagree, one of the two is
+  # a mistake, and silently trusting package.json would tag v1.0.2 off a branch called release/v1.0.1.
+  # A HARD failure, unlike the skips below: this is an error to fix, not a "nothing to release" state.
+  # Only checked when the branch looks like a release branch, so a local run or a manual rerun from
+  # another branch still works.
+  case "${CIRCLE_BRANCH:-}" in
+    release/v*)
+      branch_version="${CIRCLE_BRANCH#release/v}"
+      if [ "$branch_version" != "$version" ]; then
+        echo "ERROR: branch $CIRCLE_BRANCH declares version $branch_version, but package.json says" >&2
+        echo "       $version. Rename the branch or fix \"version\" — they must be the same." >&2
+        return 1
+      fi
+      ;;
+  esac
 
   # --- Opt-out: "[skip release]" in the commit message. A true merge commit's own message is
   # boilerplate ("Merge pull request #12 ..."), so the flag lives on the commits merged in.
@@ -233,9 +251,12 @@ resolve_release_id() {
     printf '%s' "$id"
     return 0
   fi
-  # Marked "Pre-release" on GitHub for anything that is not a finished version: a 0.x, or any SemVer
-  # prerelease suffix (`1.0.0-beta.1`). The suffix half matters — without it the first beta would be
-  # presented as the project's Latest release, which is what people download by default.
+  # Marked "Pre-release" on GitHub for a 0.x only — a version that was never released at all.
+  #
+  # Deliberately NOT for a `-beta` suffix, which would be wrong here: betas are ordinary public
+  # releases that ship to every store user, so the beta IS the latest release. Flagging it
+  # "Pre-release" would hide it from GitHub's "Latest release" and point people at an older stable
+  # build than the one actually in the store. The beta is announced by its name, not by that badge.
   node -e '
     const fs = require("fs");
     const v = process.env.VERSION;
@@ -244,7 +265,7 @@ resolve_release_id() {
       name: process.env.TAG,
       body: fs.readFileSync("/tmp/notes.md", "utf8"),
       draft: false,
-      prerelease: v.startsWith("0.") || v.includes("-"),
+      prerelease: v.startsWith("0."),
     }));' > /tmp/release.json
   id="$(curl -sSf -X POST -H "$AUTH" -H "Accept: application/vnd.github+json" \
     "$API/releases" -d @/tmp/release.json | node -e '

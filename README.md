@@ -160,6 +160,9 @@ console in it.
 
 ### Cutting a release
 
+0. Branch off as `release/vX.Y.Z` (e.g. `release/v1.0.1`). The release jobs run **only** on branches
+   matching that pattern, and the version in the name must equal step 2's — `release` fails before
+   tagging if they disagree.
 1. Pin `@dmarket/p2p-tracker-core` to an exact **stable** version (`npm install`, commit the
    lockfile) — currently `1.0.0-beta.1`. A build made against a `-SNAPSHOT` core is never released:
    a snapshot can be unpublished from npm, which would make the published build unreproducible. Note
@@ -172,7 +175,8 @@ console in it.
    extension card). `1.0.0-beta.1` ships as version `1.0.0` / version_name `1.0.0-beta.1`.
 3. Add the matching `## [x.y.z]` section to [CHANGELOG.md](CHANGELOG.md) — it becomes the release
    notes, and the release fails without it.
-4. Merge to `main`, then **approve `hold_release`** in CircleCI.
+4. Push the branch, then **approve `hold_release`** in CircleCI. Merge it back to `main` afterwards —
+   nothing in CI does that, and without it `main` drifts from what was published.
 
 Only then does CI tag `v<version>` and publish a GitHub Release with the production zip, a sourcemaps
 archive (for symbolicating crash reports), the production manifest and `SHA256SUMS`. A prerelease
@@ -183,12 +187,43 @@ The debug build is deliberately **not** published — it is not what ships, and 
 `WXT_DEV_*`/`WXT_STAGE_*` endpoints. Download it from the `build-debug` job's **Artifacts** tab in
 CircleCI, on any push.
 
-A push to `main` whose version is already tagged releases nothing, so ordinary merges are safe;
-`[skip release]` in the commit message skips it explicitly.
+A push whose version is already tagged releases nothing, so re-pushing a release branch is safe;
+`[skip release]` in the commit message skips it explicitly. `main` still runs `check` and both builds
+on every push — it just cannot release.
 
-Publishing to the Chrome Web Store is a **second, separately approved** job triggered by the tag. It
-is currently a stub: it verifies the published artifact's checksum and prints the upload command
-without running it, because there is no store listing yet.
+Publishing to the Chrome Web Store is a **second, separately approved** pipeline triggered by that
+tag:
+
+```
+tag v*  →  pack_crx  →  store_preflight  →  hold_store_upload  →  upload_to_store
+                                              (approval)
+```
+
+`pack_crx` re-verifies the released zip and wraps it unchanged in a CRX3 signed with our own key (the
+store item uses **Verified CRX Uploads**, so a plain zip is rejected). `store_preflight` then rehearses
+the upload against the live store — read-only, it cannot send anything — so whoever approves already
+knows what is published today and whether this version would be accepted. Only `upload_to_store`
+writes, and only after the approval.
+
+#### Version policy
+
+Every release consumes one **numeric** version, beta or not:
+
+```
+1.0.1-beta  →  1.0.2-beta  →  1.0.3  →  1.1.0-beta  →  1.1.1
+```
+
+Betas are ordinary public releases that ship to every store user — the `-beta` suffix is a label so
+users hold the right expectations, not a channel (the store has none: API v2 exposes only staged
+rollout by percentage, which needs 10k+ weekly users). Chrome shows the full string, suffix included,
+as `version_name` on the extension card.
+
+So the usual SemVer habit of `1.1.0-beta.1` → `1.1.0-beta.2` → `1.1.0` does **not** work here: the
+store compares `manifest.version`, from which WXT has already dropped the suffix, so all three are
+manifest `1.1.0` and only the first could be uploaded. Bumping a suffix is not a version bump as far
+as the store is concerned — which also makes a counter inside the suffix (`-beta.2`) misleading, since
+the numbers already count the releases. `upload_to_store`'s preflight refuses a non-increasing version
+before uploading anything.
 
 ## Project layout
 
