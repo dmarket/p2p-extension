@@ -32,7 +32,10 @@ export default defineConfig({
   test: {
     // Colocated with the code they cover. Nothing outside src/entrypoints is an entrypoint, so these
     // files are invisible to the build — WXT bundles from entrypoints, and nothing imports a *.test.ts.
-    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    // `scripts/**/*.test.mjs`: the CI scripts (CRX3 packer, store upload) are dependency-free plain JS
+    // that never enters the bundle; `.mjs` rather than `.ts` because .wxt/tsconfig.json includes
+    // `../**/*` and a TS test there would be type-checked by `npm run compile` without `allowJs`.
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'scripts/**/*.test.mjs'],
     // Node by default: every module worth covering here is logic (redaction, validation, protocol
     // guards, priority resolution), and fake-browser needs no DOM. A component test can opt in per file
     // with `// @vitest-environment jsdom` once jsdom is installed — it is not a dependency today.

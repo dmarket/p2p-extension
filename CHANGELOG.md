@@ -6,10 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and commit messages follow
 [Conventional Commits](https://www.conventionalcommits.org/).
 
-**Releases are automated.** Bump `version` in `package.json`, add the matching section here, and
-merge to `main`: CI tags `v<version>` and publishes a GitHub Release whose notes are this file's
-section for that version, with the installable zip attached. A push to `main` whose version already
-has a tag releases nothing, so ordinary merges are safe. See "CI & releases" in the README.
+**Releases are automated.** Branch off as `release/vX.Y.Z`, bump `version` in `package.json` to match,
+add the matching section here, and push: after a manual approval CI tags `v<version>` and publishes a
+GitHub Release whose notes are this file's section for that version, with the installable zip attached.
+A push whose version already has a tag releases nothing, so re-pushing is safe. See "CI & releases" in
+the README.
 
 ## [1.0.0-beta.1] - 2026-09-04
 
