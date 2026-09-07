@@ -10,12 +10,21 @@ version: 2.1
 #   the `ci` workflow). Both zips are downloadable from the job's Artifacts tab and are meant to be
 #   installed by hand: unzip, then chrome://extensions -> Developer mode -> Load unpacked.
 #
-# RELEASE MODEL — version bump PROPOSES a release; a human approves it.
-#   Bump `version` in package.json, add the matching `## [x.y.z]` section to CHANGELOG.md, merge to
-#   `main`, then approve `hold_release` in the CircleCI UI. Only then does `release` tag `v<version>`
-#   and publish a GitHub Release. WXT derives the manifest version from package.json, so that field is
-#   the single source of truth. A push to `main` whose version is already tagged releases nothing and
-#   exits green, so ordinary merges are safe even if someone approves the hold.
+# RELEASE MODEL — releases come from a `release/vX.Y.Z` BRANCH; a human approves them.
+#   Branch off as `release/v1.0.1`, bump `version` in package.json to the SAME version, add the
+#   matching `## [x.y.z]` section to CHANGELOG.md, push, then approve `hold_release` in the CircleCI
+#   UI. Only then does `release` tag `v<version>` (on that branch's commit) and publish a GitHub
+#   Release. WXT derives the manifest version from package.json, so that field is the single source of
+#   truth — and the branch name must agree with it, or `release` fails before tagging anything.
+#
+#   WHY A BRANCH AND NOT `main`: releasing is a deliberate, named act, and the branch is where it is
+#   declared. It also makes the approval meaningful — the hold now appears only on branches whose
+#   whole purpose is to release, instead of on every push to `main` (the majority of which released
+#   nothing and still parked a workflow "On Hold" forever). `main` keeps running `check` and both
+#   builds, it just cannot release.
+#
+#   The release commit still has to reach `main` afterwards — merge the release branch back, or `main`
+#   drifts from what was published. Nothing in CI enforces that; it is an operator step.
 #
 #   THREE things make a push a non-release, all of them clean skips rather than failures:
 #     - the tag for that version already exists (i.e. the version was not bumped);
@@ -32,11 +41,46 @@ version: 2.1
 #   SHA256SUMS. NOT the debug zip — it is not what ships, and it inlines internal hostnames; it stays
 #   in the `build-debug` job's Artifacts tab.
 #
-# PRODUCTION DEPLOY — a separate pipeline, triggered by the tag the release job pushes, holding on a
-#   manual approval. It is a STUB: it verifies the published artifact and prints the publish command
-#   it would run, because there is no store listing to publish to yet. See `deploy_production`.
-#   It lives in its own workflow ON PURPOSE: an approval job inside `ci` would leave every push to
-#   main sitting "On Hold" forever, including the majority that release nothing.
+# STORE DEPLOY — a separate pipeline, triggered by the tag the release job pushes:
+#     tag v*  ->  pack_crx  ->  store_preflight  ->  hold_store_upload (approval)  ->  upload_to_store
+#   The first two run unattended. `pack_crx` downloads the production zip from that tag's GitHub
+#   Release, re-verifies it, wraps it UNCHANGED in a CRX3 signed with our own RSA key, and attaches the
+#   .crx to the Release. `store_preflight` then REHEARSES the upload against the live store — read-only,
+#   it cannot upload — so whoever clicks Approve already knows what is published today and whether this
+#   version would be accepted. `upload_to_store` sends the .crx and submits it for review.
+#
+#   The rehearsal is a job and not a `CWS_DRY_RUN` variable on purpose. A variable in project settings
+#   is STATE: it applies to every later run until someone remembers to remove it, so a forgotten flag
+#   silently stops releases from reaching the store while the log says "DRY RUN". As a job it is
+#   stateless, it happens on every release without anyone arranging it, and it lands before the
+#   decision instead of replacing it. Nothing uploads without the click either way.
+#
+#   The pipeline lives in its own workflow ON PURPOSE: an approval job inside `ci` would leave every
+#   push sitting "On Hold" forever, including the majority that release nothing.
+#
+#   WHY A SIGNED CRX AND NOT THE ZIP: the store item is opted into **Verified CRX Uploads** (dashboard
+#   -> Package), so every package update must be a CRX3 signed with the key whose public half is
+#   registered there — the dashboard and the API both reject a plain zip ("You must update your item
+#   with a crx package"). That is what protects the item from a malicious update if the Google account
+#   is ever compromised. Opting out is a Chrome Web Store support ticket, not a setting.
+#
+#   VERSION POLICY — every release consumes one NUMERIC version, beta or not:
+#
+#       1.0.1-beta  ->  1.0.2-beta  ->  1.0.3  ->  1.1.0-beta  ->  1.1.1
+#
+#   Betas here are ordinary PUBLIC releases that ship to every store user; the `-beta` suffix is a
+#   label so users hold the right expectations, not a channel. (The store has no beta channel to use
+#   even if we wanted one: API v2's DistributionChannel carries only deployPercentage and crxVersion,
+#   and staged rollout by percentage needs 10k+ weekly users.)
+#
+#   Which is why the SemVer habit of `1.1.0-beta.1 -> 1.1.0-beta.2 -> 1.1.0` does NOT work: the store
+#   compares `manifest.version`, and WXT has already dropped the suffix by then, so all three are
+#   manifest 1.1.0 and only the first could ever be uploaded. Bumping a suffix is not a version bump
+#   as far as the store is concerned. A counter inside the suffix (`-beta.2`) is therefore misleading
+#   and better left off — the numbers already count the releases.
+#
+#   `upload_to_store`'s preflight refuses a non-increasing version (exit 3) before uploading anything,
+#   and says this in its output.
 #
 # ENVIRONMENT — no .env file is ever written in CI. Vite folds `process.env` keys matching its
 #   envPrefix (WXT sets `['VITE_','WXT_']`) into `import.meta.env`, taking precedence over .env
@@ -60,8 +104,31 @@ version: 2.1
 #       first `release` run fails at the tag push and `scripts/ci/release.sh` prints which of the
 #       four causes it is (see `diagnose_push_denied` there) — read that output before asking anyone
 #       for a new token.
-#     The CHROME_* set for the real store upload does NOT belong here — put it in a project-scoped
-#     context when `deploy_production` stops being a stub, and list both contexts on that job.
+#   PROJECT-LEVEL env vars (Project Settings -> Environment Variables) -> the store-deploy secrets:
+#     CRX_SIGNING_KEY_B64 (base64 of the RSA private key registered under Verified CRX Uploads) and
+#     CHROME_EXTENSION_ID / CHROME_PUBLISHER_ID / CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL /
+#     CHROME_SERVICE_ACCOUNT_PRIVATE_KEY. Five variables, and deliberately no CWS_* switches: the
+#     upload's behaviour switches are CLI flags on the job's own command, not project state.
+#
+#     ACCEPTED TRADE-OFF (decided 2026-09-07), not the intended design. Two project-scoped CONTEXTS
+#     belong here — `pack_crx` holding only the signing key, `upload_to_store` only the store
+#     credentials — so that neither job can do the other's damage. Creating a context needs CircleCI
+#     ORGANIZATION rights, which nobody on this project has, so the five variables sit at project
+#     level, where CircleCI exposes them to EVERY job in the project, `check` and both builds included.
+#
+#     Why that was judged acceptable here: this CircleCI project is private and stays private, so
+#     there are no pull-request builds from outside the org — which is the ordinary way project-wide
+#     secrets get exfiltrated.
+#
+#     What privacy does NOT cover, i.e. the residual risk: `check` and the builds run `npm ci`, so a
+#     compromised dependency's postinstall script would execute with both secrets in its environment.
+#     package-lock.json is pinned, so this needs a malicious version to be MERGED here (a dependency
+#     bump), not merely published upstream — a visible event, not a silent one.
+#
+#     If it ever happens, or as soon as someone has the org rights: rotate the service-account key
+#     (minutes, in Google Cloud) and the signing key (Chrome Web Store support, up to a week), create
+#     `p2p-extension-crx-signing` + `p2p-extension-store`, move the variables, and put the `context:`
+#     lines back on the two jobs in `production_deploy`.
 #
 # WHERE THE SHELL LIVES — `scripts/ci/*.sh`, not inline here, and that is not a style preference:
 #   - CircleCI caps a single config expression at **2048 characters** and REJECTS the whole config
@@ -192,15 +259,59 @@ jobs:
           name: GitHub Release + assets
           command: bash scripts/ci/release.sh publish
 
-  deploy_production:
+  # Signs the released zip into a CRX3. No approval: this is the artifact step. Runs `npm ci`-free like
+  # `release` — scripts/ci/pack-crx.mjs and verify-build.mjs have no dependencies precisely so these
+  # jobs stay node + curl + coreutils, which also means no third-party code runs next to the signing
+  # key HERE (the exposure is in `check`/`build-*`, which do install — see the env note in the header).
+  pack_crx:
     executor: node
     steps:
-      # Checked out at the tag. Nothing below needs the tree today; it is here so that enabling the
-      # real upload (the commented block at the end) is the one-line change it looks like.
       - checkout
       - run:
-          name: STUB — production deploy (approved, nothing is published)
-          command: bash scripts/ci/deploy-production.sh
+          name: Fetch the released package
+          command: bash scripts/ci/pack-crx.sh fetch
+      - run:
+          name: Verify the package before signing it
+          command: bash scripts/ci/pack-crx.sh verify
+      - run:
+          name: Sign it into a CRX3
+          command: bash scripts/ci/pack-crx.sh pack
+      - run:
+          name: Attach the .crx to the GitHub Release
+          command: bash scripts/ci/pack-crx.sh attach
+      - store_artifacts:
+          path: artifacts/store
+      - persist_to_workspace:
+          root: .
+          paths:
+            - artifacts/store
+
+  # Rehearses the upload against the live store, read-only, before anyone is asked to approve one.
+  # Same job body as the real upload minus the writes, so a wrong id, a service account that was never
+  # added under Developer Dashboard -> Account, or a version the store would reject fails HERE — rather
+  # than after an approval, on a release that could not have worked.
+  store_preflight:
+    executor: node
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          name: Rehearse the upload (read-only — nothing is sent)
+          command: bash scripts/ci/upload-to-store.sh preflight
+
+  # Uploads that .crx to the Chrome Web Store and submits it for review. Runs only after a human
+  # approves. Gets the package through the workspace — workspaces survive an approval job — so it needs
+  # no GITHUB_TOKEN of its own.
+  upload_to_store:
+    executor: node
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          name: Upload and submit for review
+          command: bash scripts/ci/upload-to-store.sh upload
 
 workflows:
   ci:
@@ -235,14 +346,12 @@ workflows:
           context:
             - p2p-extension-ci
       # Releasing is a manual act. Nothing is tagged or published until someone approves this, so a
-      # version bump reaching main is a proposal, not a publication.
+      # push to a release branch is a proposal, not a publication.
       #
-      # The cost, stated because it looks like a defect otherwise: EVERY push to main parks a workflow
-      # "On Hold", including the majority that would release nothing (version unchanged, or a snapshot
-      # core). Approving one of those is harmless — `release` then just prints "Nothing to release" and
-      # goes green. Making the hold appear only when a release is actually due needs CircleCI dynamic
-      # config (a setup workflow + the continuation orb), which is a large amount of machinery for the
-      # amount of noise; revisit if main becomes busy.
+      # Scoped to `release/vX.Y.Z` branches, which is what keeps this approval meaningful: it appears
+      # only where releasing is the point. A push to such a branch that releases nothing anyway (the
+      # tag already exists, `[skip release]`, or a snapshot core) is still safe to approve — `release`
+      # prints why and goes green.
       #
       # Deliberately NOT waiting for `build-debug`: only the production build is published, so a broken
       # debug build must not block a release. `check` is transitively required through `build-prod`;
@@ -252,22 +361,22 @@ workflows:
           requires:
             - check
             - build-prod
-          filters:
+          filters: &release_branches
             branches:
-              only: main
+              # `release/v1.0.1`, and a prerelease suffix is allowed (`release/v1.1.0-beta.1`).
+              # scripts/ci/release.sh then requires package.json's version to be exactly this string.
+              only: /^release\/v\d+(\.\d+){0,3}(-[0-9A-Za-z.-]+)?$/
       - release:
           requires:
             - hold_release
           context:
             - org-global
-          filters:
-            branches:
-              only: main
+          filters: *release_branches
 
   # Triggered by the tag the `release` job pushes. Jobs in `ci` carry no tag filter, so they are not
-  # re-run by that push. If tag pipelines turn out to be disabled for this project, move these two
-  # jobs into `ci` behind `requires: [release]` and have the deploy job exit early when RELEASE=false
-  # — at the cost of an "On Hold" workflow on every push to main.
+  # re-run by that push. If tag pipelines turn out to be disabled for this project, move these three
+  # jobs into `ci` behind `requires: [release]` and have them exit early when RELEASE=false — at the
+  # cost of an "On Hold" workflow on every push to main.
   #
   # The tag pattern accepts an optional SemVer prerelease suffix (`v1.0.0-beta.1`). It has to: the tag
   # is `v` + package.json's version, and WXT supports a prerelease version by splitting it across
@@ -275,20 +384,28 @@ workflows:
   # so this deploy gate would simply not appear — the quietest possible failure.
   production_deploy:
     jobs:
-      - hold_production_deploy:
-          type: approval
-          filters:
-            tags:
-              only: /^v\d+(\.\d+){0,3}(-[0-9A-Za-z.-]+)?$/
-            branches:
-              ignore: /.*/
-      - deploy_production:
-          requires:
-            - hold_production_deploy
+      - pack_crx:
           context:
             - org-global
-          filters:
+          filters: &tag_only
             tags:
               only: /^v\d+(\.\d+){0,3}(-[0-9A-Za-z.-]+)?$/
             branches:
               ignore: /.*/
+      - store_preflight:
+          requires:
+            - pack_crx
+          filters: *tag_only
+      # The one human decision on this path: everything before it is reproducible from the tag, and
+      # everything after it is visible to users. `store_preflight` has already established that the
+      # store would accept this exact package, so the decision is whether to release it — not whether
+      # it would work.
+      - hold_store_upload:
+          type: approval
+          requires:
+            - store_preflight
+          filters: *tag_only
+      - upload_to_store:
+          requires:
+            - hold_store_upload
+          filters: *tag_only
