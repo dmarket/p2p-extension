@@ -7,10 +7,17 @@ import { buildCurl, decodeBody, highlight, highlightJson, summarize } from '@/ui
 const isNetwork = (e: LogEntry): e is NetworkLogEntry => e.category === 'network';
 const isLifecycle = (e: LogEntry): e is LifecycleLogEntry => e.category === 'lifecycle';
 
+/** The one deferral that is not a problem: the closure was reported unproven, once, and said so. */
+const CLAIM_SPENT_REASON = 'already reported unproven; awaiting a prover for its proof';
+
 /** Events that mean the cycle did NOT do what it looks like it did — surfaced in the failure colour. */
 const LIFECYCLE_PROBLEMS = new Set([
   'CycleFailed',
   'DealLookupFailed',
+  // A directive this client will not execute. Not a crash, but the deal behind it does not move — and
+  // where the refusal is one we cannot answer for (a duplicate write, or a loop with directives off) the
+  // lease is held until its TTL and the directive comes back on the next heartbeat.
+  'DirectiveDropped',
   'DirectiveReportFailed',
   'HistoryCorrelationMiss',
   'ProgressStoreFailed',
@@ -20,9 +27,6 @@ const LIFECYCLE_PROBLEMS = new Set([
   'ProofSuppressed',
   'SteamReadFailed',
   'TradeStatusReportFailed',
-  // Deliberate, like ProofSuppressed — but it only ever fires when the transition's proof did NOT verify,
-  // so it marks a deal that is not progressing. Worth the failure colour for the same reason.
-  'TradeStatusReportDeferred',
 ]);
 
 /**
@@ -31,10 +35,18 @@ const LIFECYCLE_PROBLEMS = new Set([
  * the deal will not settle, which is terminal per the core's own contract. It rendered in the normal
  * colour, so a run of five rejected proofs read as five successes — the reason a stuck deal took a human
  * reading the whole session log to explain.
+ *
+ * Exported for its own test: the failure colour is the only signal that separates a stuck deal from a
+ * healthy one in this log, and a wrong event name here fails silently — the entry simply renders as normal.
  */
-function isProblem(e: LifecycleLogEntry): boolean {
+export function isProblem(e: LifecycleLogEntry): boolean {
   if (LIFECYCLE_PROBLEMS.has(e.event)) return true;
-  return e.event === 'ProofSubmitted' && e.fields?.verified === false;
+  if (e.event === 'ProofSubmitted') return e.fields?.verified === false;
+  // A deferred report used to be an unconditional problem, because it only ever meant "the proof did not
+  // verify". It now also covers the closure the core reported unproven and will not repeat, which is the
+  // core working as intended — so the reason FIELD decides, not the name.
+  if (e.event === 'TradeStatusReportDeferred') return e.fields?.reason !== CLAIM_SPENT_REASON;
+  return false;
 }
 
 /** `WatchSummary` reads as prose because it is the line that answers "why did this cycle send nothing?". */

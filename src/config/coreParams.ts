@@ -37,7 +37,10 @@ export type CoreOnlyEndpointParam =
   | 'getSteamNotificationsPath'
   | 'paramIncludeRead'
   | 'paramIncludeHidden'
-  | 'paramLanguage';
+  | 'paramLanguage'
+  | 'getTradeStatusPath'
+  | 'paramTradeId'
+  | 'targetedTradeReadsPerCycle';
 
 /**
  * The same for `NotaryConfig` — and the single home for WHY each of these is not a knob. They are named in
@@ -246,6 +249,13 @@ export const STEAM_ENDPOINTS_ORDER = [
   'paramIncludeHidden',
   'paramLanguage',
   'paramGetReceivedOffers',
+  // Slots 27-29: the history axis's targeted single-trade read (`GetTradeStatus`) and its per-cycle read
+  // budget. Core-only for the same reason as the notification endpoint above — an endpoint path and its
+  // query-parameter name are not knobs a remote overlay should be able to point somewhere else, and the
+  // read budget is bounded by the core's own correlation logic rather than by anything the host knows.
+  'getTradeStatusPath',
+  'paramTradeId',
+  'targetedTradeReadsPerCycle',
 ] as const satisfies readonly (keyof SteamEndpointsOverrides | CoreOnlyEndpointParam)[];
 
 export const STEAM_PROFILE_ORDER = [

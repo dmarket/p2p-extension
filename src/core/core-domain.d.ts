@@ -170,6 +170,11 @@ declare module '@dmarket/p2p-tracker-core-domain' {
       paramIncludeHidden?: string,
       paramLanguage?: string,
       paramGetReceivedOffers?: string,
+      // Positions 27-29: the targeted single-trade history read and its per-cycle budget. Core-only, and
+      // declared here for the same positional reason as the block above.
+      getTradeStatusPath?: string,
+      paramTradeId?: string,
+      targetedTradeReadsPerCycle?: number,
     ): SteamEndpointsConfig;
   }
 

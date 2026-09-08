@@ -149,6 +149,13 @@ export const KNOWN_KEYS: Record<string, KeyInfo> = {
       'Live deal-keyed write claims — a `create_offer`/`cancel_offer` already performed or in flight per deal ' +
       '(JSON) — so the duplicate guard survives a service-worker respawn.',
   },
+  tracker_unproven_claims: {
+    desc:
+      'Decisive transitions already reported to DMarket WITHOUT a proof (JSON), because none could be ' +
+      'produced — no prover, prover parked, budget spent. Claimed once per transition and persisted, since ' +
+      'such a report is refused and so never enters the dedup baseline: without this it would be re-sent ' +
+      'on every wake. Released when the report is finally accepted, or when the deal leaves tracking.',
+  },
   tracker_steam_write_throttle: {
     desc:
       '`create_offer` back-pressure: per-partner cooldowns after a Steam rate-limit refusal plus the ' +

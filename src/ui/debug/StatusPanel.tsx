@@ -290,7 +290,7 @@ export function StatusPanel(): preact.JSX.Element {
         {!describe?.runningProof && describe?.lastProof && (
           <span
             class={`pill ${describe.lastProof.ok ? 'on' : 'off'}`}
-            title="the most recent ProofSubmitted / ProofFailed / ProofSuppressed frame from the core, and how long ago it arrived — this pill persists for the worker's lifetime, so the age is what says whether it describes the current deal. NOT ATTEMPTED means the core is deliberately skipping this transition because an identical proof was already refused — use 'retry proof' to get a fresh loop instance."
+            title="the most recent ProofSubmitted / ProofFailed / ProofSuppressed frame from the core, and how long ago it arrived — this pill persists for the worker's lifetime, so the age is what says whether it describes the current deal. NOT ATTEMPTED means the core is deliberately skipping this transition — an identical proof was already refused, this host has no prover, the prover is parked, or the cycle's budget is spent. Only the first of those withholds the trade-status report; the others report the closure unproven, once. Use 'retry proof' to get a fresh loop instance."
           >
             proof: {describe.lastProof.text} · {describeAge(describe.lastProof.at, now)}
           </span>
