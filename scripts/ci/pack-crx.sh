@@ -24,7 +24,9 @@
 # Environment:
 #   REPO_SLUG            owner/repo (set by the executor in .circleci/config.yml)
 #   GITHUB_TOKEN         contents:write — read the Release, attach the .crx (context org-global)
-#   CIRCLE_TAG           the tag that triggered this pipeline, e.g. v1.0.1
+#   RELEASE_TAG          the tag to package, e.g. v1.0.1 — resolved below from CIRCLE_TAG when a tag
+#                        pipeline runs this, otherwise from package.json (the release job in the same
+#                        workflow has just tagged exactly that version)
 #   CRX_SIGNING_KEY_B64  base64 of the RSA private key PEM registered under Package → Verified CRX
 #                        Uploads. A CircleCI PROJECT env var today; it belongs in a project-scoped
 #                        context (`p2p-extension-crx-signing`) once someone has the org rights — see
@@ -48,7 +50,7 @@ STORE_DIR="artifacts/store"
 # ── fetch ─────────────────────────────────────────────────────────────────────────────────────────
 fetch() {
   : "${GITHUB_TOKEN:?GITHUB_TOKEN must be set (org-wide context org-global)}"
-  : "${CIRCLE_TAG:?CIRCLE_TAG must be set — this job only runs on a tag pipeline}"
+  : "${RELEASE_TAG:?RELEASE_TAG could not be resolved — no CIRCLE_TAG and no package.json version}"
 
   # Report every missing signing/store variable at once, by NAME, so one failed run tells the operator
   # the whole list instead of one name per re-run. Values are never printed anywhere in this file.
@@ -61,13 +63,13 @@ fetch() {
   fi
 
   local version zip
-  version="${CIRCLE_TAG#v}"
+  version="${RELEASE_TAG#v}"
   zip="dmarket-p2p-extension-${version}-chrome.zip"
 
   rm -rf "$WORK"
   mkdir -p "$WORK" "$STORE_DIR"
 
-  curl -sSf -H "$AUTH" "$API/releases/tags/$CIRCLE_TAG" > "$WORK/release.json"
+  curl -sSf -H "$AUTH" "$API/releases/tags/$RELEASE_TAG" > "$WORK/release.json"
   # The zip and SHA256SUMS by asset id. Named explicitly rather than "every asset": the set is then the
   # same on every run, and a file that appears on the Release for any other reason cannot be pulled in.
   node -e '
@@ -96,7 +98,7 @@ fetch() {
     echo "export ZIP='$zip'"
     echo "export CRX='dmarket-p2p-extension-${version}-chrome.crx'"
   } >> "$BASH_ENV"
-  echo "Fetched $zip for $CIRCLE_TAG (checksum verified)."
+  echo "Fetched $zip for $RELEASE_TAG (checksum verified)."
 }
 
 # ── verify ────────────────────────────────────────────────────────────────────────────────────────
@@ -123,7 +125,7 @@ verify() {
   # two differ exactly for a beta (`v1.1.0-beta.1` -> manifest `1.1.0`), and the upload job's decision
   # about whether this may go to the store depends on the suffix that VERSION no longer has.
   printf '%s\n' "$VERSION" > "$STORE_DIR/RELEASE_VERSION"
-  echo "Package verified. Manifest version $(cat "$STORE_DIR/VERSION"), release $VERSION (tag $CIRCLE_TAG)."
+  echo "Package verified. Manifest version $(cat "$STORE_DIR/VERSION"), release $VERSION (tag $RELEASE_TAG)."
 }
 
 # ── pack ──────────────────────────────────────────────────────────────────────────────────────────
@@ -152,7 +154,7 @@ attach() {
 
   case "$release_id" in
     *" exists")
-      echo "$CRX is already attached to $CIRCLE_TAG — leaving it alone."
+      echo "$CRX is already attached to $RELEASE_TAG — leaving it alone."
       return 0
       ;;
     "")
@@ -166,7 +168,7 @@ attach() {
     --data-binary @"$STORE_DIR/$CRX" \
     "https://uploads.github.com/repos/${REPO_SLUG}/releases/${release_id}/assets?name=${CRX}" \
     -o /dev/null
-  echo "Attached $CRX to https://github.com/${REPO_SLUG}/releases/tag/${CIRCLE_TAG}"
+  echo "Attached $CRX to https://github.com/${REPO_SLUG}/releases/tag/${RELEASE_TAG}"
 }
 
 case "$CMD" in

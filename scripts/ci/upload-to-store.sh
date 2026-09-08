@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# upload-to-store.sh <preflight|upload> — the Chrome Web Store half of the tag pipeline.
+# upload-to-store.sh <preflight|upload> — the Chrome Web Store half of the release workflow.
 #
 #   preflight          a full REHEARSAL: everything the upload decides, deciding nothing. Runs
 #                      automatically in the `store_preflight` job, BEFORE the human approval, so

@@ -149,6 +149,11 @@ CircleCI (`.circleci/config.yml`). Every push runs:
 The two builds run in parallel with each other, but neither starts until the checks pass — an
 installable artifact should never come from a pipeline whose own checks are red.
 
+A push to `release/vX.Y.Z` adds the release chain to that same pipeline, so one release is one
+pipeline: `hold_release` (approval) → `release` (tag + GitHub Release with the zip) → `pack_crx` →
+`store_preflight` → `hold_store_upload` (approval) → `upload_to_store`. Those six exist only on a
+release branch; a push anywhere else runs the three jobs above and nothing more.
+
 Both zips are meant to be installed by hand: download, unzip, then `chrome://extensions` →
 Developer mode → **Load unpacked**. Each build is verified by `scripts/verify-build.mjs`, which
 checks the manifest version and `version_name`, the production permission/host surface, the absence

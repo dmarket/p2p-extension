@@ -128,7 +128,7 @@ version: 2.1
 #     If it ever happens, or as soon as someone has the org rights: rotate the service-account key
 #     (minutes, in Google Cloud) and the signing key (Chrome Web Store support, up to a week), create
 #     `p2p-extension-crx-signing` + `p2p-extension-store`, move the variables, and put the `context:`
-#     lines back on the two jobs in `production_deploy`.
+#     lines back on the store jobs (`pack_crx` … `upload_to_store`).
 #
 # WHERE THE SHELL LIVES — `scripts/ci/*.sh`, not inline here, and that is not a style preference:
 #   - CircleCI caps a single config expression at **2048 characters** and REJECTS the whole config
@@ -372,30 +372,33 @@ workflows:
           context:
             - org-global
           filters: *release_branches
-
-  # Triggered by the tag the `release` job pushes. Jobs in `ci` carry no tag filter, so they are not
-  # re-run by that push. If tag pipelines turn out to be disabled for this project, move these three
-  # jobs into `ci` behind `requires: [release]` and have them exit early when RELEASE=false — at the
-  # cost of an "On Hold" workflow on every push to main.
-  #
-  # The tag pattern accepts an optional SemVer prerelease suffix (`v1.0.0-beta.1`). It has to: the tag
-  # is `v` + package.json's version, and WXT supports a prerelease version by splitting it across
-  # `manifest.version` / `version_name`. A numbers-only pattern would silently never match a beta tag,
-  # so this deploy gate would simply not appear — the quietest possible failure.
-  production_deploy:
-    jobs:
+      # The store path continues in THIS workflow rather than in a second one triggered by the tag
+      # `release` pushes. Two reasons, and the first is the one that shows:
+      #
+      #   - a tag push carries no `head_commit` in the webhook, so CircleCI labels that pipeline
+      #     "Commit <sha>" instead of the commit subject — an unreadable row in the pipeline list for
+      #     a pipeline we mint ourselves;
+      #   - one release is then one pipeline, so the whole chain (checks → approval → tag+Release →
+      #     package → preflight → approval → store) reads top to bottom in one place.
+      #
+      # The reason it was ever split — that an approval job inside `ci` would leave an "On Hold"
+      # workflow on every push to main — is answered by the branch filter these four carry: they exist
+      # only on a `release/vX.Y.Z` pipeline, and `main` sees none of them.
+      #
+      # What this gives up: re-running the store upload for an ALREADY released tag now means pushing
+      # its release branch again rather than re-running a tag pipeline. `pack-crx.sh` is idempotent
+      # (it leaves an attached .crx alone) and resolves the tag from package.json when CIRCLE_TAG is
+      # absent, so that re-run is safe — it is just a longer road.
       - pack_crx:
+          requires:
+            - release
           context:
             - org-global
-          filters: &tag_only
-            tags:
-              only: /^v\d+(\.\d+){0,3}(-[0-9A-Za-z.-]+)?$/
-            branches:
-              ignore: /.*/
+          filters: *release_branches
       - store_preflight:
           requires:
             - pack_crx
-          filters: *tag_only
+          filters: *release_branches
       # The one human decision on this path: everything before it is reproducible from the tag, and
       # everything after it is visible to users. `store_preflight` has already established that the
       # store would accept this exact package, so the decision is whether to release it — not whether
@@ -404,8 +407,8 @@ workflows:
           type: approval
           requires:
             - store_preflight
-          filters: *tag_only
+          filters: *release_branches
       - upload_to_store:
           requires:
             - hold_store_upload
-          filters: *tag_only
+          filters: *release_branches
