@@ -67,13 +67,9 @@ const GROUPS = {
  * Format: order name → trailing parameter names, in the order they appear at the end of that `*_ORDER`.
  */
 const PENDING = {
-  // Allowed ahead of the core's publish: the history axis's targeted single-trade read lands in the core
-  // first, and this repo's positional orders have to name its three slots before the installed `.d.mts`
-  // declares them. Per the contract above this self-retires — the check FAILS once the installed core
-  // declares them, and the fix is to delete these three lines.
-  //
-  // (The previous entry, `NotaryConfig.sentBudgetMarginPercent`, was retired the same way.)
-  STEAM_ENDPOINTS_ORDER: ['getTradeStatusPath', 'paramTradeId', 'targetedTradeReadsPerCycle'],
+  // Empty, as it should normally be. The last entry — the three `SteamEndpointsConfig` slots for the
+  // targeted single-trade history read — retired when the pin reached `1.0.1-beta` and the installed
+  // `.d.mts` declared them. Per the contract above, the ordinary prefix check now covers those slots.
 };
 
 const read = (p) => {
