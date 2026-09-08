@@ -12,6 +12,15 @@ GitHub Release whose notes are this file's section for that version, with the in
 A push whose version already has a tag releases nothing, so re-pushing is safe. See "CI & releases" in
 the README.
 
+## [1.0.1-beta] - 2026-09-08
+
+Built against `@dmarket/p2p-tracker-core` `1.0.1-beta`.
+
+### Changed
+
+- The debug console marks a directive the core refuses, and stops marking a report the core
+  deliberately sent unproven.
+
 ## [1.0.0-beta.1] - 2026-09-04
 
 First release. A public beta for manual installation — not published to any extension store.
@@ -63,4 +72,5 @@ every build of a given release is reproducible.
   `appVersion`. Production deployment is a separate, approval-gated job, a stub until there is a
   store listing to publish to.
 
+[1.0.1-beta]: https://github.com/dmarket/p2p-extension/compare/v1.0.0-beta.1...v1.0.1-beta
 [1.0.0-beta.1]: https://github.com/dmarket/p2p-extension/releases/tag/v1.0.0-beta.1
