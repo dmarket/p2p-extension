@@ -46,6 +46,24 @@ WORK="${WORK:-/tmp/deploy}"
 # Staged for `store_artifacts` and `persist_to_workspace`; relative, because the workspace root is `.`.
 STORE_DIR="artifacts/store"
 
+# The tag to package. A tag pipeline supplies CIRCLE_TAG; inside the release workflow — where these
+# jobs live now — there is none, so fall back to package.json. That is the same string `release.sh`
+# tagged moments earlier in the same pipeline: it refuses to release unless the branch name,
+# package.json and the changelog all agree, so the version in the file IS the tag. An explicit
+# RELEASE_TAG wins over both, which is what makes the script runnable by hand against any release.
+#
+# Resolved here rather than in each subcommand because every CI step re-runs this file from scratch;
+# there is no state to carry between them.
+if [ -z "${RELEASE_TAG:-}" ]; then
+  if [ -n "${CIRCLE_TAG:-}" ]; then
+    RELEASE_TAG="$CIRCLE_TAG"
+  elif [ -f package.json ]; then
+    # Left empty rather than "v" on a failure, so `fetch`'s own :? guard reports the real situation
+    # instead of chasing a release tagged "v".
+    pkg_version="$(node -p "require('./package.json').version" 2> /dev/null || true)"
+    [ -n "$pkg_version" ] && RELEASE_TAG="v$pkg_version"
+  fi
+fi
 
 # ── fetch ─────────────────────────────────────────────────────────────────────────────────────────
 fetch() {
