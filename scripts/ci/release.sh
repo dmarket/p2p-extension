@@ -229,6 +229,11 @@ This is the **production** build — the same artifact that goes to the store. T
 console, internal endpoints) is deliberately not published here; it lives in the `build-debug` job's
 Artifacts tab in CircleCI. The `-sourcemaps.tar.gz` archive is for symbolicating crash reports; it is
 not needed to run the extension. `SHA256SUMS` covers every attachment.
+
+The `.crx` is that same zip wrapped in our signature — the exact bytes uploaded to the Chrome Web
+Store, published so anyone can verify what shipped. It is **not** for installing: Chrome accepts a CRX
+only when the store itself signed it, so loading this one directly fails with
+`CRX_REQUIRED_PROOF_MISSING`. Use the zip and **Load unpacked** above.
 NOTES
   # Provenance, in the exact shape wxt.config.ts compiles into the bundle as `__BUILD_ID__` — which is
   # what a crash report carries as `appVersion`. Printing it here is what lets a report be traced back

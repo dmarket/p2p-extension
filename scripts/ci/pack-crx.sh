@@ -145,30 +145,80 @@ attach() {
   # bytes the store will receive, so the Release is where it belongs whether or not anyone goes on to
   # approve the upload. (There used to be a CWS_DRY_RUN branch skipping this; the rehearsal is now the
   # `store_preflight` job, which cannot upload at all, so there is nothing left to keep off a Release.)
-  local release_id
-  release_id="$(node -e '
+  # The release id, whether the .crx is already there, and the SHA256SUMS asset id — one pass over the
+  # payload `fetch` already downloaded. The two writes below are INDEPENDENTLY idempotent rather than
+  # sharing one early return, so a run that attached the .crx and then died still fixes the checksums
+  # when it is re-run.
+  node -e '
     const r = require(process.argv[1]);
-    process.stdout.write(String(r.id ?? ""));
-    if ((r.assets ?? []).some((a) => a.name === process.argv[2])) process.stdout.write(" exists");
-  ' "$WORK/release.json" "$CRX")"
+    const assets = r.assets ?? [];
+    const sums = assets.find((a) => a.name === "SHA256SUMS");
+    process.stdout.write(
+      `${r.id ?? ""}\n${assets.some((a) => a.name === process.argv[2]) ? "yes" : "no"}\n${sums?.id ?? ""}\n`,
+    );
+  ' "$WORK/release.json" "$CRX" > "$WORK/attach.txt"
+  local release_id crx_attached sums_id
+  release_id="$(sed -n 1p "$WORK/attach.txt")"
+  crx_attached="$(sed -n 2p "$WORK/attach.txt")"
+  sums_id="$(sed -n 3p "$WORK/attach.txt")"
 
-  case "$release_id" in
-    *" exists")
-      echo "$CRX is already attached to $RELEASE_TAG — leaving it alone."
-      return 0
-      ;;
-    "")
-      echo "ERROR: could not read the release id from $WORK/release.json." >&2
-      return 1
-      ;;
-  esac
+  if [ -z "$release_id" ]; then
+    echo "ERROR: could not read the release id from $WORK/release.json." >&2
+    return 1
+  fi
 
-  echo "Uploading ${CRX}…"
+  if [ "$crx_attached" = "yes" ]; then
+    echo "$CRX is already attached to $RELEASE_TAG — leaving it alone."
+  else
+    echo "Uploading ${CRX}…"
+    curl -sSf -X POST -H "$AUTH" -H "Content-Type: application/octet-stream" \
+      --data-binary @"$STORE_DIR/$CRX" \
+      "https://uploads.github.com/repos/${REPO_SLUG}/releases/${release_id}/assets?name=${CRX}" \
+      -o /dev/null
+    echo "Attached $CRX to https://github.com/${REPO_SLUG}/releases/tag/${RELEASE_TAG}"
+  fi
+
+  cover_crx_in_checksums "$release_id" "$sums_id"
+}
+
+# The Release's SHA256SUMS is written by release.sh, in a job that runs BEFORE this one — so it cannot
+# cover the .crx, while the release notes promise it covers every attachment. Rewriting it here is what
+# keeps that promise true; a verifier should not have to dig a checksum out of a CI log.
+#
+# GitHub cannot append to an asset, so the old one is deleted and a new one uploaded under the same
+# name. The window between the two is the cost, and it is bounded: a partial run leaves the Release
+# without SHA256SUMS, which makes `fetch` fail loudly on the next run ("release … has no asset
+# SHA256SUMS") rather than quietly producing a release nobody can verify.
+cover_crx_in_checksums() {
+  local release_id="$1" sums_id="$2"
+
+  if [ -z "$sums_id" ]; then
+    # Unreachable in practice — `fetch` names SHA256SUMS as a required asset and fails without it — so
+    # this is a guard, not a path. Publishing a SHA256SUMS covering only the .crx would be worse than
+    # publishing none: it would read as "verified" while covering one file in five.
+    echo "WARNING: $RELEASE_TAG has no SHA256SUMS asset; leaving checksums alone." >&2
+    return 0
+  fi
+
+  # $WORK/SHA256SUMS is the Release's own file as downloaded by `fetch` THIS run, so on a re-run it
+  # already carries the line and this is the whole idempotency check — no second download needed.
+  if grep -qF -- "  $CRX" "$WORK/SHA256SUMS"; then
+    echo "SHA256SUMS already covers $CRX — leaving it alone."
+    return 0
+  fi
+
+  # Computed from the file that was uploaded. Deliberately not copied out of $STORE_DIR/SHA256SUMS:
+  # that one also covers VERSION and RELEASE_VERSION, which are workspace plumbing, not Release assets.
+  cp "$WORK/SHA256SUMS" "$WORK/SHA256SUMS.new"
+  ( cd "$STORE_DIR" && sha256sum "$CRX" ) >> "$WORK/SHA256SUMS.new"
+
+  curl -sSf -X DELETE -H "$AUTH" "$API/releases/assets/$sums_id" -o /dev/null
   curl -sSf -X POST -H "$AUTH" -H "Content-Type: application/octet-stream" \
-    --data-binary @"$STORE_DIR/$CRX" \
-    "https://uploads.github.com/repos/${REPO_SLUG}/releases/${release_id}/assets?name=${CRX}" \
+    --data-binary @"$WORK/SHA256SUMS.new" \
+    "https://uploads.github.com/repos/${REPO_SLUG}/releases/${release_id}/assets?name=SHA256SUMS" \
     -o /dev/null
-  echo "Attached $CRX to https://github.com/${REPO_SLUG}/releases/tag/${RELEASE_TAG}"
+  echo "SHA256SUMS updated to cover $CRX:"
+  sed 's/^/  /' "$WORK/SHA256SUMS.new"
 }
 
 case "$CMD" in
