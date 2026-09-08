@@ -166,6 +166,11 @@ describe('packCrx3 refusals', () => {
     const ec = generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ type: 'pkcs8', format: 'pem' });
     expect(() => packCrx3(zip, ec)).toThrow(/must be RSA/);
   });
+  // CodeQL flags the 1024-bit key below as js/insufficient-key-size (alert #1, dismissed as "used in
+  // tests"). It is the fixture for the guard that rejects weak keys — the assertion on the next line
+  // IS the thing the rule asks for — and it is never persisted nor used to sign anything. Editing
+  // around here can resurface the alert under a new number, since a dismissal is tied to the rule and
+  // location: re-dismiss it rather than reading it as a regression.
   it('refuses an RSA key shorter than 2048 bits', () => {
     const small = generateKeyPairSync('rsa', { modulusLength: 1024 }).privateKey.export({ type: 'pkcs8', format: 'pem' });
     expect(() => packCrx3(zip, small)).toThrow(/1024-bit/);
