@@ -2,7 +2,7 @@
   "name": "dmarket-p2p-extension",
   "description": "Browser extension that tracks Steam trade offers and verifies P2P trades against DMarket deals.",
   "private": true,
-  "version": "1.0.1-beta",
+  "version": "1.0.2-beta",
   "type": "module",
   "engines": {
     "node": ">=22.12"

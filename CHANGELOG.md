@@ -12,6 +12,23 @@ GitHub Release whose notes are this file's section for that version, with the in
 A push whose version already has a tag releases nothing, so re-pushing is safe. See "CI & releases" in
 the README.
 
+## [1.0.2-beta] - 2026-09-11
+
+Built against `@dmarket/p2p-tracker-core` `1.0.1-beta`.
+
+### Fixed
+
+- **Presence is answered after the core has booted, instead of from the pre-boot defaults.** The page
+  bridge is registered on every worker spawn, but the core handle only exists once the boot finishes.
+  Asked in between, the extension reported itself as activated, unblocked and not tracking — three
+  claims that cannot all be true. Chrome evicts an idle worker after about 30 seconds, so on a quiet
+  page that was the answer most requests got, and dmarket.com showed a set-up prompt over a working
+  install. A presence request now waits for the boot, capped at a second.
+- **Re-enabling the extension restores the page bridge in tabs that were already open.** Disabling and
+  re-enabling leaves those tabs with an orphaned content script and raises no install event, so nothing
+  was re-injected and the page kept timing out until someone reloaded it. The first worker spawn of a
+  browser session now re-injects once, which is what being enabled looks like from the inside.
+
 ## [1.0.1-beta] - 2026-09-08
 
 Built against `@dmarket/p2p-tracker-core` `1.0.1-beta`.
