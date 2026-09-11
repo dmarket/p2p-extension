@@ -4,6 +4,21 @@ import { isBridgeRequest, type BridgeRequest, type BridgeResponse } from '@/mess
 import { isActivated } from '@/state/activation';
 import { getSettings } from '@/config/settings';
 
+// A warm spawn boots in one storage read, so only a first install or a failed boot ever reaches this
+// cap. The wait ends as soon as the handle exists.
+const PRESENCE_BOOT_WAIT_MS = 1_000;
+
+/** Wait for `settled`, but never longer than `ms`. Clears its timer — presence is pinged often. */
+function withCap(settled: Promise<void>, ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    void settled.then(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
 function wakeAll(): string {
   return JSON.stringify({ type: 'wake_all' });
 }
@@ -107,13 +122,37 @@ async function handle(request: BridgeRequest, tracker: TrackerHandle | undefined
 }
 
 /**
- * Register the service-worker message router for the dmarket.com bridge. Must be called synchronously
- * on every worker spawn. `getHandle` returns the current tracker handle (undefined if boot failed).
+ * Presence waits for the boot; writes do not.
+ *
+ * The router is registered on every spawn, but the handle only exists once `bootCore()` finishes. Asked
+ * in between, the presence branch answers `is_activated: true` with `is_tracking_active: false` and
+ * `blocking_reason: 'NONE'`, which contradicts itself and fails closed where the core fails open. Chrome
+ * kills an idle worker after ~30s, so a quiet page usually got that answer, too fast for any page-side
+ * timeout to help. `create-trade` has a coded `EXT_NOT_READY` for a missing core and `request-cycle` is
+ * worthless a second late, so neither of them waits.
+ *
+ * `bootSettled` resolves however the boot ends, so a failed boot answers instead of stalling every ping.
+ * An endpoint restart clears the handle for a moment and a ping there still gets the defaults; re-arming
+ * the gate could hang on a restart that never finishes.
  */
-export function registerBridgeRouter(getHandle: () => TrackerHandle | undefined): void {
+async function answer(
+  request: BridgeRequest,
+  getHandle: () => TrackerHandle | undefined,
+  bootSettled: Promise<void>,
+): Promise<BridgeResponse> {
+  if (request.kind === 'presence') await withCap(bootSettled, PRESENCE_BOOT_WAIT_MS);
+  return handle(request, getHandle());
+}
+
+/**
+ * Register the service-worker message router for the dmarket.com bridge. Must be called synchronously
+ * on every worker spawn. `getHandle` returns the current tracker handle (undefined if boot failed);
+ * `bootSettled` is the entrypoint's boot promise — see {@link answer} for which requests wait on it.
+ */
+export function registerBridgeRouter(getHandle: () => TrackerHandle | undefined, bootSettled: Promise<void>): void {
   browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!isBridgeRequest(message)) return undefined;
-    handle(message, getHandle())
+    answer(message, getHandle, bootSettled)
       .then(sendResponse)
       .catch((error) => {
         // Reported as an exception CLASS plus the request kind — never `String(error)`.

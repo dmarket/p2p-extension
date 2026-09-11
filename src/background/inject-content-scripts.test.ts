@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
-import {
-  injectContentScriptsIntoOpenTabs,
-  registerContentScriptInjection,
-} from '@/background/inject-content-scripts';
+import { injectContentScriptsIntoOpenTabs } from '@/background/inject-content-scripts';
 
 // The install/update re-injection is what makes the FE's install prompt clearable without a page reload,
 // and its failure mode is silence: nothing throws, the prompt just stays up. It also carries the whole
@@ -190,12 +187,26 @@ describe('re-injecting content scripts into already-open tabs', () => {
   });
 });
 
+// A fresh module instance per test is a fresh worker: the one-pass-per-worker guard is module state, so
+// a static import would carry one test's pass into the next.
+const freshWorker = async () => {
+  vi.resetModules();
+  return import('@/background/inject-content-scripts');
+};
+
+/** The three APIs every trigger test needs stubbed, plus the tab query the assertions read. */
+const stubWorld = () => {
+  vi.spyOn(console, 'info').mockImplementation(() => {});
+  stubManifest([BRIDGE]);
+  const query = stubTabs({ id: 1 });
+  stubInjection();
+  return query;
+};
+
 describe('the install/update trigger', () => {
   const trigger = async (reason: string) => {
-    vi.spyOn(console, 'info').mockImplementation(() => {});
-    stubManifest([BRIDGE]);
-    const query = stubTabs({ id: 1 });
-    stubInjection();
+    const query = stubWorld();
+    const { registerContentScriptInjection } = await freshWorker();
     registerContentScriptInjection();
 
     await fakeBrowser.runtime.onInstalled.trigger({ reason } as never);
@@ -215,5 +226,85 @@ describe('the install/update trigger', () => {
   it('does nothing on a browser update, which reloads pages by itself', async () => {
     const query = await trigger('chrome_update');
     expect(query).not.toHaveBeenCalled();
+  });
+});
+
+// The case `onInstalled` cannot see: disabled, then re-enabled. Enabling boots a worker, so the first
+// spawn of a browser session is the trigger — once, since each pass rebuilds every matching tab's script.
+describe('the session trigger', () => {
+  const SESSION_KEY = 'inject.doneForBrowserSession';
+
+  it('injects on the first worker spawn of a browser session', async () => {
+    const query = stubWorld();
+    const { injectContentScriptsOnSessionStart } = await freshWorker();
+
+    await injectContentScriptsOnSessionStart();
+
+    expect(query).toHaveBeenCalledOnce();
+    expect((await fakeBrowser.storage.session.get(SESSION_KEY))[SESSION_KEY]).toBe(true);
+    expect(reportError).not.toHaveBeenCalled();
+  });
+
+  it('does not inject again on an idle respawn in the same session', async () => {
+    await fakeBrowser.storage.session.set({ [SESSION_KEY]: true });
+    const query = stubWorld();
+    const { injectContentScriptsOnSessionStart } = await freshWorker();
+
+    await injectContentScriptsOnSessionStart();
+
+    // A presence ping is enough to wake a worker, so this runs every few seconds on an active page.
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('still injects on an update, even though this session was already marked', async () => {
+    await fakeBrowser.storage.session.set({ [SESSION_KEY]: true });
+    const query = stubWorld();
+    const { registerContentScriptInjection, injectContentScriptsOnSessionStart } = await freshWorker();
+    registerContentScriptInjection();
+
+    await injectContentScriptsOnSessionStart();
+    await fakeBrowser.runtime.onInstalled.trigger({ reason: 'update' } as never);
+
+    // An update orphans every open tab, so the install trigger must not be suppressed by the mark.
+    await vi.waitFor(() => expect(query).toHaveBeenCalledOnce());
+  });
+
+  it('runs ONE pass when both triggers fire on a fresh install', async () => {
+    const query = stubWorld();
+    const { registerContentScriptInjection, injectContentScriptsOnSessionStart } = await freshWorker();
+    registerContentScriptInjection();
+
+    // Both fire in the same burst on a real install; a second pass would undo the first.
+    const spawn = injectContentScriptsOnSessionStart();
+    await fakeBrowser.runtime.onInstalled.trigger({ reason: 'install' } as never);
+    await spawn;
+
+    await vi.waitFor(() => expect(query).toHaveBeenCalledOnce());
+  });
+
+  it('leaves the session unmarked when the pass could not run, so the next spawn retries', async () => {
+    stubWorld();
+    vi.spyOn(runtimeHost(), 'getManifest').mockImplementation(() => {
+      throw new Error('no manifest');
+    });
+    const { injectContentScriptsOnSessionStart } = await freshWorker();
+
+    await injectContentScriptsOnSessionStart();
+
+    // The mark means "re-injected", not "tried": a worker killed mid-pass must not strand the session.
+    expect((await fakeBrowser.storage.session.get(SESSION_KEY))[SESSION_KEY]).toBeUndefined();
+    expect(reportError).toHaveBeenCalledTimes(1);
+  });
+
+  it('injects anyway when session storage is unavailable, and reports it', async () => {
+    const query = stubWorld();
+    vi.spyOn(fakeBrowser.storage.session, 'get').mockRejectedValue(new Error('storage unavailable'));
+    const { injectContentScriptsOnSessionStart } = await freshWorker();
+
+    await injectContentScriptsOnSessionStart();
+
+    // An extra pass is cheaper than leaving a re-enabled extension unreachable until the user reloads.
+    expect(query).toHaveBeenCalledOnce();
+    expect(reportError).toHaveBeenCalledTimes(1);
   });
 });

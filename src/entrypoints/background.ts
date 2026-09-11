@@ -7,7 +7,7 @@ import { Tracker, type BlockingReason, type TrackerHandle } from '@/core/tracker
 import { installSteamAntiCsrf } from '@/background/anti-csrf';
 import { installDevSteamRedirect } from '@/background/dev-steam-redirect';
 import { registerBridgeRouter } from '@/background/router';
-import { registerContentScriptInjection } from '@/background/inject-content-scripts';
+import { injectContentScriptsOnSessionStart, registerContentScriptInjection } from '@/background/inject-content-scripts';
 import { reconcileSteamSession, registerRefreshTriggers } from '@/background/refresh';
 import type { AccountMismatchPush } from '@/messaging/protocol';
 import { initIcon } from '@/background/icon';
@@ -98,8 +98,16 @@ export default defineBackground(() => {
   // down and re-bound whenever the handle is replaced (endpoint restart).
   let unsubscribeActiveCount: (() => void) | undefined;
 
+  // Resolved once the boot below settles, either way. Presence waits on it, so a ping that lands mid-boot
+  // gets the real state rather than the pre-boot defaults (router.ts has the details). Created up here
+  // because a ping can arrive before `bootCore()` is even called.
+  let settleBoot = (): void => {};
+  const bootSettled = new Promise<void>((resolve) => {
+    settleBoot = resolve;
+  });
+
   // Register the dmarket.com bridge router synchronously (reads the handle lazily).
-  registerBridgeRouter(() => handle);
+  registerBridgeRouter(() => handle, bootSettled);
 
   // Re-inject the content scripts into tabs that were already open when this extension was installed or
   // updated — those tabs get no declarative injection at all, so the dmarket FE keeps timing out on
@@ -107,6 +115,10 @@ export default defineBackground(() => {
   // banner, the thing the user activates from, never appears. Registered synchronously: `onInstalled`
   // fires exactly once and must be able to wake a worker that isn't running yet.
   registerContentScriptInjection();
+  // The trigger `onInstalled` cannot give us: a re-enable raises no event we can see, but it does boot a
+  // worker, so the first spawn of a browser session re-injects once. Unawaited — nothing below needs it,
+  // and a session mark makes every later respawn a no-op.
+  void injectContentScriptsOnSessionStart();
 
   // Register the host-only re-evaluation triggers: a change to either session cookie (`dm-trade-token`
   // or Steam's) nudges the core to re-check that session now (forceHeartbeat marks the heartbeat due, so
@@ -511,7 +523,9 @@ export default defineBackground(() => {
         }),
       );
     }
-  });
+    // `finally`, so every outcome releases the presence waiters. bootCore swallows a failed start, but
+    // not a settings read that rejects, and that path would hold every ping for the full cap.
+  }).finally(settleBoot);
 
   // Push delivery is the host's job — the core owns no push transport. Forward the payload into the
   // running tracker to nudge a cycle. ('push' is a service-worker event; type it loosely to avoid

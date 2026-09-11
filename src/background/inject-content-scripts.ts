@@ -1,4 +1,5 @@
-// Re-inject this extension's content scripts into ALREADY-OPEN matching tabs, on install and on update.
+// Re-inject this extension's content scripts into ALREADY-OPEN matching tabs: on install, on update,
+// and on the first worker spawn of a browser session (which is what being re-ENABLED looks like).
 //
 // THE GAP THIS CLOSES. A declarative content script is injected by the browser only into pages loaded
 // AFTER the extension is installed. Every tab the user already had open therefore runs none of our
@@ -28,9 +29,14 @@
 // cases below, which no injection can reach:
 //   - discarded/frozen tabs — skipped here; the browser reloads them when the user returns, which
 //     injects the scripts the normal way,
-//   - a tab whose origin is outside `host_permissions` (never had our scripts to begin with),
-//   - the extension being disabled and re-enabled (no `onInstalled`, and no event we can see without the
-//     `management` permission).
+//   - a tab whose origin is outside `host_permissions` (never had our scripts to begin with).
+//
+// DISABLE → RE-ENABLE, which this header used to list as out of reach. There is no event for it without
+// the `management` permission, but enabling the extension boots a worker, and that we can see. So the
+// first spawn of a browser session re-injects once, marked in `storage.session`. Once, not per spawn:
+// Chrome respawns an evicted worker on any event, and every pass rebuilds the content script of every
+// matching tab. A browser start looks the same as an enable and gets a redundant pass — cheaper than
+// expecting the user to reload each open tab.
 //
 // MANIFEST-DRIVEN, deliberately. The target tabs and the files to inject are read from the generated
 // manifest's own `content_scripts` entries instead of being hardcoded, so: the dev/stage FE origins the
@@ -136,6 +142,42 @@ export async function injectContentScriptsIntoOpenTabs(): Promise<InjectionCount
   return results.filter((r): r is InjectionCount => r !== undefined);
 }
 
+/** Marks a browser session as already re-injected, so only its FIRST worker spawn runs a pass. */
+const SESSION_INJECTED_KEY = 'inject.doneForBrowserSession';
+
+/**
+ * This worker's single pass. Both triggers fire in the same burst on a fresh install, in no fixed order,
+ * so the claim is synchronous: the first caller owns the pass and the second awaits it. Two passes would
+ * be safe but wasteful — the second would tear down what the first had just injected.
+ */
+let workerPass: Promise<InjectionCount[] | undefined> | undefined;
+
+/**
+ * Run (or join) this worker's pass. Resolves with the per-entry counts, or `undefined` if the pass could
+ * not run at all (already reported) — which is what the session mark keys on. Per-entry and per-tab
+ * failures still count as done: no later spawn would do better with them.
+ */
+function claimPass(reason: string): Promise<InjectionCount[] | undefined> {
+  workerPass ??= injectContentScriptsIntoOpenTabs()
+    .then((counts) => {
+      const injected = counts.filter((c) => c.tabs > 0);
+      if (injected.length > 0) {
+        console.info('[dmarket-p2p] content scripts re-injected into open tabs', {
+          reason,
+          ...Object.fromEntries(injected.map((c) => [c.script, c.tabs])),
+        });
+      }
+      return counts;
+    })
+    .catch((error: unknown) => {
+      // Not fatal — a user reloading the page still gets the scripts — but it silently reinstates the
+      // very bug this exists to fix, so it must not be swallowed.
+      reportError(error);
+      return undefined;
+    });
+  return workerPass;
+}
+
 /**
  * Register the install/update re-injection. Call synchronously on every worker spawn (like every other
  * listener in the background entrypoint): `onInstalled` fires once, at a moment when the worker may not
@@ -144,20 +186,32 @@ export async function injectContentScriptsIntoOpenTabs(): Promise<InjectionCount
 export function registerContentScriptInjection(): void {
   browser.runtime.onInstalled.addListener((details) => {
     if (details.reason !== 'install' && details.reason !== 'update') return;
-    void injectContentScriptsIntoOpenTabs()
-      .then((counts) => {
-        const injected = counts.filter((c) => c.tabs > 0);
-        if (injected.length > 0) {
-          console.info('[dmarket-p2p] content scripts re-injected into open tabs', {
-            reason: details.reason,
-            ...Object.fromEntries(injected.map((c) => [c.script, c.tabs])),
-          });
-        }
-      })
-      .catch((error: unknown) => {
-        // Not fatal — a user reloading the page still gets the scripts — but it silently reinstates the
-        // very bug this exists to fix, so it must not be swallowed.
-        reportError(error);
-      });
+    // Never gated on the session mark: an update orphans every open tab, and whether session storage
+    // survives an extension reload is the browser's business, not something to bet this on.
+    void claimPass(details.reason);
   });
+}
+
+/**
+ * Re-inject once per browser session — the disable → re-enable case in the header. Call it unawaited on
+ * every spawn; the `storage.session` mark makes it a no-op on the rest, at the cost of one in-memory
+ * read. A mark that cannot be read falls through to injecting, since an extra pass is cheaper than
+ * leaving a re-enabled extension unreachable until the user reloads.
+ */
+export async function injectContentScriptsOnSessionStart(): Promise<void> {
+  try {
+    if ((await browser.storage.session.get(SESSION_INJECTED_KEY))[SESSION_INJECTED_KEY] === true) return;
+  } catch (error) {
+    reportError(error);
+  }
+  // Marked after the pass, not before: the mark means "this session was re-injected", and claiming it up
+  // front would weaken that to "a spawn once tried". A worker killed mid-pass would then leave every
+  // orphaned tab stranded until the browser restarts. The cost is one retry per spawn while a failure
+  // lasts, which is a refused query and a budgeted report.
+  if ((await claimPass('session-start')) === undefined) return;
+  try {
+    await browser.storage.session.set({ [SESSION_INJECTED_KEY]: true });
+  } catch (error) {
+    reportError(error);
+  }
 }
