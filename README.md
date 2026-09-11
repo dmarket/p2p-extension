@@ -26,6 +26,10 @@ A browser extension (Chrome, Manifest V3) that watches your Steam trade offers a
 trades against your DMarket deals. It bundles the DMarket P2P trade-tracker core (compiled from
 Kotlin Multiplatform) and drives it from a Manifest V3 service worker.
 
+Nothing runs until you turn it on. Installing the extension starts no tracking: until you activate it,
+from the banner it adds to your Steam Trade Offers page, it does not contact DMarket, report you as
+online, or create any Steam trade offer. Turning it back off stops all three again.
+
 > The trade-tracker business logic lives in a separate library —
 > [dmarket/p2p-tracker-core](https://github.com/dmarket/p2p-tracker-core) — consumed as the published
 > npm package [`@dmarket/p2p-tracker-core`](https://www.npmjs.com/package/@dmarket/p2p-tracker-core)
@@ -119,7 +123,8 @@ Open it from the popup's “debug console” link (dev builds only), or navigate
   core is pointed at a cookie name nothing holds, or a heartbeat reply is synthesised), not by
   overwriting the mirrored reason. Rails refuse the Steam session-transfer and DMarket
   `refresh-token` endpoints while armed, so simulating a signed-out state cannot rotate a live
-  credential. This is also where the activation flag is toggled;
+  credential. This is also where the activation flag is toggled — which starts and stops the core, so
+  the un-activated state can be walked end to end from here;
 - a **freshness-mark injector** for demand-driven proving, pinned to the storage row that holds the
   core's answer;
 - a **`chrome.storage.local` inspector/editor** to view, edit, add and remove persisted keys.
@@ -235,11 +240,11 @@ before uploading anything.
 ```
 src/
   entrypoints/       # service worker, popup, content scripts, offscreen document, debug page
-  background/        # service-worker glue: anti-CSRF, toolbar icon, cookie watch, bridge router
+  background/        # service-worker glue: core lifecycle, anti-CSRF, toolbar icon, cookie watch, bridge router
   config/            # compiled-in defaults, the remote-config overlay, core parameter order
   core/              # single import seam for the tracker core, plus the notary proof delegate
   messaging/         # typed message contracts + the dmarket.com page bridge
-  state/             # activation flag, mirrored blocking reason, and the surface resolver
+  state/             # activation flag (gates the core), mirrored blocking reason, and the surface resolver
   infra/             # error reporting, remote config (opt-in)
   debug/             # developer-only debug console service-worker glue (dev builds only)
   ui/                # popup, on-page UI, and debug-console components

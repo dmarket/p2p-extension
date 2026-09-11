@@ -39,9 +39,17 @@ function wakeDeal(dealId: string): string {
 let lastReconnectAt = Date.now();
 let reconnectInFlight = false;
 
-async function handle(request: BridgeRequest, tracker: TrackerHandle | undefined): Promise<BridgeResponse> {
+/**
+ * `getHandle`, not a handle: the create-trade branch now awaits the activation flag before it needs one,
+ * and a handle snapshotted before that yield can be a core a Remote Config publish or a debug endpoint
+ * switch has since replaced. Each branch reads it at the point it is entitled to.
+ */
+async function handle(request: BridgeRequest, getHandle: () => TrackerHandle | undefined): Promise<BridgeResponse> {
   switch (request.kind) {
     case 'presence': {
+      // Snapshotted ONCE for this branch: the two core reads below must describe the same core, or one
+      // pong could carry a blocking reason from one handle and a tracking flag from another.
+      const tracker = getHandle();
       // Answerable from glue + the core state — never expose device_id, credentials, or the held
       // token's Steam id. `blockingReason()` / `isTrackingActive()` are cheap in-memory reads (cached
       // from the last heartbeat); fail-open (`'NONE'` / not active) when the tracker isn't up. The FE
@@ -97,6 +105,19 @@ async function handle(request: BridgeRequest, tracker: TrackerHandle | undefined
     }
 
     case 'create-trade': {
+      // The activation gate, and it comes FIRST for two reasons. It is a REFUSAL, not a "not ready yet":
+      // nothing changes until the user completes onboarding, so `EXT_NOT_READY` — which tells the page to
+      // retry once the tracker is up — would leave it retrying forever. And now that the core itself is
+      // gated on activation (src/background/coreLifecycle.ts), a missing handle is the ORDINARY state for
+      // an un-onboarded install, so checking the handle first would answer every one of them with a code
+      // that means something else. Nothing reaches Steam on this path either way.
+      if (!(await isActivated())) {
+        return { ok: false, error: 'extension not activated', reason: 'EXT_NOT_ACTIVATED' };
+      }
+      // Read AFTER that await, never before it. A core replaced while the flag was being read would
+      // otherwise have this write land on the stopped one and fail a create that the live replacement
+      // would have completed.
+      const tracker = getHandle();
       // Coded: the page distinguishes "the tracker is not running" (retry once it is) from a Steam
       // refusal, and a caller must never have to pattern-match this string to find that out.
       if (tracker === undefined) return { ok: false, error: 'tracker not started', reason: 'EXT_NOT_READY' };
@@ -114,6 +135,7 @@ async function handle(request: BridgeRequest, tracker: TrackerHandle | undefined
     }
 
     case 'request-cycle': {
+      const tracker = getHandle();
       if (tracker === undefined) return { ok: false, error: 'tracker not started' };
       await Tracker.deliverPush(tracker, request.dealId ? wakeDeal(request.dealId) : wakeAll());
       return { ok: true, kind: 'request-cycle' };
@@ -141,7 +163,7 @@ async function answer(
   bootSettled: Promise<void>,
 ): Promise<BridgeResponse> {
   if (request.kind === 'presence') await withCap(bootSettled, PRESENCE_BOOT_WAIT_MS);
-  return handle(request, getHandle());
+  return handle(request, getHandle);
 }
 
 /**

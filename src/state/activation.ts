@@ -1,8 +1,14 @@
 // The activation flag: the single source of truth for whether the user has completed onboarding.
 //
-// It drives the popup screen (Inactive vs Active), the Steam on-page banner visibility, and the
-// toolbar icon. Persisted in browser.storage.local so it survives service-worker respawns and is
-// shared across the popup, content scripts, and background.
+// It gates THE CORE ITSELF (src/background/coreLifecycle.ts) — not activated means no heartbeat, no
+// presence and no Steam write — and it drives the popup screen (Inactive vs Active), the Steam on-page
+// banner visibility, and the toolbar icon. The core gate is the load-bearing one, and the newest: this
+// flag used to move nothing but pixels, so an installed-but-never-activated client tracked, delivered and
+// proved exactly like an activated one while telling the page it was not tracking.
+//
+// Persisted in browser.storage.local so it survives service-worker respawns and is shared across the
+// popup, content scripts and background — which subscribes, so a write from any context starts or stops
+// the core.
 
 import { subscribeKey } from '@/state/subscribeKey';
 

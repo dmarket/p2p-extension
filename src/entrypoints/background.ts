@@ -9,8 +9,11 @@ import { installDevSteamRedirect } from '@/background/dev-steam-redirect';
 import { registerBridgeRouter } from '@/background/router';
 import { injectContentScriptsOnSessionStart, registerContentScriptInjection } from '@/background/inject-content-scripts';
 import { reconcileSteamSession, registerRefreshTriggers } from '@/background/refresh';
+import { createCoreLifecycle } from '@/background/coreLifecycle';
+import { claimSessionStart } from '@/background/sessionStart';
 import type { AccountMismatchPush } from '@/messaging/protocol';
 import { initIcon } from '@/background/icon';
+import { isActivated, subscribeActivation } from '@/state/activation';
 import { setBlockingReason, setLinkedSteamId } from '@/state/blocking';
 import { setActiveTrackingCount } from '@/state/activeCount';
 import { registerReportRelay, reportError, setReportSink } from '@/infra/report/reporter';
@@ -211,6 +214,12 @@ export default defineBackground(() => {
    * console's force tick already uses for its own log line.
    */
   const mirrorBlockingState = (h: TrackerHandle): void => {
+    // A verdict from a core that is no longer ours is not ours to publish. Two callers reach here through
+    // an async continuation holding a captured handle — the cookie watch's `afterCycle` and the forced
+    // heartbeat below — so a teardown landing mid-flight would otherwise let a whole network round-trip
+    // later reassert the blocking reason that deactivation had just withdrawn, with no core left running
+    // to correct it. Cheap, and it closes the window that is actually wide.
+    if (handle !== h) return;
     try {
       // Dev-only: while a blocking-state simulation is armed the switcher is authoritative, because a
       // simulated CAUSE can only ever add a block — a real higher-ranked one would hide it, and no cause can
@@ -341,6 +350,10 @@ export default defineBackground(() => {
         initialEcho = false;
         return;
       }
+      // Same rule as mirrorBlockingState: a count from a core we have torn down must not be republished,
+      // or a callback still in flight past the unsubscribe would put trades back on the badge right after
+      // deactivation zeroed it — with nothing watching them.
+      if (handle !== started) return;
       void setActiveTrackingCount(count);
     });
     console.info('[dmarket-p2p] tracker core booted', {
@@ -352,36 +365,113 @@ export default defineBackground(() => {
     return started;
   };
 
-  // Stop and restart against new endpoints/config. Invoked by the dev-only debug console (endpoint
-  // switch) and by a genuine remote-config override change (reconcileOverrides).
-  const restartWith = (apiUrl: string, feUrl: string): void => {
-    if (handle !== undefined) {
-      unsubscribeActiveCount?.();
-      unsubscribeActiveCount = undefined;
-      try {
-        Tracker.stop(handle);
-      } catch {
-        /* already torn down */
-      }
-      handle = undefined;
-    }
+  // Tear the running core down. Leaves the persisted mirrors alone on purpose — a restart passes through
+  // here, and blanking the blocking reason for the moment between stop and start would flash "tracking is
+  // ON" on every surface during an endpoint switch or a remote-config publish.
+  const teardownCore = (): void => {
+    if (handle === undefined) return;
+    unsubscribeActiveCount?.();
+    unsubscribeActiveCount = undefined;
     try {
-      const restarted = startWith(apiUrl, feUrl);
-      // An explicit restart should take effect NOW: the fresh instance restores the persisted
-      // heartbeat schedule and would otherwise idle until the OLD schedule's due tick (an endpoint
-      // switch would look dead for up to a ttl). One forced heartbeat re-fetches truth against the
-      // new endpoints/config immediately — and the mirror is re-read once it has settled, because the
-      // cycle that establishes a block may emit no event that carries it (see mirrorBlockingState).
-      void Tracker.forceHeartbeat(restarted)
-        .then(() => mirrorBlockingState(restarted))
-        .catch(() => {
-          /* offline / torn down — the due tick re-evaluates */
-        });
-    } catch (error) {
-      console.error('[dmarket-p2p] tracker core failed to restart', error);
-      reportError(error, { fromCore: true });
+      Tracker.stop(handle);
+    } catch {
+      /* already torn down */
     }
+    handle = undefined;
   };
+
+  // Withdraw everything a stopped core was still asserting. Only the deactivation path calls this, and it
+  // is not optional there: `resolveSurface` ranks every sign-in reason ABOVE `NOT_ACTIVATED`, so a
+  // `STEAM_ACCOUNT_MISMATCH` persisted from the last activated session would keep the wrong-account prompt
+  // on screen — over the onboarding prompt the user actually needs — with no core left running to ever
+  // clear it. The count goes for the same reason: nothing is watching those trades any more.
+  //
+  // Fire-and-forget, and deliberately not generation-scoped. What made that look necessary was a mirror
+  // write from the core being torn down landing after these — and that window is closed at the source
+  // now: `mirrorBlockingState` and the active-count callback both refuse to publish for a handle that is
+  // no longer current, so nothing survives the teardown except a storage write already dispatched, which
+  // is microseconds wide. Whatever slips through that converges twice over: every cycle re-mirrors on
+  // `CycleStarted`, and every later spawn's inactive pass withdraws again.
+  //
+  // Each rejection is swallowed rather than left to the global handler. The reconciler calls this on a
+  // FAILED activation read — storage was just unreadable — so all three writes are likely to reject
+  // together, and three unhandled rejections would bury the one error `onError` already reported. Losing
+  // them costs nothing that is not already recovered: a withdrawal that fails leaves the mirrors stale,
+  // and the next spawn's inactive pass withdraws again.
+  const withdrawCoreState = (): void => {
+    const bestEffort = (write: Promise<void>): void => {
+      void write.catch(() => {});
+    };
+    bestEffort(setBlockingReason('NONE'));
+    bestEffort(setLinkedSteamId(undefined));
+    bestEffort(setActiveTrackingCount(0));
+  };
+
+  // Heartbeat NOW rather than at whatever the persisted schedule says is due. Used by an explicit restart
+  // and by activation: a fresh instance restores that schedule, so without this an endpoint switch looks
+  // dead — and a just-activated seller stays absent — for up to a full ttl. The mirror is re-read once the
+  // forced cycle settles, because the cycle that establishes a block may emit no event carrying it (see
+  // mirrorBlockingState).
+  const forceHeartbeatOn = (h: TrackerHandle): void => {
+    void Tracker.forceHeartbeat(h)
+      .then(() => mirrorBlockingState(h))
+      .catch(() => {
+        /* offline / torn down — the due tick re-evaluates */
+      });
+  };
+
+  // The core runs iff the extension is activated — see src/background/coreLifecycle.ts for the defect this
+  // closes and why it is a reconciler. This is the ONLY place the core is started.
+  const lifecycle = createCoreLifecycle({
+    isActivated,
+    isRunning: () => handle !== undefined,
+    start: (forceHeartbeat) => {
+      try {
+        const started = startWith(currentApiUrl, currentFeUrl);
+        if (forceHeartbeat) forceHeartbeatOn(started);
+      } catch (error) {
+        // A boot failure must not tear down the worker or the listeners registered above.
+        console.error('[dmarket-p2p] tracker core failed to start', error);
+        reportError(error, { fromCore: true });
+      }
+    },
+    // Idempotent by contract, because the reconciler calls it on every pass that finds the flag off: the
+    // teardown returns early with no handle, and both withdrawals are read-compare-write.
+    stop: () => {
+      teardownCore();
+      withdrawCoreState();
+    },
+    // Owed to a forced pass that found the core already started by an earlier, unforced one.
+    forceHeartbeat: () => {
+      if (handle !== undefined) forceHeartbeatOn(handle);
+    },
+    onError: (error) => reportError(error, { fromCore: true }),
+  });
+
+  // Stop and restart against new endpoints/config. Invoked by the dev-only debug console (endpoint
+  // switch) and by a genuine remote-config override change (reconcileOverrides). Routed through the
+  // reconciler rather than starting directly, so neither caller can boot a core on an un-onboarded
+  // install: both of them are perfectly capable of firing while the extension has never been activated.
+  // A restart that lands on a deactivated install therefore withdraws the mirrors too, since the pass
+  // takes the inactive branch.
+  //
+  // The teardown is unconditional but the start is not, so an unreadable flag leaves the core down. That
+  // is the reconciler's rule rather than this caller's quirk — consent that cannot be read is not consent
+  // — and the next worker spawn recovers it from a readable flag. See coreLifecycle.ts.
+  const restartWith = (apiUrl: string, feUrl: string): void => {
+    teardownCore();
+    currentApiUrl = apiUrl;
+    currentFeUrl = feUrl;
+    void lifecycle.reconcile({ force: true });
+  };
+
+  // Activating or deactivating starts or stops the core, in whatever context the flag was written from.
+  // Deferred behind the boot so a flip landing mid-boot cannot start a core on the build defaults before
+  // bootCore has resolved the real endpoints and overrides; passes are serialised, so the two can never
+  // both start one. Registered synchronously, like every other listener here: writing the flag from the
+  // Steam page is itself an event that wakes an evicted worker, and that spawn's own boot reconciles
+  // anyway — this subscription is what covers a worker that was already awake.
+  subscribeActivation(() => void bootSettled.then(() => lifecycle.reconcile({ force: true })));
 
   // Apply the remote-config tracker overrides in place: rebuild the core against `next` only when it
   // actually differs from what's running (a restart re-runs the boot cycle, so it's paid only when
@@ -464,20 +554,28 @@ export default defineBackground(() => {
         /* storage unavailable — keep the build defaults */
       }
     }
-    try {
-      startWith(bootApiUrl, bootFeUrl);
-      // A real change writes the cache → the subscription below fires and reconciles onto the running
-      // core (diff-guarded, so an unchanged fetch is a no-op). Already in flight; see above.
-      void configFetch;
-      // Now that a handle exists (and settings are loaded), settle a possibly-stale "no Steam session"
-      // block: if the cookie is back, one nudge re-checks it instead of waiting out the ttl. No-op in
-      // every other state.
-      void reconcileSteamSession(() => handle);
-    } catch (error) {
-      // A boot failure must not tear down the worker or the listeners registered above.
-      console.error('[dmarket-p2p] tracker core failed to start', error);
-      reportError(error, { fromCore: true });
-    }
+    // The endpoints the core will be started against, published before the reconcile that reads them.
+    currentApiUrl = bootApiUrl;
+    currentFeUrl = bootFeUrl;
+    // Starts the core only when the extension has been activated; an un-onboarded install boots no core,
+    // so it makes no heartbeat, registers no presence and writes nothing to Steam (coreLifecycle.ts).
+    // Its `start` swallows and reports a failed boot, so nothing here can tear down the worker or the
+    // listeners registered above.
+    //
+    // Forced on the FIRST spawn of a browser session only. An ordinary respawn is not: the core's boot
+    // cycle heartbeats when the persisted schedule says it is due, and a respawn inside a live ttl window
+    // is supposed to idle. But that idle trusts a verdict restored from storage, and after a disable, a
+    // reload, an update or a browser restart the user may have signed out with no worker awake to see
+    // the cookie change — so the restored `NONE` would paint tracking ON over a session that is gone
+    // (sessionStart.ts). The first spawn re-earns the verdict instead of remembering it.
+    await lifecycle.reconcile({ force: await claimSessionStart() });
+    // A real change writes the cache → the subscription below fires and reconciles onto the running
+    // core (diff-guarded, so an unchanged fetch is a no-op). Already in flight; see above.
+    void configFetch;
+    // Now that a handle exists (and settings are loaded), settle a possibly-stale "no Steam session"
+    // block: if the cookie is back, one nudge re-checks it instead of waiting out the ttl. No-op in
+    // every other state — including "not activated", where there is no handle to nudge.
+    void reconcileSteamSession(() => handle);
     // Drain anything a previous (possibly crashed) spawn left queued. Deferred a few seconds rather than
     // run inline: this is the contended window — the core's boot cycle, the Steam settoken work and the
     // remote-config fetch all land here — and a backlog of POSTs has no reason to compete with them.

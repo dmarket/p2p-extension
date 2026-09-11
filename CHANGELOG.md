@@ -12,6 +12,31 @@ GitHub Release whose notes are this file's section for that version, with the in
 A push whose version already has a tag releases nothing, so re-pushing is safe. See "CI & releases" in
 the README.
 
+## [Unreleased]
+
+### Fixed
+
+- **Trade tracking now really does stop until the user turns it on.** Activation controlled the toolbar
+  icon, the popup screen and the Steam banner — and nothing else. The extension started its tracker on
+  every run regardless, so an install whose onboarding was never completed still contacted DMarket (which
+  recorded that person as an online seller), still created Steam trade offers when the website asked for
+  one, and still produced the proofs that carry a deal through to completion, all while telling
+  dmarket.com that it was not tracking. That is why the same seller was refused when they tried to list
+  an item: one extension, two opposite answers about itself. Activation now gates the tracker itself —
+  before it there is no contact with DMarket, no presence, and no Steam trade offer. Pressing Activate
+  starts tracking at once rather than at the next scheduled check, and turning it off stops it.
+- **A seller who never finished onboarding is no longer recorded as having refused a trade.** When the
+  deadline to create a trade passes, DMarket separates a seller it could not see — the deal is frozen and
+  looked at — from one who declined, which counts against them. An un-activated extension reported itself
+  present the whole time, so a seller who had never been told there was anything to do took the second
+  branch.
+- **Re-enabling the extension re-checks your sessions instead of trusting what it remembered.** Signing
+  out of DMarket or Steam while the extension was disabled — or during a reload, an update or a browser
+  restart — left it showing "Trade tracking is ON" with a green icon, and telling dmarket.com the same,
+  for up to a minute or two after it came back: nothing had been awake to notice the sign-out, and the
+  next scheduled check was not yet due. The first start of a browser session now checks both sessions
+  immediately.
+
 ## [1.0.2-beta] - 2026-09-11
 
 Built against `@dmarket/p2p-tracker-core` `1.0.1-beta`.
