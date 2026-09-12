@@ -229,12 +229,19 @@ async function handle(request: DebugRequest, deps: DebugDeps): Promise<DebugResp
       return { ok: true };
 
     case 'debug:force-tick': {
+      // Activation is checked BEFORE the handle, and reported as its own outcome: the core only runs while
+      // the extension is activated (src/background/coreLifecycle.ts), so "not activated" is by far the
+      // commonest reason there is no handle — and the generic line below would blame an asleep worker or a
+      // failed boot for a state the operator can fix from the checkbox one panel over.
+      if (!(await isActivated())) {
+        await logCommand('ForceTick', 'blocked: extension not activated, so no core is running to tick.', 'warn');
+        return { ok: false, error: 'extension not activated' };
+      }
       const tracker = deps.getHandle();
       if (tracker === undefined) {
         await logCommand('ForceTick', 'blocked: tracker not started (service worker asleep or boot failed)', 'error');
         return { ok: false, error: 'tracker not started' };
       }
-      const activated = await isActivated();
       // Force an IMMEDIATE heartbeat via the core's dedicated entrypoint. This bypasses the backend-ttl
       // cadence gate: forceHeartbeat marks the heartbeat due, so the cycle always POSTs /heartbeat and
       // re-evaluates the account binding — letting a resolved mismatch clear. Only Steam directives/
@@ -253,10 +260,6 @@ async function handle(request: DebugRequest, deps: DebugDeps): Promise<DebugResp
       if (reason !== 'NONE') {
         await logCommand('ForceTick', `heartbeat forced — ${blockedNote(reason)}`, 'error');
         return { ok: true, reason };
-      }
-      if (!activated) {
-        await logCommand('ForceTick', 'heartbeat forced — extension not activated, so no trade cycle runs until onboarding is completed.', 'warn');
-        return { ok: true, reason, blocked: 'inactive' };
       }
       // Not just "heartbeat forced". The forced cycle can complete perfectly while skipping the proof it
       // was forced for, and that read as an unqualified success — the reason "why is there no /notary

@@ -21,6 +21,12 @@
 // on the wrong Steam account tracks nothing). Step 5 is last because it is the only state the user cannot
 // act on — see the core's `BlockingState` for the matching precedence on the tracker side, which is what
 // decides WHICH single reason reaches us.
+//
+// NOTE the asymmetry between the two inputs, because it is what makes step 4 unlike the rest. While
+// `NOT_ACTIVATED` holds there IS no core (src/background/coreLifecycle.ts), so `reason` is not live — it
+// is whatever the deactivation left behind. That is why the background withdraws the mirrored reason when
+// it stops the core: a stale `STEAM_ACCOUNT_MISMATCH` outranks this state, and with nothing running to
+// clear it the user would sit on a wrong-account prompt instead of the onboarding one they need.
 
 import type { BlockingReason } from '@/core/blockingReason';
 
