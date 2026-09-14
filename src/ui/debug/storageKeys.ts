@@ -16,7 +16,7 @@ interface KeyInfo {
 
 export const KNOWN_KEYS: Record<string, KeyInfo> = {
   // ---- extension-owned ----
-  'activation.enabled': { desc: 'Onboarding flag (boolean). Drives the popup screen, Steam banner, and toolbar icon.' },
+  'activation.enabled': { desc: 'Onboarding flag (boolean). Gates the core itself (no heartbeat, presence or Steam write while false), and drives the popup screen, Steam banner and toolbar icon.' },
   // NOTE: this key does not go through the generic row at all — StoragePanel renders BlockingStatePanel
   // for it (the precedence chain, the trigger conditions and the simulator). The entry stays here so the
   // catalog remains a complete list of what the extension persists.

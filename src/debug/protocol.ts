@@ -242,8 +242,6 @@ export interface ForceTickResult {
   ok: true;
   /** The core's reason after the awaited cycle. `'NONE'` = nothing blocking. */
   reason: BlockingReason;
-  /** Set when the extension itself (not the core) is why no trade cycle runs. */
-  blocked?: 'inactive';
 }
 
 /** Outcome of a forced Remote Config fetch (`debug:refresh-config`). */

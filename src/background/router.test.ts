@@ -7,15 +7,16 @@ import type { BridgeResponse } from '@/messaging/protocol';
 // activated, nothing blocked, but not tracking. Chrome evicts an idle worker after ~30s, so a quiet page
 // usually got that. These tests pin that presence waits for the boot, and that writes do not.
 
-const { blockingReason, isTrackingActive, version, forceHeartbeat, isActivated } = vi.hoisted(() => ({
+const { blockingReason, isTrackingActive, version, forceHeartbeat, createTrade, isActivated } = vi.hoisted(() => ({
   blockingReason: vi.fn(() => 'NONE'),
   isTrackingActive: vi.fn(() => true),
   version: vi.fn(() => '1.0.0'),
   forceHeartbeat: vi.fn(() => Promise.resolve()),
+  createTrade: vi.fn(() => Promise.resolve({ ok: true, status: 'created' })),
   isActivated: vi.fn(() => Promise.resolve(true)),
 }));
 vi.mock('@/core/tracker', () => ({
-  Tracker: { blockingReason, isTrackingActive, version, forceHeartbeat },
+  Tracker: { blockingReason, isTrackingActive, version, forceHeartbeat, createTrade },
 }));
 vi.mock('@/state/activation', () => ({ isActivated }));
 vi.mock('@/config/settings', () => ({ getSettings: () => ({ web: { reconnectDebounceMs: 3_000 } }) }));
@@ -32,6 +33,8 @@ const HANDLE = { core: true } as never;
 interface Booting {
   /** Resolves the boot the way `bootCore()` settling does. */
   settle: () => void;
+  /** Swap the live handle the way a Remote Config publish or a debug endpoint switch does. */
+  replaceCore: (next: unknown) => void;
   /** The handle the router reads — `undefined` until `settle()` is called, like the real closure. */
   reply: (request: unknown) => Promise<BridgeResponse>;
 }
@@ -48,6 +51,9 @@ function registerBooting(): Booting {
       handle = HANDLE;
       resolveBoot();
     },
+    replaceCore: (next) => {
+      handle = next;
+    },
     // Resolves when the router actually answers: the listener returns `true` and calls `sendResponse`
     // later, so awaiting the trigger proves nothing.
     reply: (request: unknown) =>
@@ -60,6 +66,9 @@ function registerBooting(): Booting {
 beforeEach(() => {
   isTrackingActive.mockReturnValue(true);
   blockingReason.mockReturnValue('NONE');
+  // Activated is the default; the gate tests opt out for one call each.
+  isActivated.mockResolvedValue(true);
+  createTrade.mockClear();
 });
 
 describe('the bridge router waits for the core boot before answering presence', () => {
@@ -125,5 +134,93 @@ describe('the bridge router waits for the core boot before answering presence', 
 
     expect(await bridge.reply({ kind: 'request-cycle' })).toEqual({ ok: false, error: 'tracker not started' });
     vi.useRealTimers();
+  });
+});
+
+// The activation gate on the write path. The core is now started only for an activated extension
+// (src/background/coreLifecycle.ts), so this is belt and braces — but it is the leg that holds if a core
+// is ever running for another reason, and it is what gives the page a code it can act on.
+
+const CREATE = {
+  kind: 'create-trade',
+  directiveId: 'd1',
+  dealId: 'deal1',
+  partnerSteamId: '7656119',
+  assetIds: ['a1'],
+  tradeToken: 't',
+  linkedSteamId: '7656119',
+} as const;
+
+describe('a not-activated extension refuses to create a trade', () => {
+  it('refuses with EXT_NOT_ACTIVATED and attempts no Steam write, even with a live core', async () => {
+    const bridge = registerBooting();
+    bridge.settle();
+    isActivated.mockResolvedValue(false);
+
+    expect(await bridge.reply(CREATE)).toEqual({
+      ok: false,
+      error: 'extension not activated',
+      reason: 'EXT_NOT_ACTIVATED',
+    });
+    // The defect this closes: a not-activated client used to create the real Steam offer.
+    expect(createTrade).not.toHaveBeenCalled();
+  });
+
+  it('names the activation, not the missing core, when neither is there', async () => {
+    // The ordinary shape of an un-onboarded install: no activation AND no handle. `EXT_NOT_READY` would
+    // tell the page to retry once the tracker is up, and nothing will ever bring one up here.
+    const bridge = registerBooting();
+    isActivated.mockResolvedValue(false);
+
+    expect(await bridge.reply(CREATE)).toMatchObject({ reason: 'EXT_NOT_ACTIVATED' });
+  });
+
+  it('still creates for an activated one', async () => {
+    const bridge = registerBooting();
+    bridge.settle();
+
+    expect(await bridge.reply(CREATE)).toMatchObject({ ok: true, kind: 'create-trade' });
+    expect(createTrade).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports itself as not tracking, with no blocked check to name', async () => {
+    // What the page reads while the gate holds. `is_activated: false` is what maps it to
+    // "installed, not set up" rather than to the pre-boot startup pong, which claims `is_activated: true`.
+    const bridge = registerBooting();
+    isActivated.mockResolvedValue(false);
+    bridge.settle();
+
+    expect(await bridge.reply({ kind: 'presence' })).toMatchObject({
+      ok: true,
+      isActivated: false,
+      isTrackingActive: false,
+      blockingReason: 'NONE',
+    });
+  });
+});
+
+describe('a core replaced mid-request', () => {
+  it('creates against the live core, not the one the request arrived on', async () => {
+    // The activation read yields, and a Remote Config publish or a debug endpoint switch can replace the
+    // core inside that window. A handle snapshotted before the read would put this write on the STOPPED
+    // core and fail a create the live replacement would have completed.
+    const bridge = registerBooting();
+    bridge.settle();
+    const REPLACEMENT = { core: 'replacement' } as never;
+
+    let release!: (activated: boolean) => void;
+    isActivated.mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        release = resolve;
+      }),
+    );
+
+    const pending = bridge.reply(CREATE);
+    await Promise.resolve();
+    bridge.replaceCore(REPLACEMENT);
+    release(true);
+
+    expect(await pending).toMatchObject({ ok: true, kind: 'create-trade' });
+    expect(createTrade).toHaveBeenCalledWith(REPLACEMENT, expect.anything());
   });
 });

@@ -39,6 +39,13 @@ export type CreateTradeFailureReason =
   | 'LIMIT_OUTGOING'
   /** The tracker is not running in this browser, so no Steam write was attempted. */
   | 'EXT_NOT_READY'
+  /**
+   * The user has not activated trade tracking, so the extension does not track for them and no Steam
+   * write was attempted. Deliberately distinct from `EXT_NOT_READY`: that one clears by itself once the
+   * core is up and is worth retrying, this one clears only when the user completes onboarding on their
+   * Steam Trade Offers page — so the page should send them there rather than retry.
+   */
+  | 'EXT_NOT_ACTIVATED'
   /** Transport failure reaching Steam. Retryable without a cooldown. */
   | 'NETWORK'
   /** Any other defined error — the tolerant default, never a guess. */
@@ -52,6 +59,7 @@ const CREATE_TRADE_FAILURE_REASONS: Record<CreateTradeFailureReason, true> = {
   LIMIT_COUNTERPARTY: true,
   LIMIT_OUTGOING: true,
   EXT_NOT_READY: true,
+  EXT_NOT_ACTIVATED: true,
   NETWORK: true,
   OTHER: true,
 };

@@ -119,7 +119,7 @@ export const BLOCKING_STATES: readonly BlockingStateInfo[] = [
     surfaces: 'Popup onboarding. Steam onboarding banner. Grey icon.',
     keys: ['activation.enabled'],
     activation: true,
-    note: 'Below the sign-in states: two of them make onboarding impossible. Writes the real flag.',
+    note: 'Below the sign-in states: two of them make onboarding impossible. Writes the real flag, which STOPS the core — no heartbeat, no presence, no Steam write until it goes back on.',
   },
   {
     rank: 5,
