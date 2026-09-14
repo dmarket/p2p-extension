@@ -12,7 +12,9 @@ GitHub Release whose notes are this file's section for that version, with the in
 A push whose version already has a tag releases nothing, so re-pushing is safe. See "CI & releases" in
 the README.
 
-## [Unreleased]
+## [1.0.3-beta] - 2026-09-14
+
+Built against `@dmarket/p2p-tracker-core` `1.0.1-beta`.
 
 ### Fixed
 
