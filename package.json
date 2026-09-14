@@ -48,5 +48,9 @@
     "@fontsource/montserrat": "^5.3.0",
     "@fontsource/squada-one": "^5.3.0",
     "preact": "10.29.8"
+  },
+  "allowScripts": {
+    "esbuild": true,
+    "fsevents": true
   }
 }
