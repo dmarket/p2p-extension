@@ -116,5 +116,7 @@ every build of a given release is reproducible.
   `appVersion`. Production deployment is a separate, approval-gated job, a stub until there is a
   store listing to publish to.
 
+[1.0.3-beta]: https://github.com/dmarket/p2p-extension/compare/v1.0.2-beta...v1.0.3-beta
+[1.0.2-beta]: https://github.com/dmarket/p2p-extension/compare/v1.0.1-beta...v1.0.2-beta
 [1.0.1-beta]: https://github.com/dmarket/p2p-extension/compare/v1.0.0-beta.1...v1.0.1-beta
 [1.0.0-beta.1]: https://github.com/dmarket/p2p-extension/releases/tag/v1.0.0-beta.1
