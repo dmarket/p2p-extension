@@ -18,6 +18,7 @@
   only ever scaled DOWN, which keeps the text sharp when the page is zoomed.
 -->
 
+<!--suppress HtmlDeprecatedAttribute -- see above: `align` is deliberate, `style` would be stripped -->
 <p align="center">
   <img src=".github/assets/trade-tracker-banner.png" alt="DMarket Trade Tracker — track your Steam trades automatically">
 </p>
