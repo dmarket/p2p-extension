@@ -116,14 +116,30 @@ version: 2.1
 #     ORGANIZATION rights, which nobody on this project has, so the five variables sit at project
 #     level, where CircleCI exposes them to EVERY job in the project, `check` and both builds included.
 #
-#     Why that was judged acceptable here: this CircleCI project is private and stays private, so
-#     there are no pull-request builds from outside the org — which is the ordinary way project-wide
-#     secrets get exfiltrated.
+#     Why that was judged acceptable here: the CircleCI project is private and stays private (an
+#     anonymous request for the badge or the v1.1/v2 API gets 404), so nobody outside can read a build.
+#     What keeps an OUTSIDER from running one is a different control, and it is the one to check in the
+#     dashboard rather than assume: Project Settings -> Advanced, "Build forked pull requests" and
+#     "Pass secrets to builds from forked pull requests". Both default off; both must stay off while
+#     these variables are project-level. The repo is public and forkable, so that is not academic.
 #
-#     What privacy does NOT cover, i.e. the residual risk: `check` and the builds run `npm ci`, so a
-#     compromised dependency's postinstall script would execute with both secrets in its environment.
-#     package-lock.json is pinned, so this needs a malicious version to be MERGED here (a dependency
-#     bump), not merely published upstream — a visible event, not a silent one.
+#     What privacy does NOT cover, i.e. the residual risk — and it is not the postinstall story this
+#     comment used to tell. `check` and both builds carry NO branch filter (only the six release jobs
+#     do), so every push runs them with all five secrets in scope. Dependabot branches live in this
+#     repo, not in a fork, so its weekly PRs get the same environment: third-party code executes here
+#     BEFORE review and BEFORE any merge. `allowScripts` in package.json narrows `npm ci` to esbuild +
+#     fsevents, but that is the smaller half — vitest, eslint, vite and wxt all IMPORT dependency code
+#     and run it.
+#
+#     Weigh it honestly in the other direction too: a dependency that runs in `build-prod` can poison
+#     the artifact itself, and that artifact is signed and shipped regardless of who holds the key. So
+#     splitting these secrets does not prevent the worst outcome; it denies out-of-band publishing
+#     (signing an arbitrary CRX, uploading past the pipeline and past the human approval) and denies
+#     persistence once the bad dependency is gone.
+#
+#     Cheapest real mitigation short of contexts, needing nobody's permission: `unset` the store and
+#     signing variables into $BASH_ENV as the first step of `check` and both builds — the same
+#     mechanism `scripts/ci/release.sh` already uses to export across steps.
 #
 #     If it ever happens, or as soon as someone has the org rights: rotate the service-account key
 #     (minutes, in Google Cloud) and the signing key (Chrome Web Store support, up to a week), create
