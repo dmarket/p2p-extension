@@ -189,9 +189,10 @@ console in it.
    nothing in CI does that, and without it `main` drifts from what was published.
 
 Only then does CI tag `v<version>` and publish a GitHub Release with the production zip, a sourcemaps
-archive (for symbolicating crash reports), the production manifest and `SHA256SUMS`. A prerelease
-version (`0.x`, or anything with a `-suffix`) is marked **Pre-release** on GitHub, so it is not
-presented as the Latest release.
+archive (for symbolicating crash reports), the production manifest and `SHA256SUMS`. Only a `0.x`
+version — never released at all — is marked **Pre-release** on GitHub. A `-beta` is not: betas are
+ordinary public releases that ship to every store user, so the beta *is* the latest release, and the
+badge would only point people at an older stable build than the one actually in the store.
 
 The debug build is deliberately **not** published — it is not what ships, and it inlines the internal
 `WXT_DEV_*`/`WXT_STAGE_*` endpoints. Download it from the `build-debug` job's **Artifacts** tab in
