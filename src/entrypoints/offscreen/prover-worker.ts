@@ -15,8 +15,11 @@
 // Cross-origin isolation is inherited from the embedding document, so `SharedArrayBuffer` is still available
 // here, and the manifest's `worker-src 'self'` already permits this worker.
 //
-// Upstream has never executed this path: `client-wasm/RUN_E2E.md` records the live run as deferred, so nothing
-// there documents the constraint.
+// DO NOT collapse this back into the document. If someone "simplifies" the worker away and drives the prover
+// from the offscreen document's main thread, the symptom is the RuntimeError above — thrown inside the wasm
+// glue in a promise nobody holds, so it never reaches the `await` and the proof simply never settles. It is a
+// hang, not a build error, and only the proof timeout turns it back into a failure. Upstream's own end-to-end
+// run reaches the same shape (a dedicated outer worker), independently.
 
 import { proveNotaryTransition } from '@dmarket/p2p-tracker-core';
 import { buildTrackerConfig } from '@/core/config';

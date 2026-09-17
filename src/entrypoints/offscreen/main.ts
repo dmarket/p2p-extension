@@ -55,9 +55,10 @@ browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
  * the log showed a cycle that reported and then emitted nothing at all, and there was no way to tell whether
  * the message had even arrived here.
  *
- * Two lines per proof, kept out of the dev-only guard on purpose: this path has never yet produced a proof, so
- * the cost of a console line is not worth the cost of another silent failure. They name no credential — the
- * ids come from the request JSON, which is credential-free by construction.
+ * Two lines per proof, kept out of the dev-only guard on purpose: every failure this path has ever had was a
+ * SILENT one — a hang or a wasm trap in a promise nobody held — so the cost of a console line is not worth the
+ * cost of another. They name no credential — the ids come from the request JSON, which is credential-free by
+ * construction.
  *
  * Also relayed to the service worker, which is the only context that can put them in the EXPORTED session log
  * — a console line helps whoever is at the keyboard, and nobody else. The send is best-effort and no-ops in
