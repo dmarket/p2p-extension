@@ -360,11 +360,26 @@ export default defineConfig({
         : {}),
     };
   },
+  // Sourcemaps are BUILT but must not be PACKAGED, and those are two different things. `sourcemap:
+  // 'hidden'` (below) only omits the `//# sourceMappingURL` comment — the `.map` files still land in
+  // the output directory, and `wxt zip` packs that directory wholesale. Without this exclude the store
+  // package carried 19 maps with fully populated `sourcesContent`: every source file and every comment
+  // in this repo, shipped to every user who installs the extension.
+  //
+  // They remain on the GitHub Release as `-sourcemaps.tar.gz` (scripts/ci/collect-artifacts.sh), which
+  // is where symbolicating a crash report by `__BUILD_ID__` actually needs them — so nothing is lost.
+  //
+  // This does not retire what is already out: the maps shipped inside the store package and the
+  // releases that preceded this line.
+  zip: {
+    exclude: ['**/*.map'],
+  },
   vite: () => ({
     plugins: [preact()],
     // A crash report's stack is otherwise unreadable: background.js is ~1.2 MB on ~57 lines, so every
     // frame renders as `background.js:34:120345`. 'hidden' emits the maps without a sourceMappingURL
-    // comment, so nothing ships a pointer to them — archive them per release to symbolicate.
+    // comment, so nothing ships a pointer to them — and `zip.exclude` above keeps them out of the
+    // package, so they exist only as the per-release archive.
     build: {
       // Vite injects a `<link rel="modulepreload">` into every HTML entrypoint for each shared chunk
       // of that entry. Chrome refuses to reuse a preloaded `chrome-extension://` resource across
