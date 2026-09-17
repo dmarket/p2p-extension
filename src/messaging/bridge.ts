@@ -11,12 +11,16 @@ import {
 } from './protocol';
 import { DMARKET_ORIGINS } from '@/config/settings';
 
-// Origins allowed to talk to the bridge, in addition to the page's own origin. The content script
-// only runs on manifest-matched (trusted) hosts, so a same-window self-post from the page's own
-// origin is always accepted; this list admits any additional cross-window origins. The default is the
-// two dmarket origins (DMARKET_ORIGINS — the single home of that pair); the content entrypoint passes
-// a resolved list that also merges remote-config extras (and, in debug builds, dev FE origins), so
-// this is a configurable allow-list, never a single hardcoded origin.
+// Origins allowed to talk to the bridge, in addition to the page's own origin. The default is the two
+// dmarket origins (DMARKET_ORIGINS — the single home of that pair); the content entrypoint passes a
+// resolved list that also merges remote-config extras (and, in debug builds, dev FE origins).
+//
+// READ `onPageMessage` BEFORE RELYING ON THIS LIST. Its first guard is `event.source !== window`, and
+// a message this same window posted always carries `location.origin` — which the preceding disjunct
+// already accepts. So the extra origins are unreachable today: a cross-window post is rejected before
+// the list is ever consulted. The list is second-line defence, not the gate, and it would only begin
+// admitting anything if that same-window guard were relaxed. That is also why a remote-config value
+// here cannot widen who may talk to the bridge.
 
 function toBridgeRequest(message: FrontendMessage): BridgeRequest {
   switch (message.type) {

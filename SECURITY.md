@@ -45,9 +45,12 @@ demonstrating that any of them can be crossed are especially valuable:
   mobile-confirmation endpoints. The user confirms trades themselves in the official Steam app.
 - **The page bridge answers dmarket.com only**, validates message origin and shape, and never exposes
   credentials or device identifiers to the page.
-- **Remote configuration cannot widen permissions.** Every remotely-tunable value is validated against
-  the manifest's host permissions and compiled-in allow-lists; hosts, trust anchors and proof-read
-  definitions are not remotely settable.
+- **Remote configuration cannot widen permissions.** Hosts, trust anchors and proof-read definitions
+  are not remotely settable at all. The host and base-URL overrides that *are* settable are validated
+  against the manifest's host permissions and compiled-in allow-lists. The one remotely-tunable origin
+  list — the page bridge's extra origins — is validated only as a well-formed origin, and it cannot
+  widen anything either: the bridge accepts same-window messages only, so a cross-window origin is
+  rejected before that list is consulted.
 - **Error reports carry no account identity.** Crash reports are scrubbed of tokens, identifiers and
   query values before leaving the device, and reporting can be switched off in the popup.
 
