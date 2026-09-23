@@ -157,8 +157,8 @@ installable artifact should never come from a pipeline whose own checks are red.
 
 A push to `release/vX.Y.Z` adds the release chain to that same pipeline, so one release is one
 pipeline: `hold_release` (approval) → `release` (tag + GitHub Release with the zip) → `pack_crx` →
-`store_preflight` → `hold_store_upload` (approval) → `upload_to_store`. Those six exist only on a
-release branch; a push anywhere else runs the three jobs above and nothing more.
+`store_preflight` → `upload_to_store` → `delete_release_branch`. Those six exist only on a release
+branch, and `hold_release` is the only approval among them; a push anywhere else runs the three jobs above and nothing more.
 
 Both zips are meant to be installed by hand: download, unzip, then `chrome://extensions` →
 Developer mode → **Load unpacked**. Each build is verified by `scripts/verify-build.mjs`, which
@@ -171,9 +171,10 @@ console in it.
 
 ### Cutting a release
 
-0. Branch off as `release/vX.Y.Z` (e.g. `release/v1.0.1`). The release jobs run **only** on branches
-   matching that pattern, and the version in the name must equal step 2's — `release` fails before
-   tagging if they disagree.
+Steps 1–3 land on `main` through a normal pull request. The release branch is cut from `main` only
+after that PR is merged, and it is deleted once the release is done — it is never merged back, so
+anything that exists only on it is lost from `main`.
+
 1. Pin `@dmarket/p2p-tracker-core` to an exact **stable** version (`npm install`, commit the
    lockfile) — currently `1.0.2-beta`. A build made against a `-SNAPSHOT` core is never released:
    a snapshot can be unpublished from npm, which would make the published build unreproducible. Note
@@ -186,8 +187,13 @@ console in it.
    extension card). `1.0.0-beta.1` ships as version `1.0.0` / version_name `1.0.0-beta.1`.
 3. Add the matching `## [x.y.z]` section to [CHANGELOG.md](CHANGELOG.md) — it becomes the release
    notes, and the release fails without it.
-4. Push the branch, then **approve `hold_release`** in CircleCI. Merge it back to `main` afterwards —
-   nothing in CI does that, and without it `main` drifts from what was published.
+4. Branch off the merged `main` as `release/vX.Y.Z` (e.g. `release/v1.0.1`), with no commits of its
+   own. The release jobs run **only** on branches matching that pattern, and the version in the name
+   must equal step 2's — `release` fails before tagging if they disagree.
+5. Push the branch, then **approve `hold_release`** in CircleCI. That is the only click: the build is
+   then tagged, published, signed and submitted to the Chrome Web Store, and `delete_release_branch`
+   removes the branch at the end. A push that released nothing (tag already there, `[skip release]`,
+   snapshot core) keeps its branch.
 
 Only then does CI tag `v<version>` and publish a GitHub Release with the production zip, a sourcemaps
 archive (for symbolicating crash reports), the production manifest and `SHA256SUMS`. Only a `0.x`
@@ -203,19 +209,18 @@ A push whose version is already tagged releases nothing, so re-pushing a release
 `[skip release]` in the commit message skips it explicitly. `main` still runs `check` and both builds
 on every push — it just cannot release.
 
-Publishing to the Chrome Web Store is a **second, separately approved** pipeline triggered by that
-tag:
+Publishing to the Chrome Web Store continues in the same pipeline, with no further approval:
 
 ```
-tag v*  →  pack_crx  →  store_preflight  →  hold_store_upload  →  upload_to_store
-                                              (approval)
+release  →  pack_crx  →  store_preflight  →  upload_to_store  →  delete_release_branch
 ```
 
 `pack_crx` re-verifies the released zip and wraps it unchanged in a CRX3 signed with our own key (the
 store item uses **Verified CRX Uploads**, so a plain zip is rejected). `store_preflight` then rehearses
-the upload against the live store — read-only, it cannot send anything — so whoever approves already
-knows what is published today and whether this version would be accepted. Only `upload_to_store`
-writes, and only after the approval.
+the upload against the live store — read-only, it cannot send anything — so a wrong id, a missing
+service account or a version the store would refuse fails before any write. Only `upload_to_store`
+writes. A failed store step is retried by re-running the workflow from failed; the branch is still
+there, because it is deleted only after the upload succeeds.
 
 #### Version policy
 

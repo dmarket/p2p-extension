@@ -3,10 +3,10 @@
 # upload-to-store.sh <preflight|upload> — the Chrome Web Store half of the release workflow.
 #
 #   preflight          a full REHEARSAL: everything the upload decides, deciding nothing. Runs
-#                      automatically in the `store_preflight` job, BEFORE the human approval, so
-#                      whoever clicks Approve already knows what the store holds and whether this
-#                      version would be accepted. Read-only — it cannot upload or publish.
-#   upload [flags…]    the real thing, in `upload_to_store`, after the approval. Extra flags are
+#                      automatically in the `store_preflight` job, right before the upload, so a
+#                      release the store would refuse fails before anything is sent. Read-only — it
+#                      cannot upload or publish.
+#   upload [flags…]    the real thing, in `upload_to_store`, after a green rehearsal. Extra flags are
 #                      forwarded to cws-upload.mjs; `--cancel-pending` and `--skip-publish` exist for
 #                      a deliberate SSH rerun and are not wired into the config.
 #
@@ -101,12 +101,12 @@ BANNER
 # currently holds, and applies every refusal the real upload would apply — a version the store would
 # reject (exit 3), a submission already pending review (exit 4) — while uploading nothing. So a wrong
 # id, a service account never added under Developer Dashboard → Account, or a version that only bumped
-# a suffix all fail HERE, before anyone is asked to approve a release that could not have worked.
+# a suffix all fail HERE, before the upload of a release that could not have worked.
 preflight() {
   require_env
   load_workspace
   node scripts/ci/cws-upload.mjs deploy "$CRX" --version "$VERSION" --dry-run
-  banner "REHEARSAL PASSED — approve hold_store_upload to submit this for review"
+  banner "REHEARSAL PASSED — upload_to_store submits this for review next"
 }
 
 # ── upload ────────────────────────────────────────────────────────────────────────────────────────

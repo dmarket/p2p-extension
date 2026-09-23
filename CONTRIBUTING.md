@@ -79,6 +79,7 @@ deleting the parameter — the badge simply breaks.
 ## How releases work
 
 Releases are cut from a `release/vX.Y.Z` branch and approved in CircleCI — never create git tags by
-hand. A version bump landed on `main` releases nothing: the release jobs are filtered to that branch
+hand. The version bump and its CHANGELOG section reach `main` through a pull request first; the branch
+is cut from that `main` and deleted by CI once the release is done. A version bump landed on `main` releases nothing: the release jobs are filtered to that branch
 pattern, so `main` runs checks and builds only. The full procedure is in the
 [README](README.md#cutting-a-release).
