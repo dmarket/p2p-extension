@@ -12,6 +12,18 @@ GitHub Release whose notes are this file's section for that version, with the in
 A push whose version already has a tag releases nothing, so re-pushing is safe. See "CI & releases" in
 the README.
 
+## [1.0.5-beta] - 2026-09-23
+
+Built against `@dmarket/p2p-tracker-core` `1.0.3-beta`.
+
+### Fixed
+
+- **Trade offers are created after a browser restart, without opening Steam first.** Closing the browser
+  drops a short-lived Steam cookie that every offer and cancel has to carry, while the Steam login itself
+  survives. Until the seller opened any Steam page, the extension looked for that cookie, did not find
+  it, and failed the offer with "no Steam session cookie" without contacting Steam, so the deal could run
+  out of time. It now asks Steam for a fresh cookie first and fails only if Steam does not give one.
+
 ## [1.0.4-beta] - 2026-09-23
 
 Built against `@dmarket/p2p-tracker-core` `1.0.2-beta`.
@@ -131,6 +143,7 @@ every build of a given release is reproducible.
   `appVersion`. Production deployment is a separate, approval-gated job, a stub until there is a
   store listing to publish to.
 
+[1.0.5-beta]: https://github.com/dmarket/p2p-extension/compare/v1.0.4-beta...v1.0.5-beta
 [1.0.4-beta]: https://github.com/dmarket/p2p-extension/compare/v1.0.3-beta...v1.0.4-beta
 [1.0.3-beta]: https://github.com/dmarket/p2p-extension/compare/v1.0.2-beta...v1.0.3-beta
 [1.0.2-beta]: https://github.com/dmarket/p2p-extension/compare/v1.0.1-beta...v1.0.2-beta
