@@ -176,7 +176,7 @@ after that PR is merged, and it is deleted once the release is done — it is ne
 anything that exists only on it is lost from `main`.
 
 1. Pin `@dmarket/p2p-tracker-core` to an exact **stable** version (`npm install`, commit the
-   lockfile) — currently `1.0.2-beta`. A build made against a `-SNAPSHOT` core is never released:
+   lockfile) — currently `1.0.3-beta`. A build made against a `-SNAPSHOT` core is never released:
    a snapshot can be unpublished from npm, which would make the published build unreproducible. Note
    that `npm run core:latest` deliberately moves the pin onto the newest snapshot for development
    work, so put it back before releasing.
