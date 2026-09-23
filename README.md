@@ -175,7 +175,7 @@ console in it.
    matching that pattern, and the version in the name must equal step 2's — `release` fails before
    tagging if they disagree.
 1. Pin `@dmarket/p2p-tracker-core` to an exact **stable** version (`npm install`, commit the
-   lockfile) — currently `1.0.1-beta`. A build made against a `-SNAPSHOT` core is never released:
+   lockfile) — currently `1.0.2-beta`. A build made against a `-SNAPSHOT` core is never released:
    a snapshot can be unpublished from npm, which would make the published build unreproducible. Note
    that `npm run core:latest` deliberately moves the pin onto the newest snapshot for development
    work, so put it back before releasing.
