@@ -12,6 +12,21 @@ GitHub Release whose notes are this file's section for that version, with the in
 A push whose version already has a tag releases nothing, so re-pushing is safe. See "CI & releases" in
 the README.
 
+## [1.0.4-beta] - 2026-09-23
+
+Built against `@dmarket/p2p-tracker-core` `1.0.2-beta`.
+
+### Fixed
+
+- **A trade offer Steam closed is replaced by a new one, instead of by its own dead id.** When Steam
+  cancelled the seller's offer before it went anywhere (most often at the mobile confirmation step, but
+  also expired, declined or with items no longer available), DMarket asks for a fresh offer. The
+  extension answered that request with the id of the offer Steam had just closed and sent nothing to
+  Steam, so the deal stalled on an offer that no longer existed while the buyer's payment stayed held.
+  It now creates the new offer.
+- **A cancel that fails now tells DMarket why.** Steam's own reason travels with the failure, so an offer
+  Steam has already closed is no longer indistinguishable from a network blip.
+
 ## [1.0.3-beta] - 2026-09-14
 
 Built against `@dmarket/p2p-tracker-core` `1.0.1-beta`.
@@ -116,6 +131,7 @@ every build of a given release is reproducible.
   `appVersion`. Production deployment is a separate, approval-gated job, a stub until there is a
   store listing to publish to.
 
+[1.0.4-beta]: https://github.com/dmarket/p2p-extension/compare/v1.0.3-beta...v1.0.4-beta
 [1.0.3-beta]: https://github.com/dmarket/p2p-extension/compare/v1.0.2-beta...v1.0.3-beta
 [1.0.2-beta]: https://github.com/dmarket/p2p-extension/compare/v1.0.1-beta...v1.0.2-beta
 [1.0.1-beta]: https://github.com/dmarket/p2p-extension/compare/v1.0.0-beta.1...v1.0.1-beta
