@@ -6,8 +6,8 @@
 # CRX3 signed with the Verified-CRX-Uploads key, and attaches that .crx to the same Release. The signed
 # file is handed to `upload_to_store` through the CircleCI workspace (artifacts/store/).
 #
-# WHY A SEPARATE JOB FROM THE UPLOAD. It runs BEFORE the human approval, so the operator approves
-# something already built, verified and signed — the approval decides only whether it goes to the store.
+# WHY A SEPARATE JOB FROM THE UPLOAD. The signed package is attached to the Release on its own, so
+# what the store receives can be inspected there whether or not the upload that follows succeeds.
 # The split is also meant to separate the secrets (this job the signing key, the other the store
 # credentials), but that half is NOT in effect today: both live as project env vars because nobody has
 # CircleCI org rights to create contexts. See the env note in .circleci/config.yml.
@@ -160,8 +160,8 @@ attach() {
   : "${GITHUB_TOKEN:?GITHUB_TOKEN must be set (org-wide context org-global)}"
 
   # Always attached, unconditionally: the .crx IS the signed release artifact, and it is the exact
-  # bytes the store will receive, so the Release is where it belongs whether or not anyone goes on to
-  # approve the upload. (There used to be a CWS_DRY_RUN branch skipping this; the rehearsal is now the
+  # bytes the store will receive, so the Release is where it belongs whether or not the upload that
+  # follows succeeds. (There used to be a CWS_DRY_RUN branch skipping this; the rehearsal is now the
   # `store_preflight` job, which cannot upload at all, so there is nothing left to keep off a Release.)
   # The release id, whether the .crx is already there, and the SHA256SUMS asset id — one pass over the
   # payload `fetch` already downloaded. The two writes below are INDEPENDENTLY idempotent rather than
