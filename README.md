@@ -78,10 +78,35 @@ on Firefox MV3, so a development build needs them granted by hand in `about:addo
 
 ## Configuration
 
-Copy `.env.example` to `.env` and fill in the values you need. Every integration (error reporting,
-remote config) is optional and stays inactive until its variables are present, so the
-extension builds and runs with an empty `.env`. Only `WXT_`-prefixed variables are exposed to the
-bundle.
+Copy `.env.example` to `.env` and fill in the values you need. Error reporting stays inactive until
+its variable is present, so the extension builds and runs with an empty `.env`. Only `WXT_`-prefixed
+variables are exposed to the bundle.
+
+### Remote config
+
+A single JSON document on the DMarket CDN overlays the compiled-in defaults, so a Steam or DMarket
+change (a path, a regex, a cookie name, a timing) can be fixed without a store release. Production
+builds read `https://cdn-main.dmarket.com/p2p/extension-config.json`; development builds read
+`WXT_DEV_REMOTE_CONFIG_URL` when it is set. The extension revalidates the document with its `ETag`
+at most once per `web.remoteConfigFetchIntervalMs` (1 h by default), backs off for 15 min after a
+failed fetch, and keeps the last good document when anything goes wrong. With no document at all it
+runs on the compiled defaults. The document is data only and every field is validated; a field that
+fails validation is ignored rather than applied.
+
+The document lives in the repo, in `buckets/<env>/p2p/extension-config.json`, and lists every
+publishable field with the value in effect. `src/config/bucketConfig.test.ts` keeps both files
+complete and valid, and pins every value that differs from a compiled default, so a core update that
+changes a default cannot be silently overridden by a stale published value.
+
+```bash
+npm run config:download         # pull the published documents into buckets/
+npm run config:upload:stage     # validate, show the diff against what is live, publish
+npm run config:upload:prod      # the same, and asks before publishing to production
+npm run config:stage-to-prod    # copy the stage document over the local prod one, to review
+```
+
+The scripts touch that one object only: the buckets are shared with other DMarket clients. Uploads use
+a generation precondition, so a change someone else published after the diff is never overwritten.
 
 Two things are compiled in rather than configured, because their absence is silent and expensive: the
 DMarket API and FE origins, and the production notary URL. So a production build arms the real TLSN
@@ -117,7 +142,7 @@ Open it from the popup's “debug console” link (dev builds only), or navigate
   place; the notary URL is applied independently;
 - **force tick** (an immediate heartbeat), **retry proof** (restart the tracker so a proof the core
   has latched off as refused is attempted again) and **refresh config** (fetch remote config now,
-  bypassing the 1 h throttle). Each writes its outcome to the session log rather than to a transient
+  bypassing the refetch interval and the failure backoff). Each writes its outcome to the session log rather than to a transient
   pill, so it is timestamped against the traffic it caused;
 - a **blocking-state simulator**: reproduce any state in the chain — no DMarket session, no Steam
   session, wrong Steam account, onboarding not completed, DMarket error — by its *real cause* (the
@@ -252,12 +277,13 @@ src/
   core/              # single import seam for the tracker core, plus the notary proof delegate
   messaging/         # typed message contracts + the dmarket.com page bridge
   state/             # activation flag (gates the core), mirrored blocking reason, and the surface resolver
-  infra/             # error reporting, remote config (opt-in)
+  infra/             # error reporting, remote-config fetch
   debug/             # developer-only debug console service-worker glue (dev builds only)
   ui/                # popup, on-page UI, and debug-console components
   util/              # redaction, storage-event registrar, match patterns
   assets/            # icons used by the popup and on-page UI
   testing/           # shared test stubs
+buckets/             # the remote-config documents per environment, and the scripts that publish them
 ```
 
 `scripts/` holds four guards that mechanise invariants a unit test cannot reach. Three run as part of

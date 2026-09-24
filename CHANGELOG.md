@@ -12,6 +12,27 @@ GitHub Release whose notes are this file's section for that version, with the in
 A push whose version already has a tag releases nothing, so re-pushing is safe. See "CI & releases" in
 the README.
 
+## [Unreleased]
+
+### Fixed
+
+- **Updates install without a browser restart.** Chrome installs an update only while the extension
+  is idle, and the document that runs the trade-proof engine kept it from ever being idle, so updates
+  waited until the seller restarted Chrome. The extension now reloads onto a downloaded update as soon
+  as no proof is running.
+
+### Changed
+
+- **Remote configuration comes from the DMarket CDN** instead of Firebase Remote Config, revalidated
+  hourly by default and with a 15-minute back-off after a failed fetch. The Firebase host permission is
+  removed.
+- **Fewer remotely tunable settings.** Steam base URLs and query-parameter names, the notary protocol
+  names, the Steam profile and game groups, the bridge's extra origins and the trigger debounces are no
+  longer settable remotely; they could not do anything useful and some could widen what the extension
+  accepts.
+- **The extension reports its own version** to dmarket.com (`pong.version`) and to the backend
+  (heartbeat `clientVersion`), instead of the core library's.
+
 ## [1.0.5-beta] - 2026-09-23
 
 Built against `@dmarket/p2p-tracker-core` `1.0.3-beta`.
