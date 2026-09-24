@@ -218,7 +218,7 @@ export function StatusPanel(): preact.JSX.Element {
           buttons onto another line. */}
       <div class="header-left">
         <h1>P2P Debug Console</h1>
-        <span class="pill">{describe ? `v${describe.version}` : 'v…'}</span>
+        <span class="pill">{describe ? `v${describe.version} · core ${describe.coreVersion}` : 'v…'}</span>
         <span class={`pill ${describe?.hasSession ? 'on' : 'off'}`}>
           session: {swDown ? 'sw asleep' : describe?.hasSession ? 'running' : 'stopped'}
         </span>

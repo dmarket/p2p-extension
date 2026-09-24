@@ -108,7 +108,7 @@ Open it from the popup's “debug console” link (dev builds only), or navigate
   the decoded response, and the core's lifecycle frames interleaved in causal order. Credentials are
   redacted at capture time; identifiers (steamids, deal ids, `deviceId`) are deliberately kept, since
   they are what the log exists to correlate;
-- **session status**: core version, next-heartbeat countdown, Steam/DMarket sign-in indicators, the
+- **session status**: extension + core version, next-heartbeat countdown, Steam/DMarket sign-in indicators, the
   mirrored `block:` reason, which prover the core resolved (`prover:`), and the outcome of the last
   proof (`proof:`) — a prover being *configured* and a proof being *attempted* are different facts,
   so they get separate pills;

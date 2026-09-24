@@ -135,6 +135,7 @@ export type ExtensionMessage =
       type: 'pong';
       correlation_id?: string;
       present: true;
+      /** The extension's own version (`1.0.5-beta`). The core version is not sent: each build pins one. */
       version: string;
       mismatch: boolean;
       /** The user has turned the extension on (completed onboarding). Host-owned, independent of the core. */

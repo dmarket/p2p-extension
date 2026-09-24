@@ -21,6 +21,7 @@ import { enqueue, flush } from '@/infra/report/outbox';
 import { isRemoteConfigEnabled } from '@/infra/config';
 import { fetchRemoteConfig, hasFetchedRemoteConfig } from '@/infra/remoteConfig';
 import { resolveNotaryUrl } from '@/config/notaryUrl';
+import { extensionVersion } from '@/util/extensionVersion';
 import {
   DMARKET_ORIGINS,
   getSettings,
@@ -357,7 +358,8 @@ export default defineBackground(() => {
       void setActiveTrackingCount(count);
     });
     console.info('[dmarket-p2p] tracker core booted', {
-      version: Tracker.version(),
+      version: extensionVersion(),
+      coreVersion: Tracker.version(),
       games: Tracker.enabledGameCount(),
       apiUrl,
       feUrl,

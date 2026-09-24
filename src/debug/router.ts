@@ -41,6 +41,7 @@ import {
   type ProverKind,
 } from '@/debug/protocol';
 import { getSettings, type TrackerOverrides } from '@/config/settings';
+import { extensionVersion } from '@/util/extensionVersion';
 
 /** The core's vault row for the Steam credential. Only its public `steam_id` is ever read here. */
 const STEAM_CREDENTIAL_KEY = 'steam_credential';
@@ -199,7 +200,8 @@ async function handle(request: DebugRequest, deps: DebugDeps): Promise<DebugResp
       const notaryUrl = deps.getNotaryUrl();
       return {
         ok: true,
-        version: Tracker.version(),
+        version: extensionVersion(),
+        coreVersion: Tracker.version(),
         hasSession: tracker !== undefined,
         nextTickAt: await nextTickAt(),
         apiUrl,

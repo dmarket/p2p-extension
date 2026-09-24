@@ -69,6 +69,25 @@ beforeEach(() => {
   // Activated is the default; the gate tests opt out for one call each.
   isActivated.mockResolvedValue(true);
   createTrade.mockClear();
+  // The pong's `version` is read from the manifest, which the fake browser throws on until stubbed.
+  vi.spyOn(fakeBrowser.runtime, 'getManifest').mockReturnValue({
+    manifest_version: 3,
+    name: 'test',
+    version: '1.0.5',
+    version_name: '1.0.5-beta',
+  });
+});
+
+describe('the presence pong names the extension build', () => {
+  it("reports the extension's version, not the core's", async () => {
+    const bridge = registerBooting();
+    const pending = bridge.reply({ kind: 'presence' });
+    bridge.settle();
+
+    // The core mock answers '1.0.0'. The page is told which extension is installed; the core version
+    // follows from it, since each build pins one core.
+    expect(await pending).toMatchObject({ ok: true, kind: 'presence', version: '1.0.5-beta' });
+  });
 });
 
 describe('the bridge router waits for the core boot before answering presence', () => {

@@ -148,7 +148,10 @@ export interface ProofProgress {
 
 export interface DescribeResult {
   ok: true;
+  /** The extension's version, i.e. what the heartbeat and the pong report. */
   version: string;
+  /** The pinned core's own version (`trackerCoreVersion()`). */
+  coreVersion: string;
   hasSession: boolean;
   /** chrome.alarms scheduledTime (ms) for the core's self-tick, or null if unscheduled. */
   nextTickAt: number | null;

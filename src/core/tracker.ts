@@ -19,6 +19,15 @@ import {
 import { createNotaryProofDelegate, supportsOffscreenProver } from '@/core/notary-delegate';
 // The TrackerConfig builder, shared with the offscreen prover so the two realms cannot disagree.
 import { buildTrackerConfig } from '@/core/config';
+import { extensionVersion } from '@/util/extensionVersion';
+
+// `startTrackerWithEvents` with the trailing `clientVersion` the core gained after 1.0.3-beta (core
+// f3269a6, DMA-480). The installed core may predate it; JS drops a surplus argument, so against such a
+// core the heartbeat simply keeps reporting the core's own version, and the extension's version starts
+// flowing with the core bump, no edit here. Delete this cast once the pinned core declares the parameter.
+const startWithEvents = startTrackerWithEvents as (
+  ...args: [...Parameters<typeof startTrackerWithEvents>, clientVersion?: string]
+) => ReturnType<typeof startTrackerWithEvents>;
 // Type-only: the validated remote-config overrides the seam applies onto a fresh TrackerConfig.
 import type { TrackerOverrides } from '@/config/settings';
 // Type-only (erased at build): the canonical create-trade outcome shape lives in the transport module
@@ -109,7 +118,11 @@ export const Tracker = {
     // `any`, and these two lines are the ONLY place that `any` is admitted and given a name. Every
     // consumer downstream then holds a branded, opaque value it cannot dereference or confuse with
     // `undefined`.
-    if (onEvent) return startTrackerWithEvents(baseUrl, config, onEvent, delegate) as TrackerHandle;
+    //
+    // `extensionVersion()` is the heartbeat's `clientVersion`: the backend counts devices by the build the
+    // user installed. Only the events entry takes it, so a caller without `onEvent` heartbeats with the
+    // core's own version instead.
+    if (onEvent) return startWithEvents(baseUrl, config, onEvent, delegate, extensionVersion()) as TrackerHandle;
     return (config ? startTracker(baseUrl, config) : startTracker(baseUrl)) as TrackerHandle;
   },
 
@@ -185,7 +198,7 @@ export const Tracker = {
     return coreForceHeartbeat(handle);
   },
 
-  /** Core library version string. */
+  /** Core library version string. The extension's own version is `extensionVersion()` (src/util). */
   version(): string {
     return trackerCoreVersion();
   },

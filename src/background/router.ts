@@ -3,6 +3,7 @@ import { Tracker, type TrackerHandle } from '@/core/tracker';
 import { isBridgeRequest, type BridgeRequest, type BridgeResponse } from '@/messaging/protocol';
 import { isActivated } from '@/state/activation';
 import { getSettings } from '@/config/settings';
+import { extensionVersion } from '@/util/extensionVersion';
 
 // A warm spawn boots in one storage read, so only a first install or a failed boot ever reaches this
 // cap. The wait ends as soon as the handle exists.
@@ -94,7 +95,7 @@ async function handle(request: BridgeRequest, getHandle: () => TrackerHandle | u
       return {
         ok: true,
         kind: 'presence',
-        version: Tracker.version(),
+        version: extensionVersion(),
         mismatch: reason === 'STEAM_ACCOUNT_MISMATCH',
         isActivated: activated,
         isTrackingActive: activated && coreUnblocked,
