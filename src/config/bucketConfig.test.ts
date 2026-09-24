@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { TrackerConfig } from '@dmarket/p2p-tracker-core-domain';
 import { parseSettings, PUBLISHABLE_TRACKER_FIELDS } from '@/config/settings';
 import { REMOTE_CONFIG_PARAM } from '@/infra/remoteConfig';
+import { compareVersions, isChromeVersion } from '@/util/version';
 
 // The remote-config documents kept in buckets/<env>/p2p/extension-config.json and published with
 // buckets/upload.sh. They list every publishable field with the value in effect, so they are also the one
@@ -32,6 +33,21 @@ const DEVIATIONS: Record<'prod' | 'stage', Record<string, unknown>> = {
   prod: { 'tracker.cadence.fallbackHeartbeatIntervalMs': 60000 },
   stage: { 'tracker.cadence.fallbackHeartbeatIntervalMs': 60000 },
 };
+
+/**
+ * The first extension version that reports `pong.update`. Builds before it do not read
+ * `web.minExtensionVersion` at all — the FE covers them with its own `forceLegacyExtensionUpdate` flag — so a
+ * minimum below this would describe builds that cannot act on it. Raise it only if that first build ships
+ * under a different number.
+ */
+const FIRST_UPDATE_AWARE_VERSION = '1.0.6';
+
+/**
+ * Not a tuning deviation: the minimum is an operational value the force-update pipeline raises on every
+ * forced release (scripts/ci/force-update.sh), so pinning it next to the deviations would fail every such
+ * commit. Checked on its own below instead.
+ */
+const OPERATIONAL = new Set(['web.minExtensionVersion']);
 
 function leaves(doc: Json): Map<string, unknown> {
   const out = new Map<string, unknown>();
@@ -78,8 +94,16 @@ describe.each(['prod', 'stage'] as const)('buckets/%s/p2p/extension-config.json'
   it('differs from the compiled defaults only where pinned', () => {
     const d = defaults();
     const deviations = Object.fromEntries(
-      [...fields].filter(([path, value]) => JSON.stringify(value) !== JSON.stringify(d.get(path))),
+      [...fields].filter(
+        ([path, value]) => !OPERATIONAL.has(path) && JSON.stringify(value) !== JSON.stringify(d.get(path)),
+      ),
     );
     expect(deviations).toEqual(DEVIATIONS[env]);
+  });
+
+  it('always names a minimum extension version, never one below the first build that acts on it', () => {
+    const min = fields.get('web.minExtensionVersion');
+    expect(isChromeVersion(min), `web.minExtensionVersion is ${JSON.stringify(min)}`).toBe(true);
+    expect(compareVersions(min as string, FIRST_UPDATE_AWARE_VERSION)).toBeGreaterThanOrEqual(0);
   });
 });

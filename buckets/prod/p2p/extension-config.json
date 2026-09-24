@@ -92,6 +92,7 @@
     "notaryStuckAfterMs": 25000,
     "notaryProofsPerInstance": 5,
     "remoteConfigFetchIntervalMs": 3600000,
+    "minExtensionVersion": "1.0.6",
     "dmarketUrl": "https://dmarket.com/",
     "errorReporting": {
       "enabled": true,

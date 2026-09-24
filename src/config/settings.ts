@@ -37,6 +37,7 @@ import {
   type ConfigEntries,
 } from '@/infra/remoteConfig';
 import { onStorageChanged } from '@/util/storageEvents';
+import { isChromeVersion } from '@/util/version';
 
 // ---- Compiled-in defaults ---------------------------------------------------------------------------
 // The single home for every extension-owned default value. Steam-coupled defaults live in
@@ -326,6 +327,13 @@ interface WebSettings {
   notaryProofsPerInstance: number;
   /** Client-side remote-config refetch interval (ms) — see REMOTE_CONFIG_FETCH_INTERVAL_MS. */
   remoteConfigFetchIntervalMs: number;
+  /**
+   * The oldest extension version allowed to keep working, numeric part only (`1.0.6`, never `1.0.6-beta`).
+   * An install older than this reports `pong.update.required` and asks Chrome for the update
+   * (src/background/forceUpdate.ts). `undefined` only before the first document arrives (or when the
+   * published value is invalid): the published document always carries one.
+   */
+  minExtensionVersion: string | undefined;
   dmarketUrl: string;
   errorReporting: ErrorReportingSettings;
 }
@@ -360,6 +368,7 @@ function defaultWeb(): WebSettings {
     notaryStuckAfterMs: NOTARY_STUCK_AFTER_MS,
     notaryProofsPerInstance: NOTARY_PROOFS_PER_INSTANCE,
     remoteConfigFetchIntervalMs: REMOTE_CONFIG_FETCH_INTERVAL_MS,
+    minExtensionVersion: undefined,
     dmarketUrl: DMARKET_URL,
     errorReporting: { ...ERROR_REPORTING_DEFAULTS, suppressSubstrings: [] },
   };
@@ -688,6 +697,9 @@ function buildWeb(raw: Record<string, unknown>): WebSettings {
   const fetchInterval = int(REMOTE_CONFIG_FETCH_INTERVAL_MIN_MS, REMOTE_CONFIG_FETCH_INTERVAL_MAX_MS)(
     raw.remoteConfigFetchIntervalMs,
   ) as number | undefined;
+  // Numeric only: it is compared with `manifest.version` and with what Chrome's update server serves, and
+  // neither carries the `-beta` label. An invalid value is dropped like any other, i.e. no minimum.
+  const minVersion = isChromeVersion(raw.minExtensionVersion) ? raw.minExtensionVersion : undefined;
 
   if (anchor !== undefined) web.bannerAnchorSelector = anchor;
   if (logout !== undefined) web.logoutExpression = logout;
@@ -702,6 +714,7 @@ function buildWeb(raw: Record<string, unknown>): WebSettings {
   }
   if (proofsPerInstance !== undefined) web.notaryProofsPerInstance = proofsPerInstance;
   if (fetchInterval !== undefined) web.remoteConfigFetchIntervalMs = fetchInterval;
+  if (minVersion !== undefined) web.minExtensionVersion = minVersion;
   web.errorReporting = buildErrorReporting(isObj(raw.errorReporting) ? raw.errorReporting : {});
   return web;
 }

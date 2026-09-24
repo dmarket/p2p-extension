@@ -348,6 +348,20 @@ describe('web overrides', () => {
     expect(interval('3600000')).toBe(hour);
   });
 
+  it('minExtensionVersion takes a numeric Chrome version only; anything else is no minimum', () => {
+    const min = (v: unknown) => parse({ web: { minExtensionVersion: v } }).web.minExtensionVersion;
+    expect(parse({}).web.minExtensionVersion).toBeUndefined();
+    expect(min('1.0.6')).toBe('1.0.6');
+    expect(min('2')).toBe('2');
+    expect(min('1.0.6.2')).toBe('1.0.6.2');
+    // The `-beta` label is not part of what the store or the update server compare.
+    expect(min('1.0.6-beta')).toBeUndefined();
+    expect(min('1.0.6.2.1')).toBeUndefined();
+    expect(min('1.70000')).toBeUndefined();
+    expect(min(106)).toBeUndefined();
+    expect(min(null)).toBeUndefined();
+  });
+
   it('notaryProofTimeoutMs is floored at 1s — a smaller publish would abort every proof before it starts', () => {
     expect(parse({ web: { notaryProofTimeoutMs: 500 } }).web.notaryProofTimeoutMs).toBe(180_000);
     expect(parse({ web: { notaryProofTimeoutMs: 60_000 } }).web.notaryProofTimeoutMs).toBe(60_000);
