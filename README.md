@@ -239,12 +239,12 @@ CircleCI, on any push.
 ### Forcing an update
 
 A release pipeline also offers `hold_force_update`. Approve it only for a release every seller must move
-to. It records the version in `buckets/prod/force-update.json` on `main`; a CircleCI schedule
-(`force-update-poll`, every 30 min) then asks Chrome's update server what it serves, and once that is
-the forced version it raises `web.minExtensionVersion` in the live prod document and commits the result
-to `main`. Nothing waits on store review inline, and the extension's single update check finds the
-build because it is already being served. Leaving the approval alone is the normal answer: the
-pipeline then stays "On Hold".
+to. It creates a CircleCI schedule for that release (`force-update-<version>`, every 30 min on `main`)
+through the API; the schedule asks Chrome's update server what it serves, and once that is the forced
+version it raises `web.minExtensionVersion` in the live prod document, commits the result to `main` and
+deletes itself. Nothing runs between forced releases, nothing waits on store review inline, and the
+extension's single update check finds the build because it is already being served. Leaving the
+approval alone is the normal answer: the pipeline then stays "On Hold".
 
 A push whose version is already tagged releases nothing, so re-pushing a release branch is safe;
 `[skip release]` in the commit message skips it explicitly. `main` still runs `check` and both builds

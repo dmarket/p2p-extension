@@ -4,15 +4,19 @@
 #
 # Two CircleCI jobs call it (.circleci/config.yml):
 #
-#   mark   `mark_force_update`, after someone approves `hold_force_update` on a release pipeline. Records the
-#          release's numeric version in buckets/prod/force-update.json on `main`. Nothing is published yet:
-#          store review takes anywhere from hours to a month, so nothing may wait on it inline.
+#   mark   `mark_force_update`, after someone approves `hold_force_update` on a release pipeline. Creates a
+#          CircleCI schedule, `force-update-<version>`, that runs the poll every 30 minutes on `main` with
+#          the version as a pipeline parameter. Nothing is published yet: store review takes anywhere from
+#          hours to a month, so nothing may wait on it inline.
 #
-#   poll   `poll_force_update`, from the `force-update-poll` schedule (every 30 min, on `main`). With no marker
-#          it exits at once. Otherwise it asks Chrome's update server which version it serves; once that is
-#          the marked version or newer, it raises the minimum in the LIVE document (download → raise → upload
-#          with ifGenerationMatch on the generation it read), writes that document to
-#          buckets/prod/p2p/extension-config.json, deletes the marker and commits both to `main`.
+#   poll   `poll_force_update`, run by that schedule. Asks Chrome's update server which version it serves;
+#          once that is the forced version or newer, it raises the minimum in the LIVE document (download →
+#          raise → upload with ifGenerationMatch on the generation it read), commits that document to
+#          buckets/prod/p2p/extension-config.json on `main`, and deletes its own schedule. A schedule still
+#          waiting after 45 days deletes itself and fails loudly: the release never reached users.
+#
+# NOTHING RUNS BETWEEN FORCED RELEASES. The schedule is the pending state and lives exactly as long as the
+# wait; there is no standing poller.
 #
 # WHY WAIT FOR THE UPDATE SERVER. An install below the minimum calls `runtime.requestUpdateCheck()`, and a check
 # that finds nothing throttles the next ones for ~5 h. Raising the minimum only when Chrome already serves the
@@ -24,16 +28,19 @@
 # admin (`dmserviceaccount`), which the `main` rulesets let bypass the pull-request rule.
 #
 # Environment:
-#   REPO_SLUG                    owner/repo (the executor sets it)
-#   GITHUB_TOKEN                 push to main (context org-global)
-#   CIRCLE_BRANCH                mark: the release branch, `release/vX.Y.Z[-label]`
-#   GCS_CONFIG_SA_CLIENT_EMAIL,
-#   GCS_CONFIG_SA_PRIVATE_KEY    poll: read and overwrite gs://cdn-main-dmarket-com/p2p/extension-config.json
-#   SLACK_WEBHOOK_URL            optional: announce the raised minimum
+#   REPO_SLUG             owner/repo (the executor sets it)
+#   CIRCLE_API_TOKEN      CircleCI personal API token: create (mark) and delete (poll) the schedule
+#   CIRCLE_BRANCH         mark: the release branch, `release/vX.Y.Z[-label]`
+#   FORCE_UPDATE_VERSION,
+#   FORCE_UPDATE_UNTIL,
+#   SCHEDULE_ID           poll: the schedule's pipeline parameters and its own id (the job sets them)
+#   GITHUB_TOKEN          poll: push to main (context org-global)
+#   GCP_WIF_AUDIENCE,
+#   CIRCLE_OIDC_TOKEN_V2  poll: Cloud Storage access without a stored key (see scripts/ci/force-update.mjs)
+#   SLACK_WEBHOOK_URL     optional: announce the raised minimum, or a release that never arrived
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-MARKER='buckets/prod/force-update.json'
 CONFIG='buckets/prod/p2p/extension-config.json'
 NODE_SCRIPT='scripts/ci/force-update.mjs'
 
@@ -52,9 +59,14 @@ older_than() {
   " "$1" "$2"
 }
 
-marked_version() {
-  node -e "const v = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')).minExtensionVersion;
-           if (typeof v !== 'string') process.exit(1); console.log(v);" "$MARKER"
+require_version() {
+  if ! node --input-type=module -e "
+    import { isChromeVersion } from './scripts/ci/force-update.mjs';
+    process.exit(isChromeVersion(process.argv[1]) ? 0 : 1);
+  " "$1"; then
+    echo "ERROR: '$1' is not a numeric extension version ($2)." >&2
+    exit 2
+  fi
 }
 
 commit_and_push() {
@@ -96,35 +108,23 @@ cmd_mark() {
   local label version
   label="${CIRCLE_BRANCH#release/v}"
   version="${label%%-*}"
-  if ! node --input-type=module -e "
-    import { isChromeVersion } from './scripts/ci/force-update.mjs';
-    process.exit(isChromeVersion(process.argv[1]) ? 0 : 1);
-  " "$version"; then
-    echo "ERROR: cannot read a release version from '$CIRCLE_BRANCH'." >&2
-    exit 2
-  fi
-
-  if [ -f "$MARKER" ]; then
-    local pending
-    pending="$(marked_version)"
-    if ! older_than "$pending" "$version"; then
-      echo "A forced update to $pending is already pending; $version does not raise it."
-      return 0
-    fi
-  fi
-  node -e "require('fs').writeFileSync(process.argv[1], JSON.stringify(
-      { minExtensionVersion: process.argv[2], release: process.argv[3] }, null, 2) + '\n')" \
-    "$MARKER" "$version" "$CIRCLE_BRANCH"
-  commit_and_push "ci(config): force the update to $version once the store serves it" "$MARKER"
+  require_version "$version" "from branch $CIRCLE_BRANCH"
+  node "$NODE_SCRIPT" schedule "$version"
 }
 
 cmd_poll() {
-  if [ ! -f "$MARKER" ]; then
-    echo "No forced update pending."
-    return 0
+  : "${FORCE_UPDATE_VERSION:?FORCE_UPDATE_VERSION must be set — this job runs from a force-update schedule}"
+  : "${SCHEDULE_ID:?SCHEDULE_ID must be set — this job runs from a force-update schedule}"
+  local target="$FORCE_UPDATE_VERSION" served
+  require_version "$target" "pipeline parameter force_update_version"
+
+  if [ -n "${FORCE_UPDATE_UNTIL:-}" ] && [[ "$(date -u +%F)" > "$FORCE_UPDATE_UNTIL" ]]; then
+    node "$NODE_SCRIPT" unschedule "$SCHEDULE_ID"
+    announce "P2P extension: gave up waiting for $target — Chrome's update server did not serve it by $FORCE_UPDATE_UNTIL. minExtensionVersion is unchanged."
+    echo "ERROR: $target was not served by $FORCE_UPDATE_UNTIL; the schedule is deleted, the minimum unchanged." >&2
+    exit 1
   fi
-  local target served
-  target="$(marked_version)"
+
   served="$(node "$NODE_SCRIPT" served)"
   if older_than "$served" "$target"; then
     echo "Waiting: Chrome's update server serves $served, the forced update is to $target."
@@ -147,8 +147,10 @@ cmd_poll() {
     echo "The live document already requires $target or newer; nothing to publish."
   fi
 
-  rm -f "$MARKER"
-  commit_and_push "config(prod): require extension $target — the store serves $served" "$CONFIG" "$MARKER"
+  commit_and_push "config(prod): require extension $target — the store serves $served" "$CONFIG"
+  # Last, so any failure above leaves the schedule in place and the next run finishes the job. Every step is
+  # idempotent: an already-raised document publishes nothing and commits nothing new.
+  node "$NODE_SCRIPT" unschedule "$SCHEDULE_ID"
   if [ "$outcome" = raised ]; then
     announce "P2P extension: minExtensionVersion raised to $target (Chrome serves $served). Older installs are asked to update."
   fi
