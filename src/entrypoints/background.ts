@@ -11,6 +11,8 @@ import { injectContentScriptsOnSessionStart, registerContentScriptInjection } fr
 import { reconcileSteamSession, registerRefreshTriggers } from '@/background/refresh';
 import { createCoreLifecycle } from '@/background/coreLifecycle';
 import { claimSessionStart } from '@/background/sessionStart';
+import { registerUpdateReload, resumePendingUpdate } from '@/background/update';
+import { proofsInFlight } from '@/core/notary-trace';
 import type { AccountMismatchPush } from '@/messaging/protocol';
 import { initIcon } from '@/background/icon';
 import { isActivated, subscribeActivation } from '@/state/activation';
@@ -112,6 +114,14 @@ export default defineBackground(() => {
 
   // Register the dmarket.com bridge router synchronously (reads the handle lazily).
   registerBridgeRouter(() => handle, bootSettled);
+
+  // Apply a downloaded update as soon as no proof is running, instead of when the browser next restarts.
+  // Chrome parks an MV3 update until the extension is idle, and the warm offscreen prover document means it
+  // never is — src/background/update.ts has the mechanism. Registered synchronously so the event can wake a
+  // dormant worker; the resume picks up a wait an evicted worker did not finish.
+  const updateDeps = { isBusy: () => proofsInFlight().length > 0 };
+  registerUpdateReload(updateDeps);
+  void resumePendingUpdate(updateDeps);
 
   // Re-inject the content scripts into tabs that were already open when this extension was installed or
   // updated — those tabs get no declarative injection at all, so the dmarket FE keeps timing out on
