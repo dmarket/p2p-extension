@@ -90,6 +90,7 @@ const PONG: BridgeResponse = {
   isActivated: true,
   isTrackingActive: true,
   blockingReason: 'NONE',
+  update: { required: true, minVersion: '1.0.7', state: 'restart_required' },
 };
 
 describe('inbound validation — what never reaches the service worker', () => {
@@ -123,7 +124,7 @@ describe('inbound validation — what never reaches the service worker', () => {
 });
 
 describe('replies', () => {
-  it('RequestPresence → pong with the correlation id and all five status fields, to the page origin', async () => {
+  it('RequestPresence → pong with the correlation id and every status field, to the page origin', async () => {
     uninstall = installDmarketBridge([PAGE_ORIGIN]);
     sendMessage.mockResolvedValue(PONG);
     await deliver(presence('c-42'));
@@ -141,6 +142,7 @@ describe('replies', () => {
           is_activated: true,
           is_tracking_active: true,
           blocking_reason: 'NONE',
+          update: { required: true, minVersion: '1.0.7', state: 'restart_required' },
         },
         // Never '*': a reply broadcast to any origin would hand the tracker's status to any embedder.
         targetOrigin: PAGE_ORIGIN,

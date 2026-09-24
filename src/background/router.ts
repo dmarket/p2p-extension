@@ -1,3 +1,4 @@
+import { getUpdateStatus } from '@/background/forceUpdate';
 import { reportError } from '@/infra/report/reporter';
 import { Tracker, type TrackerHandle } from '@/core/tracker';
 import { isBridgeRequest, type BridgeRequest, type BridgeResponse } from '@/messaging/protocol';
@@ -101,6 +102,9 @@ async function handle(request: BridgeRequest, getHandle: () => TrackerHandle | u
         // Already resolved above for the reconnect trigger — the page needs it to name the failed
         // check instead of inferring one from two booleans.
         blockingReason: reason,
+        // Independent of activation and of the core: an un-onboarded install on an old build must still be
+        // told to update.
+        update: await getUpdateStatus(),
       };
     }
 

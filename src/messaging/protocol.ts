@@ -13,6 +13,8 @@
 // Importing it here keeps ONE definition of a value that now crosses the page boundary, without
 // pulling the core into the content-script bundle.
 import type { BlockingReason } from '@/core/tracker';
+// Type-only for the same reason: the forced-update status is computed in the service worker.
+import type { UpdateStatus } from '@/background/forceUpdate';
 
 const FE_SOURCE = 'dmarket-fe';
 export const EXT_SOURCE = 'dmarket-ext';
@@ -151,6 +153,14 @@ export type ExtensionMessage =
        * host's fail-closed value for a reason it does not recognise — render it as blocked.
        */
       blocking_reason: BlockingReason;
+      /**
+       * Where this install stands against the minimum version in the extension's config
+       * (`web.minExtensionVersion`). The page renders it and compares nothing itself: block the flow when
+       * `required && state !== 'none'`, and keep re-asking presence while the state is `checking`, `applying`
+       * or `restart_required` — the reload that finishes an update sends no frame of its own. Absent on
+       * builds before 1.0.6, which the page covers with its own flag.
+       */
+      update: UpdateStatus;
     }
   // Discriminated on `status` so a stale `reason` cannot ride along on a success: the success arm has
   // no such field, and the failure arm always carries one (`OTHER` when nothing classified it).
@@ -190,6 +200,7 @@ export type BridgeResponse =
       isActivated: boolean;
       isTrackingActive: boolean;
       blockingReason: BlockingReason;
+      update: UpdateStatus;
     }
   | { ok: true; kind: 'create-trade'; result: CreateTradeResult }
   // `request-cycle` carries no payload: the nudge is fire-and-forget and the page gets no reverse frame

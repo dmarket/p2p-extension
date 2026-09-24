@@ -136,10 +136,14 @@ export async function hasFetchedRemoteConfig(): Promise<boolean> {
  *
  * @param minIntervalMs the resolved `web.remoteConfigFetchIntervalMs`. A parameter rather than a read of the
  *   settings snapshot because src/config/settings.ts imports this module — reading it back would be a cycle.
+ * @param onFetched called with the document in effect once the server has answered — a `200` carrying a
+ *   readable document, or a `304` — and not when throttled or on a failure. That is the cadence of "we asked",
+ *   which the forced-update retry keys on (src/background/forceUpdate.ts).
  */
 export async function fetchRemoteConfig(
   force = false,
   minIntervalMs = REMOTE_CONFIG_FETCH_INTERVAL_MS,
+  onFetched?: (entries: ConfigEntries) => void,
 ): Promise<ConfigEntries> {
   if (!force && ((await isCacheFresh(minIntervalMs)) || (await isBackingOff()))) return readCachedEntries();
   try {
@@ -156,7 +160,9 @@ export async function fetchRemoteConfig(
     if (response.status === 304) {
       await browser.storage.local.set({ [FETCHED_AT_KEY]: Date.now() });
       await browser.storage.local.remove(FAILED_AT_KEY);
-      return readCachedEntries();
+      const cached = await readCachedEntries();
+      onFetched?.(cached);
+      return cached;
     }
     if (!response.ok) return failed();
     const text = await response.text();
@@ -170,6 +176,7 @@ export async function fetchRemoteConfig(
     if (nextEtag) await browser.storage.local.set({ [ETAG_KEY]: nextEtag });
     else await browser.storage.local.remove(ETAG_KEY);
     await browser.storage.local.remove(FAILED_AT_KEY);
+    onFetched?.(entries);
     return entries;
   } catch (error) {
     console.debug('[dmarket-p2p] remote config fetch failed', error);

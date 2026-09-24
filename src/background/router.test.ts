@@ -89,6 +89,30 @@ describe('the presence pong names the extension build', () => {
   });
 });
 
+describe('the presence pong carries the forced-update status', () => {
+  it('reports the rule in effect, even for an install that is not activated', async () => {
+    const { loadSettings } = await import('@/config/settings');
+    const { REMOTE_CONFIG_CACHE_KEY, REMOTE_CONFIG_PARAM } = await import('@/infra/remoteConfig');
+    await fakeBrowser.storage.local.set({
+      [REMOTE_CONFIG_CACHE_KEY]: { [REMOTE_CONFIG_PARAM]: JSON.stringify({ web: { minExtensionVersion: '1.0.7' } }) },
+    });
+    await loadSettings();
+    isActivated.mockResolvedValueOnce(false);
+    const bridge = registerBooting();
+    const pending = bridge.reply({ kind: 'presence' });
+    bridge.settle();
+
+    // The manifest says 1.0.5, below the minimum; no check has run in this test, hence `checking`.
+    expect(await pending).toMatchObject({
+      isActivated: false,
+      update: { required: true, minVersion: '1.0.7', state: 'checking' },
+    });
+    // The settings snapshot is module state: put the defaults back for the tests that follow.
+    await fakeBrowser.storage.local.clear();
+    await loadSettings();
+  });
+});
+
 describe('the bridge router waits for the core boot before answering presence', () => {
   it('answers presence with the booted state, not the pre-boot defaults', async () => {
     const bridge = registerBooting();

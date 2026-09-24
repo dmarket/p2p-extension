@@ -143,6 +143,38 @@ describe('the answers', () => {
   });
 });
 
+describe('onFetched — the "we asked the server" signal the forced-update retry keys on', () => {
+  it('fires with the new document on a 200 and with the cached one on a 304', async () => {
+    const onFetched = vi.fn();
+    fetchMock.mockImplementation(reply(DOC, 200, '"v2"'));
+    await fetchRemoteConfig(true, HOUR, onFetched);
+    expect(onFetched).toHaveBeenLastCalledWith({ [REMOTE_CONFIG_PARAM]: DOC });
+
+    await seedCache();
+    fetchMock.mockImplementation(reply(null, 304));
+    await fetchRemoteConfig(false, HOUR, onFetched);
+    expect(onFetched).toHaveBeenLastCalledWith(CACHED);
+    expect(onFetched).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not fire when throttled, on a bad answer or on a network failure', async () => {
+    const onFetched = vi.fn();
+    await browser.storage.local.set({ [REMOTE_CONFIG_CACHE_KEY]: CACHED, [REMOTE_CONFIG_FETCHED_AT_KEY]: Date.now() });
+    await fetchRemoteConfig(false, HOUR, onFetched);
+
+    fetchMock.mockImplementation(reply('forbidden', 403));
+    await fetchRemoteConfig(true, HOUR, onFetched);
+    fetchMock.mockImplementation(reply('<html>', 200));
+    await fetchRemoteConfig(true, HOUR, onFetched);
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
+    await fetchRemoteConfig(true, HOUR, onFetched);
+    debug.mockRestore();
+
+    expect(onFetched).not.toHaveBeenCalled();
+  });
+});
+
 describe('the throttle', () => {
   it('honours the default 1h interval and lets force bypass it', async () => {
     await browser.storage.local.set({

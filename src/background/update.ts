@@ -50,8 +50,23 @@ let applying: Promise<void> | null = null;
 export function registerUpdateReload(deps: UpdateDeps): void {
   browser.runtime.onUpdateAvailable.addListener((details) => {
     const version = typeof details?.version === 'string' ? details.version : 'unknown';
-    void markPending(version).then(() => applyWhenIdle(deps, version));
+    void scheduleUpdate(deps, version);
   });
+}
+
+/**
+ * Remember that `version` is waiting and apply it as soon as the worker is free. The one entry point for
+ * both signals Chrome gives — the `onUpdateAvailable` event and an `update_available` answer to
+ * `requestUpdateCheck()` (src/background/forceUpdate.ts) — so the two cannot cause two reloads.
+ */
+export async function scheduleUpdate(deps: UpdateDeps, version: string): Promise<void> {
+  await markPending(version);
+  await applyWhenIdle(deps, version);
+}
+
+/** `true` while this worker is waiting to reload onto a downloaded update. */
+export function isUpdateApplying(): boolean {
+  return applying !== null;
 }
 
 /**

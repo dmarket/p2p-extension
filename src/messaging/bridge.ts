@@ -72,6 +72,7 @@ function toReply(message: FrontendMessage, response: BridgeResponse): ExtensionM
         is_activated: response.isActivated,
         is_tracking_active: response.isTrackingActive,
         blocking_reason: response.blockingReason,
+        update: response.update,
       };
     }
     // SW error: send nothing — the FE's presence timeout then treats it as no extension.

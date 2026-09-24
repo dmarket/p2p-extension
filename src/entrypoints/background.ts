@@ -12,6 +12,7 @@ import { reconcileSteamSession, registerRefreshTriggers } from '@/background/ref
 import { createCoreLifecycle } from '@/background/coreLifecycle';
 import { claimSessionStart } from '@/background/sessionStart';
 import { registerUpdateReload, resumePendingUpdate } from '@/background/update';
+import { evaluateForceUpdate, registerForceUpdate } from '@/background/forceUpdate';
 import { proofsInFlight } from '@/core/notary-trace';
 import type { AccountMismatchPush } from '@/messaging/protocol';
 import { initIcon } from '@/background/icon';
@@ -26,6 +27,7 @@ import { extensionVersion } from '@/util/extensionVersion';
 import {
   DMARKET_ORIGINS,
   loadSettings,
+  parseSettings,
   subscribeSettings,
   type TrackerOverrides,
 } from '@/config/settings';
@@ -120,6 +122,9 @@ export default defineBackground(() => {
   const updateDeps = { isBusy: () => proofsInFlight().length > 0 };
   registerUpdateReload(updateDeps);
   void resumePendingUpdate(updateDeps);
+  // Forced update (`web.minExtensionVersion`): same reload path, driven by the config instead of the event.
+  // Evaluated from bootCore below, once the cached document is loaded.
+  registerForceUpdate(updateDeps);
 
   // Re-inject the content scripts into tabs that were already open when this extension was installed or
   // updated — those tabs get no declarative injection at all, so the dmarket FE keeps timing out on
@@ -504,7 +509,15 @@ export default defineBackground(() => {
     // One remote-config refresh per spawn, throttled inside to `web.remoteConfigFetchIntervalMs` (1h by
     // default). The interval is read from the CACHED document, so the settings load comes first — one storage
     // read, and the fetch below cannot start without it anyway.
-    const configFetch = fetchRemoteConfig(false, (await loadSettings()).web.remoteConfigFetchIntervalMs);
+    const cached = await loadSettings();
+    // Every spawn: a new rule, or a check an evicted worker did not finish, is acted on at once. A minimum that
+    // has already ended in `restart_required` is left alone here; it is re-asked only on a completed fetch.
+    void evaluateForceUpdate(cached.web.minExtensionVersion);
+    const configFetch = fetchRemoteConfig(false, cached.web.remoteConfigFetchIntervalMs, (entries) => {
+      // Read from the document just fetched, not the snapshot: the snapshot refreshes through
+      // storage.onChanged, which has not fired yet at this point.
+      void evaluateForceUpdate(parseSettings(entries).web.minExtensionVersion, { recheck: true });
+    });
     // FIRST INSTALL ONLY: there is no cached document yet, so starting the core now means starting it on
     // compiled defaults and then having that very fetch restart it — a second full boot cycle plus the
     // forced heartbeat `restartWith` fires, landing in the same window as the install-time content-script
@@ -589,7 +602,12 @@ export default defineBackground(() => {
     setTimeout(() => void flush(), REPORT_FLUSH_DELAY_MS);
     // Apply LATER remote-config changes to the running core — rare, only on an actual publish (NOT on
     // every respawn: currentOverrides now reflects exactly what the core was started with).
-    subscribeSettings((s) => reconcileOverrides(s.tracker));
+    subscribeSettings((s) => {
+      reconcileOverrides(s.tracker);
+      // A publish that raises (or lowers) the minimum, arriving by any path — including the debug console's
+      // forced refresh. Not a recheck: an unchanged minimum keeps its state.
+      void evaluateForceUpdate(s.web.minExtensionVersion);
+    });
   };
 
   // Dev-only debug console runs AFTER the core is booted (so getHandle() is populated and the debug
