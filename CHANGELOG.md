@@ -14,6 +14,12 @@ the README.
 
 ## [Unreleased]
 
+### Added
+
+- **Forced updates.** The remote configuration carries the oldest extension version allowed to keep
+  working. An older install asks Chrome for the update, reloads onto it as soon as no proof is running,
+  and tells dmarket.com where it stands (`pong.update`), so the site can ask the seller to update.
+
 ### Fixed
 
 - **Updates install without a browser restart.** Chrome installs an update only while the extension
