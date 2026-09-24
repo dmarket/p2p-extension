@@ -170,16 +170,14 @@ describe('buildTrackerConfig — one sentinel per group lands on its declared fi
     expect(cfg.steamEndpoints.paramAccessToken).toBe(d.steamEndpoints.paramAccessToken); // slot 11
   });
 
-  it('steamProfile.batchSize (slot 2; core requires 1..100)', () => {
-    const cfg = build({ steamProfile: { batchSize: 42 } });
+  it('steamProfile and game keep the core defaults: their slots only hold position', () => {
+    // Both groups sit between overridable ones (steamProfile before steamScrape), so the builder passes a
+    // placeholder there. A published steamScrape value must still land on steamScrape, not one group over.
+    const cfg = build({ steamScrape: { steamSessionIdCookieName: 'sid-x' } });
     const d = defaults();
-    expect(cfg.steamProfile.batchSize).toBe(42);
-    expect(cfg.steamProfile.maxConcurrency).toBe(d.steamProfile.maxConcurrency); // slot 1
-    expect(cfg.steamProfile.requestTimeoutMs).toBe(d.steamProfile.requestTimeoutMs); // slot 3
-  });
-
-  it('game.cs2InventoryContextId (slot 0)', () => {
-    expect(build({ game: { cs2InventoryContextId: 9 } }).game.cs2InventoryContextId).toBe(9);
+    expect(cfg.steamScrape.steamSessionIdCookieName).toBe('sid-x');
+    expect(cfg.steamProfile.batchSize).toBe(d.steamProfile.batchSize);
+    expect(cfg.game.cs2InventoryContextId).toBe(d.game.cs2InventoryContextId);
   });
 });
 

@@ -42,8 +42,7 @@
 // manifest's own `content_scripts` entries instead of being hardcoded, so: the dev/stage FE origins the
 // `build:manifestGenerated` hook appends (wxt.config.ts) are covered for free, a renamed bundle can't
 // leave this silently injecting nothing, and a content script added later is picked up with no edit
-// here. Remote-config `bridgeExtraOrigins` are intentionally NOT included: they only widen which origins
-// may TALK to the bridge, and no bridge is ever injected there declaratively either.
+// here.
 //
 // RE-INJECTING OVER A LIVE SCRIPT IS SAFE, and that is WXT's doing, not luck: a fresh
 // ContentScriptContext invalidates every older context of the same entrypoint (a document CustomEvent

@@ -108,11 +108,11 @@ export const Tracker = {
     // `browser.offscreen`; withholding it makes the core fall back to the no-op prover, which is the
     // correct behaviour — the deal flow continues client-reported instead of breaking.
     //
-    // The prover runs in another realm and so needs the config handed to it explicitly — only the two
-    // groups it reads. Built from the SAME `overrides` object as `config` above, on purpose: a prover
+    // The prover runs in another realm and so needs the config handed to it explicitly — only the group
+    // it reads that the overlay can set. Built from the SAME `overrides` object as `config` above, on purpose: a prover
     // configured from anything else is a prover that can disagree with the loop that dispatched to it.
     const delegate = supportsOffscreenProver()
-      ? createNotaryProofDelegate({ notary: overrides?.notary, game: overrides?.game })
+      ? createNotaryProofDelegate({ notary: overrides?.notary })
       : undefined;
     // The `as TrackerHandle` is the whole point of this seam: the generated .d.mts types the handle as
     // `any`, and these two lines are the ONLY place that `any` is admitted and given a name. Every

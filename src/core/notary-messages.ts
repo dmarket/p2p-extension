@@ -17,11 +17,11 @@ export const NOTARY_PROVE = 'dmarket.notary.prove' as const;
  * (plain JSON) and the offscreen document rebuilds the config through the same seam the service worker
  * used (`buildTrackerConfig`), which is what keeps the two realms on identical values.
  *
- * Exactly the two groups `proveNotaryTransition` documents itself as reading, and no more: sending the
- * whole `TrackerOverrides` would put the marketplace cookie names and Steam endpoint config into a message
- * the prover has no use for.
+ * Only the `notary` group: `proveNotaryTransition` reads `notary` and `game`, and `game` is not overridable
+ * (see `CoreOnlyTrackerGroup`), so both realms use its core default. Sending the whole `TrackerOverrides`
+ * would put the marketplace cookie names and Steam endpoint config into a message the prover has no use for.
  */
-export type ProverOverrides = Pick<TrackerOverrides, 'notary' | 'game'>;
+export type ProverOverrides = Pick<TrackerOverrides, 'notary'>;
 
 /**
  * A proof request relayed from the loop.

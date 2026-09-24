@@ -19,13 +19,11 @@ import type { CredentialOverrides, TrackerOverrides } from '@/config/settings';
 import {
   CADENCE_ORDER,
   CREDENTIAL_ORDER,
-  GAME_ORDER,
   HTTP_ORDER,
   MARKETPLACE_RETRY_ORDER,
   MARKETPLACE_SCRAPE_ORDER,
   NOTARY_ORDER,
   STEAM_ENDPOINTS_ORDER,
-  STEAM_PROFILE_ORDER,
   STEAM_SCRAPE_ORDER,
   TRACKER_ORDER,
 } from '@/config/coreParams';
@@ -137,8 +135,6 @@ export function buildTrackerConfig(feUrl?: string, o: TrackerOverrides = {}): Tr
     marketplaceScrape: withOverrides(d.marketplaceScrape, MARKETPLACE_SCRAPE_ORDER, scrapeOverrides),
     notary: withOverrides(d.notary, NOTARY_ORDER, o.notary),
     steamEndpoints: withOverrides(d.steamEndpoints, STEAM_ENDPOINTS_ORDER, o.steamEndpoints),
-    steamProfile: withOverrides(d.steamProfile, STEAM_PROFILE_ORDER, o.steamProfile),
     steamScrape: withOverrides(d.steamScrape, STEAM_SCRAPE_ORDER, o.steamScrape),
-    game: withOverrides(d.game, GAME_ORDER, o.game),
   });
 }

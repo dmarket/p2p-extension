@@ -19,7 +19,6 @@ vi.mock('@/core/tracker', () => ({
   Tracker: { blockingReason, isTrackingActive, version, forceHeartbeat, createTrade },
 }));
 vi.mock('@/state/activation', () => ({ isActivated }));
-vi.mock('@/config/settings', () => ({ getSettings: () => ({ web: { reconnectDebounceMs: 3_000 } }) }));
 
 /** Fire the fake's onMessage listeners the way the page's `runtime.sendMessage` would. Typed
  *  `Promise<unknown>` (as in messaging/bridge.test.ts): the fake resolves with each listener's return

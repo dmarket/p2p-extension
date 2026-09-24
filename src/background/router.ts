@@ -2,7 +2,6 @@ import { reportError } from '@/infra/report/reporter';
 import { Tracker, type TrackerHandle } from '@/core/tracker';
 import { isBridgeRequest, type BridgeRequest, type BridgeResponse } from '@/messaging/protocol';
 import { isActivated } from '@/state/activation';
-import { getSettings } from '@/config/settings';
 import { extensionVersion } from '@/util/extensionVersion';
 
 // A warm spawn boots in one storage read, so only a first install or a failed boot ever reaches this
@@ -36,7 +35,7 @@ function wakeDeal(dealId: string): string {
 // reason is DM_SESSION_MISSING, and a blocked state never advances the persisted heartbeat schedule
 // (core ≥ .104) — so whenever we're genuinely blocked, a fresh worker's boot cycle is already due and
 // heartbeating; a presence ping in that boot window would only stack a redundant forced POST on top.
-// Debounce window is remote-config-tunable (web.reconnectDebounceMs, default 3000); read at use time.
+const RECONNECT_DEBOUNCE_MS = 3_000;
 let lastReconnectAt = Date.now();
 let reconnectInFlight = false;
 
@@ -78,7 +77,7 @@ async function handle(request: BridgeRequest, getHandle: () => TrackerHandle | u
       // (and a slow POST while offline) can't pile up forced heartbeats.
       if (tracker !== undefined && reason === 'DM_SESSION_MISSING' && !reconnectInFlight) {
         const now = Date.now();
-        if (now - lastReconnectAt >= getSettings().web.reconnectDebounceMs) {
+        if (now - lastReconnectAt >= RECONNECT_DEBOUNCE_MS) {
           lastReconnectAt = now;
           reconnectInFlight = true;
           void Tracker.forceHeartbeat(tracker)

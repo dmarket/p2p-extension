@@ -25,13 +25,33 @@ import type {
   CredentialOverrides,
   NotaryOverrides,
   SteamEndpointsOverrides,
-  SteamProfileOverrides,
   SteamScrapeOverrides,
   TrackerOverrides,
 } from '@/config/settings';
 
-/** Core parameters the remote-config overlay deliberately does not expose; their slots only hold place. */
+/**
+ * Core parameters the remote-config overlay deliberately does not expose; their slots only hold place.
+ *
+ * The four base URLs and the nine `param*` names were publishable until 2026-09-24 and were pruned as noise:
+ * - **base URLs** could only ever be set to the host they already have — a host outside `host_permissions`
+ *   was refused, and the core allow-lists its Steam hosts on top — so no publish could do anything useful;
+ * - **`param*`** are Steam Web API query-parameter names (`access_token`, `tradeofferid`, …). Steam does not
+ *   rename those in place; an API change moves the path/version, which stays publishable.
+ */
 export type CoreOnlyEndpointParam =
+  | 'steamApiBaseUrl'
+  | 'loginBaseUrl'
+  | 'communityBaseUrl'
+  | 'storeBaseUrl'
+  | 'paramAccessToken'
+  | 'paramTradeOfferId'
+  | 'paramGetSentOffers'
+  | 'paramActiveOnly'
+  | 'paramGetDescriptions'
+  | 'paramMaxTrades'
+  | 'paramSteamIds'
+  | 'paramSteamId'
+  | 'paramGetReceivedOffers'
   | 'inventoryPageCount'
   | 'inventoryMaxPages'
   | 'getSteamNotificationsPath'
@@ -78,8 +98,12 @@ export type CoreOnlyEndpointParam =
  *   unlike `sentBudgetMarginPercent` no failure mode makes reaching it urgent. To open it: drop the name
  *   from this union, add `onlineBudgetMarginPercent?: number` to `NotaryOverrides` and `int(0)` to
  *   NOTARY_SCHEMA.
+ * - **`subprotocol` / `provenCookieHeader`** — the WebSocket protocol version the notary speaks and an HTTP
+ *   header name. Changing either from one side only breaks every proof, so neither is a remote knob.
  */
 export type CoreOnlyNotaryParam =
+  | 'subprotocol'
+  | 'provenCookieHeader'
   | 'proxyBaseUrl'
   | 'offerRead'
   | 'historyRead'
@@ -258,16 +282,6 @@ export const STEAM_ENDPOINTS_ORDER = [
   'targetedTradeReadsPerCycle',
 ] as const satisfies readonly (keyof SteamEndpointsOverrides | CoreOnlyEndpointParam)[];
 
-export const STEAM_PROFILE_ORDER = [
-  'cacheTtlMs',
-  'maxConcurrency',
-  'batchSize',
-  'requestTimeoutMs',
-  'maxRetries',
-  'retryBaseDelayMs',
-  'retryMaxDelayMs',
-] as const satisfies readonly (keyof SteamProfileOverrides)[];
-
 export const STEAM_SCRAPE_ORDER = [
   'tokenRegex',
   'steamIdRegex',
@@ -275,7 +289,12 @@ export const STEAM_SCRAPE_ORDER = [
   'steamSessionIdCookieName',
 ] as const satisfies readonly (keyof SteamScrapeOverrides)[];
 
-export const GAME_ORDER = ['cs2InventoryContextId'] as const;
+/**
+ * Whole `TrackerConfig` groups the overlay does not expose, named in TRACKER_ORDER for position only.
+ * `steamProfile` (retries/timeouts for Steam profile lookups) and `game` (`cs2InventoryContextId`, a Steam
+ * constant) were publishable until 2026-09-24 and never had a reason to be.
+ */
+export type CoreOnlyTrackerGroup = 'steamProfile' | 'game';
 
 /** The core's trailing `writeClaims` / `steamWrites` groups are not exposed here. Being trailing, they can
  *  be omitted outright — a positional call stops at the last argument supplied. `backoff` used to sit at
@@ -294,4 +313,4 @@ export const TRACKER_ORDER = [
   'steamProfile',
   'steamScrape',
   'game',
-] as const satisfies readonly (keyof TrackerOverrides)[];
+] as const satisfies readonly (keyof TrackerOverrides | CoreOnlyTrackerGroup)[];

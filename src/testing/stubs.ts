@@ -11,9 +11,8 @@ import { REMOTE_CONFIG_CACHE_KEY, REMOTE_CONFIG_PARAM } from '@/infra/remoteConf
 import { loadSettings } from '@/config/settings';
 
 /**
- * Give the fake browser a manifest. Its own `runtime.getManifest` THROWS "not implemented", which is
- * itself a useful state (it exercises `hostPermissionOrigins`' catch path in src/config/settings.ts —
- * "no manifest → host/base-URL overrides rejected"); call this for the granted-host path.
+ * Give the fake browser a manifest. Its own `runtime.getManifest` THROWS "not implemented", so code that
+ * reads the manifest (the report payload's version, for one) needs this to run its normal path.
  *
  * A spy rather than an assignment, so `restoreMocks: true` (vitest.config.ts) puts the throwing
  * original back after each test — an assignment would leak the stub across the whole file.

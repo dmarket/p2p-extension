@@ -43,11 +43,12 @@
 // logged-out/wrong-account state until the next due heartbeat, i.e. up to a full backend ttl.
 
 import { Tracker, type TrackerHandle } from '@/core/tracker';
-import { getMarketplaceCookieName, getSteamSessionCookieName, getSettings } from '@/config/settings';
+import { getMarketplaceCookieName, getSteamSessionCookieName } from '@/config/settings';
 import { STEAM_INTEGRATION } from '@/config/steam';
 import { getBlockingReason } from '@/state/blocking';
 
-// Debounce window is remote-config-tunable (web.refreshDebounceMs, default 3000); read at use time.
+const REFRESH_DEBOUNCE_MS = 3_000;
+
 // One timestamp per axis, so a rotating cookie on one side can't starve the other's nudge — and, for the
 // same reason, one in-flight flag per axis: a single shared flag let a marketplace nudge silently eat a
 // Steam one, and the two axes move together on an account change (signing into DMarket and signing into
@@ -84,7 +85,7 @@ function nudgeReeval(getHandle: () => TrackerHandle | undefined, axis: Axis): vo
     return;
   }
   const now = Date.now();
-  const debounceMs = getSettings().web.refreshDebounceMs;
+  const debounceMs = REFRESH_DEBOUNCE_MS;
   const sinceLast = now - lastRefreshAt[axis];
   if (sinceLast < debounceMs) {
     // Inside the window — collapse into ONE trailing nudge rather than dropping this event. Only the

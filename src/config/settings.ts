@@ -20,12 +20,10 @@
 import {
   CADENCE_ORDER,
   CREDENTIAL_ORDER,
-  GAME_ORDER,
   HTTP_ORDER,
   MARKETPLACE_RETRY_ORDER,
   NOTARY_ORDER,
   STEAM_ENDPOINTS_ORDER,
-  STEAM_PROFILE_ORDER,
   STEAM_SCRAPE_ORDER,
   type CoreOnlyEndpointParam,
   type CoreOnlyNotaryParam,
@@ -61,9 +59,6 @@ const DMARKET_URL = 'https://dmarket.com/';
 
 /** DMarket deep-link shown in the "Trade tracking is ON" Steam banner. Remote-overridable. */
 const ACTIVE_BANNER_LINK = 'https://dmarket.com/ingame-items/item-list/csgo-skins';
-
-/** Debounce for the forced-heartbeat reconnect/refresh triggers (ms). Remote-overridable. */
-const DEBOUNCE_MS = 3000;
 
 /**
  * How long to wait for one TLSN proof before giving up on it (ms). Remote-overridable, because the real
@@ -198,9 +193,7 @@ export interface TrackerOverrides {
   };
   notary?: NotaryOverrides;
   steamEndpoints?: SteamEndpointsOverrides;
-  steamProfile?: SteamProfileOverrides;
   steamScrape?: SteamScrapeOverrides;
-  game?: { cs2InventoryContextId?: number };
 }
 
 export interface CadenceOverrides {
@@ -239,53 +232,23 @@ export interface SteamScrapeOverrides {
   steamSessionIdCookieName?: string;
 }
 
-export interface SteamProfileOverrides {
-  cacheTtlMs?: number;
-  maxConcurrency?: number;
-  batchSize?: number;
-  requestTimeoutMs?: number;
-  maxRetries?: number;
-  retryBaseDelayMs?: number;
-  retryMaxDelayMs?: number;
-}
-
 export interface SteamEndpointsOverrides {
-  steamApiBaseUrl?: string;
   getTradeOfferPath?: string;
   getTradeOffersPath?: string;
   getTradeHistoryPath?: string;
   getPlayerSummariesPath?: string;
   getSteamLevelPath?: string;
-  loginBaseUrl?: string;
-  communityBaseUrl?: string;
-  storeBaseUrl?: string;
   historyMaxTrades?: number;
   bulkOfferThreshold?: number;
-  paramAccessToken?: string;
-  paramTradeOfferId?: string;
-  paramGetSentOffers?: string;
-  paramActiveOnly?: string;
-  paramGetDescriptions?: string;
-  paramMaxTrades?: string;
-  paramSteamIds?: string;
-  paramSteamId?: string;
-  /**
-   * Asks the bulk offer list for received offers too, so a deal this account is *buying* (whose Steam
-   * offer is a received one) resolves from the batch instead of a per-offer read. Listed last to mirror
-   * the core's own parameter order, which is append-only because `copy()` is positional.
-   */
-  paramGetReceivedOffers?: string;
 }
 
 export interface NotaryOverrides {
   maxConcurrency?: number;
   /** Redirects the prover at another notary. Not nullable: see `resolveNotaryUrl` for what a clear does. */
   notaryUrl?: string;
-  subprotocol?: string;
   maxSentData?: number;
   maxRecvData?: number;
   threadCount?: number;
-  provenCookieHeader?: string;
   /**
    * PEM roots the prover verifies the TARGET's chain against, so a harness substrate presenting a fixture-CA
    * leaf for `api.steampowered.com` can be proven at all. Set from a DEV-ONLY build-time variable, never from
@@ -345,8 +308,6 @@ interface WebSettings {
   steamLoginUrl: string;
   activeBannerLink: string;
   antiCsrf: AntiCsrfEndpoint[];
-  reconnectDebounceMs: number;
-  refreshDebounceMs: number;
   /** Give up on a single TLSN proof after this long (ms) — see NOTARY_PROOF_TIMEOUT_MS. */
   notaryProofTimeoutMs: number;
   /** Treat the prover's driver as wedged after this long without a pong (ms); `0` disables the watch. */
@@ -354,7 +315,6 @@ interface WebSettings {
   /** Proofs one wasm instance serves before recycling; `0` never recycles — see NOTARY_PROOFS_PER_INSTANCE. */
   notaryProofsPerInstance: number;
   dmarketUrl: string;
-  bridgeExtraOrigins: string[];
   errorReporting: ErrorReportingSettings;
 }
 
@@ -384,13 +344,10 @@ function defaultWeb(): WebSettings {
     steamLoginUrl: STEAM_INTEGRATION.loginUrl,
     activeBannerLink: ACTIVE_BANNER_LINK,
     antiCsrf: STEAM_INTEGRATION.antiCsrf.map((e) => ({ ...e })),
-    reconnectDebounceMs: DEBOUNCE_MS,
-    refreshDebounceMs: DEBOUNCE_MS,
     notaryProofTimeoutMs: NOTARY_PROOF_TIMEOUT_MS,
     notaryStuckAfterMs: NOTARY_STUCK_AFTER_MS,
     notaryProofsPerInstance: NOTARY_PROOFS_PER_INSTANCE,
     dmarketUrl: DMARKET_URL,
-    bridgeExtraOrigins: [],
     errorReporting: { ...ERROR_REPORTING_DEFAULTS, suppressSubstrings: [] },
   };
 }
@@ -399,11 +356,7 @@ const DEFAULTS: Settings = { tracker: {}, web: defaultWeb() };
 
 // ---- Field validators (each returns the value or `undefined` to reject → keep default) ------------
 
-interface Ctx {
-  /** Origins the manifest already declares in host_permissions (for host/base-URL override guarding). */
-  origins: Set<string>;
-}
-type Validator = (v: unknown, ctx: Ctx) => unknown;
+type Validator = (v: unknown) => unknown;
 
 const isObj = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -465,30 +418,6 @@ const regexWithGroup: Validator = (v) => {
     return undefined;
   }
 };
-
-/** http(s) base URL with NO trailing slash (the core concatenates leading-slash paths), gated on
- *  host_permissions — a host the manifest can't reach (or the core's allow-lists reject) is ignored. */
-const baseUrl: Validator = (v, ctx) => {
-  if (typeof v !== 'string' || v === '' || v.endsWith('/')) return undefined;
-  let u: URL;
-  try {
-    u = new URL(v);
-  } catch {
-    return undefined;
-  }
-  if (u.protocol !== 'https:' && u.protocol !== 'http:') return undefined;
-  if (!ctx.origins.has(u.origin)) {
-    console.warn(`[dmarket-p2p] remote config: base URL "${v}" is outside host_permissions — ignored`);
-    return undefined;
-  }
-  return v;
-};
-
-// A bare-host validator lived here (`guardedHost`), gated on host_permissions via its https origin. Its only
-// ever consumer was `notary.provenServerName`, which stopped being publishable and has since been folded into
-// the core-only `ProvenRead` group, and no other overridable field is a bare host — every other host-shaped
-// value is a full URL and goes through `baseUrl` above. Deleted rather than left dangling; restore it from git
-// if a bare-host field returns.
 
 /** wss:// (or ws://) URL — notary transport; not host_permissions-gated. */
 const wssUrl: Validator = (v) => {
@@ -581,17 +510,6 @@ const MARKETPLACE_SCRAPE_SCHEMA = {
   deferRefreshWhileSiteTabOpen: boolean,
 } satisfies Schema<'cookieName' | 'refreshCookieName' | 'tokenRefreshPath' | 'deferRefreshWhileSiteTabOpen'>;
 
-// SteamProfileConfig.init requires batchSize in 1..100, maxConcurrency >= 1, maxRetries >= 1.
-const STEAM_PROFILE_SCHEMA = {
-  cacheTtlMs: int(0),
-  maxConcurrency: int(1),
-  batchSize: int(1, 100),
-  requestTimeoutMs: int(1),
-  maxRetries: int(1),
-  retryBaseDelayMs: int(0),
-  retryMaxDelayMs: int(0),
-} satisfies Schema<(typeof STEAM_PROFILE_ORDER)[number]>;
-
 const STEAM_SCRAPE_SCHEMA = {
   tokenRegex: regexWithGroup,
   steamIdRegex: regexWithGroup,
@@ -601,36 +519,21 @@ const STEAM_SCRAPE_SCHEMA = {
 
 // The core-only slots are excluded: they exist in the order only to hold their position.
 const STEAM_ENDPOINTS_SCHEMA = {
-  steamApiBaseUrl: baseUrl,
   getTradeOfferPath: leadingSlashPath,
   getTradeOffersPath: leadingSlashPath,
   getTradeHistoryPath: leadingSlashPath,
   getPlayerSummariesPath: leadingSlashPath,
   getSteamLevelPath: leadingSlashPath,
-  loginBaseUrl: baseUrl,
-  communityBaseUrl: baseUrl,
-  storeBaseUrl: baseUrl,
   historyMaxTrades: int(1),
   bulkOfferThreshold: int(0),
-  paramAccessToken: nonEmptyStr,
-  paramTradeOfferId: nonEmptyStr,
-  paramGetSentOffers: nonEmptyStr,
-  paramActiveOnly: nonEmptyStr,
-  paramGetDescriptions: nonEmptyStr,
-  paramMaxTrades: nonEmptyStr,
-  paramSteamIds: nonEmptyStr,
-  paramSteamId: nonEmptyStr,
-  paramGetReceivedOffers: nonEmptyStr,
 } satisfies Schema<Exclude<(typeof STEAM_ENDPOINTS_ORDER)[number], CoreOnlyEndpointParam>>;
 
 const NOTARY_SCHEMA = {
   maxConcurrency: int(1),
   notaryUrl: wssUrl,
-  subprotocol: nonEmptyStr,
   maxSentData: int(1),
   maxRecvData: int(1),
   threadCount: int(1),
-  provenCookieHeader: nonEmptyStr,
   // The ONE key here that is refused rather than validated, and the only reason `rejectAlways` still exists:
   // every other unpublishable parameter of this group is off `NotaryOverrides` altogether and so has no entry
   // (see `CoreOnlyNotaryParam`). `rootStorePem` cannot follow them, because the extension itself sets it —
@@ -663,42 +566,37 @@ const NOTARY_SCHEMA = {
   sentBudgetMarginPercent: int(0),
 } satisfies Schema<Exclude<(typeof NOTARY_ORDER)[number], CoreOnlyNotaryParam>>;
 
-const GAME_SCHEMA = { cs2InventoryContextId: int(0) } satisfies Schema<(typeof GAME_ORDER)[number]>;
 
 // ---- Parsing / overlay ----------------------------------------------------------------------------
 
 /** Validate the known fields of one raw group object; returns `undefined` when nothing valid remains. */
-function pickGroup<T>(raw: unknown, schema: Record<string, Validator>, ctx: Ctx): T | undefined {
+function pickGroup<T>(raw: unknown, schema: Record<string, Validator>): T | undefined {
   if (!isObj(raw)) return undefined;
   const out: Record<string, unknown> = {};
   for (const [key, validate] of Object.entries(schema)) {
     if (!(key in raw)) continue;
-    const value = validate(raw[key], ctx);
+    const value = validate(raw[key]);
     if (value !== undefined) out[key] = value;
   }
   return Object.keys(out).length > 0 ? (out as T) : undefined;
 }
 
-function buildTracker(raw: Record<string, unknown>, ctx: Ctx): TrackerOverrides {
+function buildTracker(raw: Record<string, unknown>): TrackerOverrides {
   const t: TrackerOverrides = {};
-  const cadence = pickGroup<CadenceOverrides>(raw.cadence, CADENCE_SCHEMA, ctx);
-  const credentials = pickGroup<CredentialOverrides>(raw.credentials, CREDENTIAL_SCHEMA, ctx);
-  const http = pickGroup<{ requestTimeoutMs?: number }>(raw.http, HTTP_SCHEMA, ctx);
+  const cadence = pickGroup<CadenceOverrides>(raw.cadence, CADENCE_SCHEMA);
+  const credentials = pickGroup<CredentialOverrides>(raw.credentials, CREDENTIAL_SCHEMA);
+  const http = pickGroup<{ requestTimeoutMs?: number }>(raw.http, HTTP_SCHEMA);
   const marketplaceRetry = pickGroup<TrackerOverrides['marketplaceRetry']>(
     raw.marketplaceRetry,
     MARKETPLACE_RETRY_SCHEMA,
-    ctx,
   );
   const marketplaceScrape = pickGroup<NonNullable<TrackerOverrides['marketplaceScrape']>>(
     raw.marketplaceScrape,
     MARKETPLACE_SCRAPE_SCHEMA,
-    ctx,
   );
-  const notary = pickGroup<NotaryOverrides>(raw.notary, NOTARY_SCHEMA, ctx);
-  const steamEndpoints = pickGroup<SteamEndpointsOverrides>(raw.steamEndpoints, STEAM_ENDPOINTS_SCHEMA, ctx);
-  const steamProfile = pickGroup<SteamProfileOverrides>(raw.steamProfile, STEAM_PROFILE_SCHEMA, ctx);
-  const steamScrape = pickGroup<SteamScrapeOverrides>(raw.steamScrape, STEAM_SCRAPE_SCHEMA, ctx);
-  const game = pickGroup<{ cs2InventoryContextId?: number }>(raw.game, GAME_SCHEMA, ctx);
+  const notary = pickGroup<NotaryOverrides>(raw.notary, NOTARY_SCHEMA);
+  const steamEndpoints = pickGroup<SteamEndpointsOverrides>(raw.steamEndpoints, STEAM_ENDPOINTS_SCHEMA);
+  const steamScrape = pickGroup<SteamScrapeOverrides>(raw.steamScrape, STEAM_SCRAPE_SCHEMA);
   if (cadence) t.cadence = cadence;
   if (credentials) t.credentials = credentials;
   if (http) t.http = http;
@@ -706,9 +604,7 @@ function buildTracker(raw: Record<string, unknown>, ctx: Ctx): TrackerOverrides 
   if (marketplaceScrape) t.marketplaceScrape = marketplaceScrape;
   if (notary) t.notary = notary;
   if (steamEndpoints) t.steamEndpoints = steamEndpoints;
-  if (steamProfile) t.steamProfile = steamProfile;
   if (steamScrape) t.steamScrape = steamScrape;
-  if (game) t.game = game;
   return t;
 }
 
@@ -735,31 +631,24 @@ function validAntiCsrf(raw: unknown): AntiCsrfEndpoint[] | undefined {
   return out.length > 0 ? out : undefined;
 }
 
-function buildWeb(raw: Record<string, unknown>, _ctx: Ctx): WebSettings {
+function buildWeb(raw: Record<string, unknown>): WebSettings {
   const web = defaultWeb();
-  const anchor = nonEmptyStr(raw.bannerAnchorSelector, _ctx) as string | undefined;
-  const logout = callExpression(raw.logoutExpression, _ctx) as string | undefined;
-  const tradeUrl = httpUrl(raw.tradeOffersUrl, _ctx) as string | undefined;
-  const loginUrl = httpUrl(raw.steamLoginUrl, _ctx) as string | undefined;
-  const activeLink = httpUrl(raw.activeBannerLink, _ctx) as string | undefined;
-  const dmUrl = httpUrl(raw.dmarketUrl, _ctx) as string | undefined;
+  const anchor = nonEmptyStr(raw.bannerAnchorSelector) as string | undefined;
+  const logout = callExpression(raw.logoutExpression) as string | undefined;
+  const tradeUrl = httpUrl(raw.tradeOffersUrl) as string | undefined;
+  const loginUrl = httpUrl(raw.steamLoginUrl) as string | undefined;
+  const activeLink = httpUrl(raw.activeBannerLink) as string | undefined;
+  const dmUrl = httpUrl(raw.dmarketUrl) as string | undefined;
   const antiCsrf = validAntiCsrf(raw.antiCsrf);
-  const reconnect = int(0)(raw.reconnectDebounceMs, _ctx) as number | undefined;
-  const refresh = int(0)(raw.refreshDebounceMs, _ctx) as number | undefined;
   // Floored at 1s: a smaller value would abort every proof before it could start, which is worse than no
   // timeout at all — it would turn a reachable notary into a permanent failure via a remote publish.
-  const proofTimeout = int(1000)(raw.notaryProofTimeoutMs, _ctx) as number | undefined;
+  const proofTimeout = int(1000)(raw.notaryProofTimeoutMs) as number | undefined;
   // `0` is a deliberate kill switch (watch off), so the validator floor is 0 — but any other value is raised
   // to NOTARY_STUCK_FLOOR_MS, because a threshold under the probe interval declares every proof wedged.
-  const stuckAfter = int(0)(raw.notaryStuckAfterMs, _ctx) as number | undefined;
+  const stuckAfter = int(0)(raw.notaryStuckAfterMs) as number | undefined;
   // `0` means "never recycle", so the validator floor is 0 and no clamp follows: unlike the silence threshold,
   // every value here is serviceable — 1 is the old per-proof behaviour, and a large one is a long-lived realm.
-  const proofsPerInstance = int(0)(raw.notaryProofsPerInstance, _ctx) as number | undefined;
-  const origins = Array.isArray(raw.bridgeExtraOrigins)
-    ? raw.bridgeExtraOrigins
-        .map((o) => (httpUrl(o, _ctx) ? new URL(o as string).origin : undefined))
-        .filter((o): o is string => typeof o === 'string')
-    : undefined;
+  const proofsPerInstance = int(0)(raw.notaryProofsPerInstance) as number | undefined;
 
   if (anchor !== undefined) web.bannerAnchorSelector = anchor;
   if (logout !== undefined) web.logoutExpression = logout;
@@ -768,14 +657,11 @@ function buildWeb(raw: Record<string, unknown>, _ctx: Ctx): WebSettings {
   if (activeLink !== undefined) web.activeBannerLink = activeLink;
   if (dmUrl !== undefined) web.dmarketUrl = dmUrl;
   if (antiCsrf !== undefined) web.antiCsrf = antiCsrf;
-  if (reconnect !== undefined) web.reconnectDebounceMs = reconnect;
-  if (refresh !== undefined) web.refreshDebounceMs = refresh;
   if (proofTimeout !== undefined) web.notaryProofTimeoutMs = proofTimeout;
   if (stuckAfter !== undefined) {
     web.notaryStuckAfterMs = stuckAfter === 0 ? 0 : Math.max(stuckAfter, NOTARY_STUCK_FLOOR_MS);
   }
   if (proofsPerInstance !== undefined) web.notaryProofsPerInstance = proofsPerInstance;
-  if (origins !== undefined) web.bridgeExtraOrigins = origins;
   web.errorReporting = buildErrorReporting(isObj(raw.errorReporting) ? raw.errorReporting : {});
   return web;
 }
@@ -821,23 +707,6 @@ function intOrNull(v: unknown): number | null {
   return n < 0 ? null : n;
 }
 
-function hostPermissionOrigins(): Set<string> {
-  const out = new Set<string>();
-  try {
-    const hp = (browser.runtime.getManifest().host_permissions ?? []) as string[];
-    for (const pattern of hp) {
-      try {
-        out.add(new URL(pattern.replace(/\*+$/, '')).origin);
-      } catch {
-        /* skip non-URL patterns */
-      }
-    }
-  } catch {
-    /* no manifest (e.g. a plain Node test harness) → host/base-URL overrides are rejected */
-  }
-  return out;
-}
-
 /** Parse + validate the Remote Config entries into typed Settings. Pure; never throws. */
 export function parseSettings(entries: ConfigEntries): Settings {
   const raw = entries[REMOTE_CONFIG_PARAM];
@@ -850,10 +719,9 @@ export function parseSettings(entries: ConfigEntries): Settings {
     }
   }
   const root = isObj(doc) ? doc : {};
-  const ctx: Ctx = { origins: hostPermissionOrigins() };
   return {
-    tracker: buildTracker(isObj(root.tracker) ? root.tracker : {}, ctx),
-    web: buildWeb(isObj(root.web) ? root.web : {}, ctx),
+    tracker: buildTracker(isObj(root.tracker) ? root.tracker : {}),
+    web: buildWeb(isObj(root.web) ? root.web : {}),
   };
 }
 

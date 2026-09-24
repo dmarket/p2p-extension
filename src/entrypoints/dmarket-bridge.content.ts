@@ -1,5 +1,5 @@
 import { installDmarketBridge } from '@/messaging/bridge';
-import { DMARKET_ORIGINS, getSettings, loadSettings } from '@/config/settings';
+import { DMARKET_ORIGINS } from '@/config/settings';
 import { reportError, setReportContext } from '@/infra/report/reporter';
 
 // Intake bridge on dmarket.com. It never receives secrets — it relays presence/create/nudge requests
@@ -8,13 +8,11 @@ import { reportError, setReportContext } from '@/infra/report/reporter';
 // appended (see the `build:manifestGenerated` hook in wxt.config.ts) so this script runs there too.
 
 // The page's own origin is always accepted (this script only runs on manifest-matched hosts). This
-// list adds extra cross-window origins: the two dmarket origins (DMARKET_ORIGINS), plus any
-// remote-config extra origins (`web.bridgeExtraOrigins`, all builds), plus — in debug builds only —
-// the dev FE origins the debug console recorded (`debug.allowedOrigins`). A configurable allow-list,
-// never a single hardcoded origin.
+// list adds extra cross-window origins: the two dmarket origins (DMARKET_ORIGINS), plus — in debug
+// builds only — the dev FE origins the debug console recorded (`debug.allowedOrigins`). Deliberately not
+// remote-configurable: widening who may talk to the bridge is not a config change.
 async function resolveAllowedOrigins(): Promise<string[]> {
-  await loadSettings();
-  const extra = [...getSettings().web.bridgeExtraOrigins];
+  const extra: string[] = [];
   if (import.meta.env.DEV) {
     try {
       const stored = (await browser.storage.local.get('debug.allowedOrigins'))['debug.allowedOrigins'];

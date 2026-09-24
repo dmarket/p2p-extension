@@ -7,7 +7,7 @@ import {
   type TrackerOverrides,
 } from '@/config/settings';
 import { REMOTE_CONFIG_PARAM } from '@/infra/remoteConfig';
-import { flushMacrotasks, publishRemoteConfig, stubManifest } from '@/testing/stubs';
+import { flushMacrotasks, publishRemoteConfig } from '@/testing/stubs';
 
 // The Remote Config overlay: one JSON document, delivered to every client over an unauthenticated
 // public REST call, merged over compiled defaults. The contract under test is asymmetric on purpose —
@@ -30,11 +30,11 @@ describe('parseSettings — document shape', () => {
   it('applies a correctly placed override (the positive control for every rejection test)', () => {
     const s = parse({
       tracker: { notary: { maxRecvData: 8192 }, cadence: { webPollFloorMs: 90_000 } },
-      web: { refreshDebounceMs: 5000 },
+      web: { notaryProofTimeoutMs: 60_000 },
     });
     expect(s.tracker.notary?.maxRecvData).toBe(8192);
     expect(s.tracker.cadence?.webPollFloorMs).toBe(90_000);
-    expect(s.web.refreshDebounceMs).toBe(5000);
+    expect(s.web.notaryProofTimeoutMs).toBe(60_000);
   });
 
   it('a group at the ROOT (not under tracker) is ignored', () => {
@@ -55,7 +55,7 @@ describe('parseSettings — document shape', () => {
     for (const raw of hostile) {
       const s = parseSettings({ [REMOTE_CONFIG_PARAM]: raw as string });
       expect(s.tracker).toEqual({});
-      expect(s.web.refreshDebounceMs).toBe(3000);
+      expect(s.web.notaryProofTimeoutMs).toBe(180_000);
     }
     // And an absent / non-string param.
     expect(parseSettings({}).tracker).toEqual({});
@@ -202,33 +202,13 @@ describe('URL validators', () => {
     expect(parse({ tracker: { notary: { notaryUrl: null } } }).tracker.notary).toBeUndefined();
   });
 
-  it('baseUrl: rejected without a matching host permission (no manifest in a bare test)', () => {
-    // fakeBrowser's getManifest throws → hostPermissionOrigins is empty → every base URL is off-host.
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const s = parse({ tracker: { steamEndpoints: { steamApiBaseUrl: 'https://api.steampowered.com' } } });
-    expect(s.tracker.steamEndpoints?.steamApiBaseUrl).toBeUndefined();
-    warn.mockRestore();
-  });
-
-  it('baseUrl: accepted when the manifest grants the origin; trailing slash still rejected', () => {
-    stubManifest(['https://api.steampowered.com/*']);
-    const ok = parse({ tracker: { steamEndpoints: { steamApiBaseUrl: 'https://api.steampowered.com' } } });
-    expect(ok.tracker.steamEndpoints?.steamApiBaseUrl).toBe('https://api.steampowered.com');
-    // The core concatenates leading-slash paths onto it, so a trailing slash would double the slash.
-    const slash = parse({
-      tracker: { steamEndpoints: { steamApiBaseUrl: 'https://api.steampowered.com/' } },
-    });
-    expect(slash.tracker.steamEndpoints?.steamApiBaseUrl).toBeUndefined();
-  });
-
-  it('baseUrl: a granted host with a non-http scheme is still rejected', () => {
-    stubManifest(['https://api.steampowered.com/*']);
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('Steam base URLs and query-parameter names are not publishable', () => {
+    // Pruned 2026-09-24 (see CoreOnlyEndpointParam): a base URL could only be set to the host it already has,
+    // and Steam does not rename its query parameters in place. A publish carrying only these is a no-op.
     const s = parse({
-      tracker: { steamEndpoints: { steamApiBaseUrl: 'ftp://api.steampowered.com' } },
+      tracker: { steamEndpoints: { steamApiBaseUrl: 'https://api.steampowered.com', paramAccessToken: 'x' } },
     });
-    expect(s.tracker.steamEndpoints?.steamApiBaseUrl).toBeUndefined();
-    warn.mockRestore();
+    expect(s.tracker.steamEndpoints).toBeUndefined();
   });
 });
 
@@ -279,14 +259,12 @@ describe('range validators mirroring core constructor requires', () => {
     expect(cred({ marketplaceSkewMs: -1 })).toBeUndefined();
   });
 
-  it('steamProfile bounds mirror SteamProfileConfig.init requires (batchSize 1..100, others >= 1)', () => {
-    const prof = (o: object) => parse({ tracker: { steamProfile: o } }).tracker.steamProfile;
-    expect(prof({ batchSize: 100 })?.batchSize).toBe(100);
-    expect(prof({ batchSize: 0 })).toBeUndefined();
-    expect(prof({ batchSize: 101 })).toBeUndefined();
-    expect(prof({ maxConcurrency: 0 })).toBeUndefined();
-    expect(prof({ maxRetries: 0 })).toBeUndefined();
-    // MarketplaceRetryConfig.init requires maxRetries >= 1 as well.
+  it('the steamProfile and game groups are not publishable', () => {
+    const s = parse({ tracker: { steamProfile: { batchSize: 50 }, game: { cs2InventoryContextId: 9 } } });
+    expect(s.tracker).toEqual({});
+  });
+
+  it('marketplaceRetry mirrors MarketplaceRetryConfig.init (maxRetries >= 1)', () => {
     expect(parse({ tracker: { marketplaceRetry: { maxRetries: 0 } } }).tracker.marketplaceRetry).toBeUndefined();
   });
 
@@ -362,11 +340,12 @@ describe('web overrides', () => {
     expect(parse({ web: { notaryProofTimeoutMs: 60_000 } }).web.notaryProofTimeoutMs).toBe(60_000);
   });
 
-  it('bridgeExtraOrigins are normalised to origins and non-URLs dropped', () => {
+  it('bridge origins and trigger debounces are not remote settings', () => {
+    // Widening who may talk to the bridge is not a config change, and nobody tunes the debounces.
     const s = parse({
-      web: { bridgeExtraOrigins: ['https://stage.example/path?q=1', 'garbage', 42, 'wss://not-http.example'] },
+      web: { bridgeExtraOrigins: ['https://stage.example'], reconnectDebounceMs: 1, refreshDebounceMs: 1 },
     });
-    expect(s.web.bridgeExtraOrigins).toEqual(['https://stage.example']);
+    expect(s.web).toEqual(parse({}).web);
   });
 });
 

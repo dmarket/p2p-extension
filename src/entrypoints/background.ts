@@ -26,7 +26,6 @@ import { resolveNotaryUrl } from '@/config/notaryUrl';
 import { extensionVersion } from '@/util/extensionVersion';
 import {
   DMARKET_ORIGINS,
-  getSettings,
   loadSettings,
   subscribeSettings,
   type TrackerOverrides,
@@ -152,11 +151,6 @@ export default defineBackground(() => {
   const PROD_TAB_PATTERNS = DMARKET_ORIGINS.map((o) => `${o}/*`);
   const dmarketTabPatterns = async (): Promise<string[]> => {
     const extra: string[] = [];
-    // Remote-config extra bridge origins (all builds). NB: with no `tabs` permission in the manifest the
-    // `url` filter below is honoured only for tabs we hold host permission for, so an origin outside
-    // `host_permissions` matches nothing. Harmless, and not a loss either: no bridge is ever injected
-    // into such an origin declaratively, so that tab has no listener for this push in the first place.
-    for (const o of getSettings().web.bridgeExtraOrigins) extra.push(`${o.replace(/\/+$/, '')}/*`);
     // Dev builds also honour the debug console's recorded origins (compile-time-gated, tree-shaken from prod).
     if (import.meta.env.DEV) {
       try {

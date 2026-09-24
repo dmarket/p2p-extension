@@ -33,9 +33,7 @@ const GROUPS = {
   MARKETPLACE_SCRAPE_ORDER: 'MarketplaceScrapeConfig',
   NOTARY_ORDER: 'NotaryConfig',
   STEAM_ENDPOINTS_ORDER: 'SteamEndpointsConfig',
-  STEAM_PROFILE_ORDER: 'SteamProfileConfig',
   STEAM_SCRAPE_ORDER: 'SteamScrapeConfig',
-  GAME_ORDER: 'GameConfig',
   TRACKER_ORDER: 'TrackerConfig',
 };
 
