@@ -271,10 +271,12 @@ describe('range validators mirroring core constructor requires', () => {
     expect(cred({ marketplaceRefreshMinIntervalMs: 90_000 })?.marketplaceRefreshMinIntervalMs).toBe(90_000);
   });
 
-  it('marketplaceSkewMs is capped at 59999 — the core requires gate headroom > skew inside copy()', () => {
+  it('marketplaceSkewMs has no static ceiling — the cross-field check lives in buildTrackerConfig', () => {
     const cred = (o: object) => parse({ tracker: { credentials: o } }).tracker.credentials;
-    expect(cred({ marketplaceSkewMs: 59_999 })?.marketplaceSkewMs).toBe(59_999);
-    expect(cred({ marketplaceSkewMs: 60_000 })).toBeUndefined();
+    // The core default itself must be publishable.
+    expect(cred({ marketplaceSkewMs: 60_000 })?.marketplaceSkewMs).toBe(60_000);
+    expect(cred({ marketplaceSkewMs: 120_000 })?.marketplaceSkewMs).toBe(120_000);
+    expect(cred({ marketplaceSkewMs: -1 })).toBeUndefined();
   });
 
   it('steamProfile bounds mirror SteamProfileConfig.init requires (batchSize 1..100, others >= 1)', () => {

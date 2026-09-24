@@ -27,6 +27,8 @@ import type { TrackerOverrides } from '@/config/settings';
 interface ConfigView {
   cadence: { webPollFloorMs: number; maxActionDelayMs: number; iosForegroundPollFloorMs: number };
   credentials: {
+    steamSkewMs: number;
+    marketplaceSkewMs: number;
     marketplaceSessionGateHeadroomMs: number;
     sessionGateHeadroomMs: number;
     marketplaceRefreshMinLifeMs: number;
@@ -225,5 +227,44 @@ describe('buildTrackerConfig — trailing-argument trimming', () => {
     expect(buildTrackerConfig(undefined, { notary: { notaryUrl: 'wss://notary.test/v1/' } })).toBeInstanceOf(
       TrackerConfig,
     );
+  });
+});
+
+describe('buildTrackerConfig — the credential headroom/skew pair is checked on effective values', () => {
+  // The core requires marketplaceSessionGateHeadroomMs > marketplaceSkewMs and throws inside copy() otherwise.
+  // Per-field validation cannot see the pair, because an override of one field meets the DEFAULT of the other.
+  it('a trigger-only override that collides with the default skew is dropped instead of throwing', () => {
+    const d = defaults();
+    const cfg = build({
+      credentials: { marketplaceSessionGateHeadroomMs: d.credentials.marketplaceSkewMs, steamSkewMs: 30_000 },
+    });
+    expect(cfg.credentials.marketplaceSessionGateHeadroomMs).toBe(d.credentials.marketplaceSessionGateHeadroomMs);
+    expect(cfg.credentials.marketplaceSkewMs).toBe(d.credentials.marketplaceSkewMs);
+    // An unrelated field in the same group still applies.
+    expect(cfg.credentials.steamSkewMs).toBe(30_000);
+  });
+
+  it('a skew-only override at or above the default trigger is dropped instead of throwing', () => {
+    const d = defaults();
+    const skew = d.credentials.marketplaceSessionGateHeadroomMs;
+    expect(buildTrackerConfig(undefined, { credentials: { marketplaceSkewMs: skew } })).toBeUndefined();
+  });
+
+  it('both published and in conflict: both dropped, the core keeps its own valid pair', () => {
+    const d = defaults();
+    const cfg = build({
+      credentials: { marketplaceSkewMs: 120_000, marketplaceSessionGateHeadroomMs: 90_000, steamSkewMs: 30_000 },
+    });
+    expect(cfg.credentials.marketplaceSkewMs).toBe(d.credentials.marketplaceSkewMs);
+    expect(cfg.credentials.marketplaceSessionGateHeadroomMs).toBe(d.credentials.marketplaceSessionGateHeadroomMs);
+  });
+
+  it('a consistent pair applies, including the core default skew', () => {
+    const d = defaults();
+    const withDefault = build({ credentials: { marketplaceSkewMs: d.credentials.marketplaceSkewMs } });
+    expect(withDefault.credentials.marketplaceSkewMs).toBe(d.credentials.marketplaceSkewMs);
+    const cfg = build({ credentials: { marketplaceSkewMs: 59_999, marketplaceSessionGateHeadroomMs: 60_000 } });
+    expect(cfg.credentials.marketplaceSkewMs).toBe(59_999);
+    expect(cfg.credentials.marketplaceSessionGateHeadroomMs).toBe(60_000);
   });
 });

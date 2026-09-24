@@ -541,12 +541,14 @@ const CADENCE_SCHEMA = allIntMs(CADENCE_ORDER);
 // `withOverrides` never passes it, so the core uses that same default. A range says it in the one place every
 // other field's range already lives, with nothing to keep in sync.
 //
-// `marketplaceSkewMs` is bounded ABOVE for a different reason: it is the one cross-field invariant the core
-// enforces with a `require` (`marketplaceSessionGateHeadroomMs > marketplaceSkewMs`), which would throw inside
-// `copy()` — and `buildTrackerConfig` has no guard, so the tracker would not start.
+// `marketplaceSkewMs` has no ceiling here even though the core requires
+// `marketplaceSessionGateHeadroomMs > marketplaceSkewMs` (a `require` that throws inside `copy()`). A static
+// per-field bound cannot express that: the core checks EFFECTIVE values, so an override of one field meets the
+// default of the other. The pair is checked in `buildTrackerConfig` (src/core/config.ts), against the real
+// core defaults.
 const CREDENTIAL_SCHEMA = {
   steamSkewMs: int(0),
-  marketplaceSkewMs: int(0, 59_999),
+  marketplaceSkewMs: int(0),
   sessionGateHeadroomMs: int(0),
   // Refresh trigger: may be brought in, never pushed out past the compiled 10 min. Floor mirrors the core's
   // own `require(... >= 60_000)`.

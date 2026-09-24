@@ -13,7 +13,7 @@
 // dedicated alias (see wxt.config.ts + src/core/core-domain.d.ts).
 import { TrackerConfig } from '@dmarket/p2p-tracker-core-domain';
 // Type-only: the validated remote-config overrides applied onto a fresh TrackerConfig.
-import type { TrackerOverrides } from '@/config/settings';
+import type { CredentialOverrides, TrackerOverrides } from '@/config/settings';
 // The positional parameter order of every core config group — shared with the validation schemas in
 // src/config/settings.ts so the two can't drift (see that module's header).
 import {
@@ -60,6 +60,43 @@ function withOverrides<T, K extends string>(
   return (base.copy as (...a: unknown[]) => T)(...args);
 }
 
+/** The two `CredentialConfig` fields the core cross-checks. The ambient types declare only `copy()` on
+ *  each group, so this names the pair for the one read below. */
+interface CredentialPair {
+  marketplaceSkewMs: number;
+  marketplaceSessionGateHeadroomMs: number;
+}
+
+/**
+ * Drops the refresh-trigger / skew pair when it would break the core's
+ * `require(marketplaceSessionGateHeadroomMs > marketplaceSkewMs)`, which throws inside `copy()`.
+ *
+ * The per-field ranges in src/config/settings.ts cannot enforce this, because the core checks the EFFECTIVE
+ * values: an override of one field meets the core default of the other. Publishing only a trigger of 60000
+ * against the default skew of 60000 passed validation and then stopped the tracker from starting. So the
+ * check runs here, against the installed core's own defaults rather than a mirrored copy of them.
+ *
+ * Both fields are dropped on a conflict: the core's pair of defaults satisfies the invariant, while keeping
+ * either override could still pair it with a default that does not.
+ */
+function gateCredentialPair(
+  defaults: CredentialPair,
+  o: CredentialOverrides | undefined,
+): CredentialOverrides | undefined {
+  if (o === undefined) return undefined;
+  const headroom = o.marketplaceSessionGateHeadroomMs ?? defaults.marketplaceSessionGateHeadroomMs;
+  const skew = o.marketplaceSkewMs ?? defaults.marketplaceSkewMs;
+  if (headroom > skew) return o;
+  console.warn(
+    `[dmarket-p2p] remote config: marketplaceSessionGateHeadroomMs (${headroom}) must exceed ` +
+      `marketplaceSkewMs (${skew}) — both ignored`,
+  );
+  const rest = { ...o };
+  delete rest.marketplaceSkewMs;
+  delete rest.marketplaceSessionGateHeadroomMs;
+  return rest;
+}
+
 /**
  * Build a TrackerConfig from the FE origin + the validated remote-config overrides, or `undefined` when
  * there is nothing to override (→ the core runs on its own defaults). `feUrl` is the origin BOTH DMarket
@@ -70,7 +107,8 @@ function withOverrides<T, K extends string>(
  *
  * Overrides are already type/range-validated in src/config/settings.ts, so each group's `copy(...)` only
  * receives values the core accepts (the constructor-validated groups can't throw — including
- * `CredentialConfig`, whose rotation floors are range-gated and one-way-clamped there).
+ * `CredentialConfig`, whose rotation floors are range-gated and one-way-clamped there, and whose one
+ * cross-field `require` is enforced here by {@link gateCredentialPair}).
  *
  * Omit `feUrl` when the caller is not the tracker loop: the offscreen prover reads only the `notary` and
  * `game` groups (`proveNotaryTransition`'s KDoc), and passing an FE origin it will never use would
@@ -89,7 +127,11 @@ export function buildTrackerConfig(feUrl?: string, o: TrackerOverrides = {}): Tr
 
   return withOverrides(d, TRACKER_ORDER, {
     cadence: withOverrides(d.cadence, CADENCE_ORDER, o.cadence),
-    credentials: withOverrides(d.credentials, CREDENTIAL_ORDER, o.credentials),
+    credentials: withOverrides(
+      d.credentials,
+      CREDENTIAL_ORDER,
+      gateCredentialPair(d.credentials as unknown as CredentialPair, o.credentials),
+    ),
     http: withOverrides(d.http, HTTP_ORDER, o.http),
     marketplaceRetry: withOverrides(d.marketplaceRetry, MARKETPLACE_RETRY_ORDER, o.marketplaceRetry),
     marketplaceScrape: withOverrides(d.marketplaceScrape, MARKETPLACE_SCRAPE_ORDER, scrapeOverrides),
