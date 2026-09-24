@@ -122,8 +122,8 @@ guard() {
     return 1
   fi
 
-  # --require-derived-hosts is the irreversible-mistake guard: the collector and Firebase host
-  # permissions are derived from build-time variables, and a host permission ADDED in a later update
+  # --require-derived-hosts is the irreversible-mistake guard: the collector host permission is
+  # derived from a build-time variable, and a host permission ADDED in a later update
   # disables the extension for every existing user until they re-consent. They must be in the first
   # published build, so a build that missed its context must never reach a tag.
   node scripts/verify-build.mjs artifacts/manifest.chrome.json --mode production --require-derived-hosts

@@ -48,7 +48,7 @@ const REPORT_FLUSH_DELAY_MS = 5_000;
 
 /**
  * How long a FIRST install may wait for its remote-config document before starting the core anyway.
- * Sized to cover a normal round trip to Firebase and no more: overrunning it costs only the old
+ * Sized to cover a normal round trip to the CDN and no more: overrunning it costs only the old
  * boot-then-restart, whereas a longer wait would delay the first heartbeat of a fresh install.
  */
 const FIRST_CONFIG_FETCH_BUDGET_MS = 3_000;

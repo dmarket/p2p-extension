@@ -49,12 +49,9 @@ const STATIC_HOSTS = [
 // Appended by the `build:manifestGenerated` hook when the corresponding variables are set, in this
 // order. Deliberately NOT keyed on process.env here: this script has to give the same verdict when it
 // is run later, in another shell, against an already-built directory. So the rule is "the static hosts
-// followed by these two, each optional" — which still catches an unexpected host, an unexpected
-// ORDER, and a host that vanished. `--require-derived-hosts` is what demands both (see below).
-const DERIVED_HOSTS = [
-  { name: 'Firebase Remote Config', pattern: 'https://firebaseremoteconfig.googleapis.com/v1/*' },
-  { name: 'error collector', pattern: 'https://t.dmarket.com/v1/collect*' },
-];
+// followed by these, each optional" — which still catches an unexpected host, an unexpected ORDER,
+// and a host that vanished. `--require-derived-hosts` is what demands them (see below).
+const DERIVED_HOSTS = [{ name: 'error collector', pattern: 'https://t.dmarket.com/v1/collect*' }];
 
 // Dev-only tooling that must not reach a production bundle. `src/debug/` is dropped by an
 // `import.meta.env.PROD` guard plus a dynamic import, so a leak here means a static import crept in.
@@ -232,7 +229,7 @@ if (mode === 'production') {
       `the ${derived.name} host permission (${derived.pattern}) is absent — the build ran without ` +
       'its WXT_* variables';
     // Absent is legitimate for a local build or a public clone with no .env. It is NOT legitimate for
-    // a release: those two hosts must be in the FIRST published build, because adding a host later
+    // a release: a derived host must be in the FIRST published build, because adding a host later
     // disables the extension for every user until they re-consent — the same deadline the collector
     // comment in wxt.config.ts spells out.
     if (requireDerived) fail(`${msg}. A release artifact MUST carry it.`);

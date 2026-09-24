@@ -90,9 +90,8 @@ version: 2.1
 #   files, and wxt.config.ts's manifest hooks read `process.env.WXT_*` directly. So plain context
 #   variables are enough.
 #
-#   context `p2p-extension-ci`      -> build jobs only. WXT_COLLECTOR_URL, WXT_FIREBASE_API_KEY,
-#     WXT_FIREBASE_PROJECT_ID, WXT_FIREBASE_APP_ID (production build: these derive two host
-#     permissions that MUST be in the first published build), plus WXT_DEV_*/WXT_STAGE_* so the debug
+#   context `p2p-extension-ci`      -> build jobs only. WXT_COLLECTOR_URL (production build: it derives
+#     a host permission that MUST be in the first published build), plus WXT_DEV_*/WXT_STAGE_* so the debug
 #     artifact points at the internal endpoints. `check` deliberately gets NO context — the suite is
 #     env-independent (every env-sensitive test pins its own value with vi.stubEnv), and the job that
 #     runs the most code should hold the fewest secrets.

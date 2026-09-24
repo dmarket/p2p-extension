@@ -129,8 +129,8 @@ verify() {
   unzip -q "$WORK/$ZIP" -d "$WORK/unpacked"
 
   # The same guard the build and release jobs run, now against the bytes actually downloaded from the
-  # Release. --require-derived-hosts because the collector and Firebase host permissions are derived
-  # from build-time variables: a build that missed its context must never reach the store, where adding
+  # Release. --require-derived-hosts because the collector host permission is derived from a
+  # build-time variable: a build that missed its context must never reach the store, where adding
   # a host permission later disables the extension for every user until they re-consent.
   node scripts/verify-build.mjs "$WORK/unpacked" --mode production --require-derived-hosts
 

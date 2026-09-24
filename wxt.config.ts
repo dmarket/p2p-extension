@@ -155,26 +155,6 @@ export default defineConfig({
     // content-script `matches`, which would inject the page bridge across the whole domain. So does a
     // local Steam stand-in (WXT_DEV_STEAM_URL), for the same reason as an API host.
     'build:manifestGenerated'(wxt, manifest) {
-      // Firebase Remote Config host — no longer fetched from (the config document now comes from the CDN,
-      // src/infra/remoteConfig.ts), kept for ONE more release so rolling back to Firebase would not be a
-      // privilege increase. Removing a host permission is always safe; remove this block, the WXT_FIREBASE_*
-      // env and the verify-build lock entry together. Still gated on all three WXT_FIREBASE_* being set, so a
-      // public clone keeps a minimal manifest. (Read lazily from process.env — populated only by hook time.)
-      if (
-        process.env.WXT_FIREBASE_API_KEY &&
-        process.env.WXT_FIREBASE_PROJECT_ID &&
-        process.env.WXT_FIREBASE_APP_ID
-      ) {
-        manifest.host_permissions = [
-          ...(manifest.host_permissions ?? []),
-          // Narrowed to the one REST path the fetch uses
-          // (`/v1/projects/<id>/namespaces/firebase:fetch?key=…`, src/infra/remoteConfig.ts): a host
-          // permission is matched against the whole URL, path included, so there is no reason to take the
-          // rest of the API surface. The trailing `*` covers the query string.
-          'https://firebaseremoteconfig.googleapis.com/v1/*',
-        ];
-      }
-
       // Error-collector host — added in ALL modes, but only when WXT_COLLECTOR_URL is set (the same gate
       // as the runtime isCollectorEnabled()), so a public clone keeps a minimal manifest and reports
       // nowhere. Without the host permission an MV3 service-worker POST falls back to page-style CORS from
