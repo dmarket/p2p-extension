@@ -20,7 +20,7 @@ import { blockingStateNote } from '@/debug/blockingStates';
 import { DEMAND_KEY, isDemandArmed, parseDemand } from '@/debug/demandState';
 import { applyDemand, applySimulation, clearResidue, describeSimulation, effectiveDemand, effectiveSimulation } from '@/debug/simulate';
 import { armedScenarios, parseSimulation, SIMULATION_KEY } from '@/debug/simulationState';
-import { isRemoteConfigEnabled } from '@/infra/config';
+import { remoteConfigConfig } from '@/infra/config';
 import {
   fetchRemoteConfig,
   readCachedEntries,
@@ -301,52 +301,38 @@ async function handle(request: DebugRequest, deps: DebugDeps): Promise<DebugResp
     }
 
     case 'debug:refresh-config': {
-      // Force a Remote Config fetch NOW, past the 1h client-side refetch throttle, so a just-published
-      // document can be pulled without waiting (or clearing storage). The POST itself is captured by the
-      // dev fetch wrap, so the raw request/response is visible in the log alongside the note below.
+      // Force a remote-config fetch NOW, past the client-side refetch throttle, so a just-published document can
+      // be pulled without waiting (or clearing storage). The GET itself is captured by the dev fetch wrap, so the
+      // raw request/response is visible in the log alongside the note below.
       //
       // fetchRemoteConfig never throws and silently falls back to the cache on any failure, so success is
-      // resolved out of band: the fetch stamp is written ONLY on an ok response, hence "the stamp
-      // advanced" == "the POST completed". Applying a changed document needs nothing here — writing the
-      // cache fires storage.onChanged, which reconciles the core's overrides (restarting it only if
-      // tracker.* actually differs) and re-applies the anti-CSRF rules.
+      // resolved out of band: the fetch stamp is written ONLY on an ok response (a `304` included), hence "the
+      // stamp advanced" == "the server answered". Applying a changed document needs nothing here — writing the
+      // cache fires storage.onChanged, which reconciles the core's overrides (restarting it only if tracker.*
+      // actually differs) and re-applies the anti-CSRF rules.
       const before = await readCachedEntries();
       const beforeAt = await fetchedAt();
       const entries = await fetchRemoteConfig(true);
       const afterAt = await fetchedAt();
       const fetched = afterAt !== null && afterAt !== beforeAt;
       const changed = !sameEntries(before, entries);
-      const paramCount = Object.keys(entries).length;
-      const result = { ok: true as const, enabled: isRemoteConfigEnabled(), fetched, changed, paramCount };
+      const result = { ok: true as const, fetched, changed };
+      const url = remoteConfigConfig.url;
 
-      if (!result.enabled) {
+      if (!fetched) {
         await logCommand(
           'RefreshConfig',
-          'remote config not configured (WXT_FIREBASE_* unset in .env) — no request made; the cached/compiled defaults stay in effect.',
-          'warn',
-        );
-      } else if (!fetched) {
-        await logCommand(
-          'RefreshConfig',
-          'remote config fetch failed (network error or non-2xx) — the cached values are kept. Check the firebaseremoteconfig entry in the log; a packaged build also needs the firebaseremoteconfig.googleapis.com host permission (added only when all three WXT_FIREBASE_* are set).',
+          `remote config fetch failed (network error, non-2xx or not a JSON object) from ${url} — the cached values are kept. A CORS failure shows up in the log as a network error: the CDN must allow this extension's origin (debug builds get a host permission for WXT_DEV_REMOTE_CONFIG_URL instead).`,
           'error',
-        );
-      } else if (paramCount === 0) {
-        // The fetch succeeded but the template carries no `p2p_tracker_config` (the only parameter we
-        // cache) — usually it was never created/published. Everything falls back to compiled defaults.
-        await logCommand(
-          'RefreshConfig',
-          `remote config fetched, but the template has no ${REMOTE_CONFIG_PARAM} parameter — the compiled defaults are in effect${changed ? ' (any previously cached overrides were dropped)' : ''}. Create + publish it in the Firebase console.`,
-          'warn',
         );
       } else if (changed) {
         await logCommand(
           'RefreshConfig',
-          `${REMOTE_CONFIG_PARAM} updated (${entries[REMOTE_CONFIG_PARAM]?.length ?? 0} chars cached). Applied immediately: the core restarts if tracker.* changed, web.* is read at use-time.`,
+          `remote config updated from ${url} (${entries[REMOTE_CONFIG_PARAM]?.length ?? 0} chars cached). Applied immediately: the core restarts if tracker.* changed, web.* is read at use-time.`,
           'info',
         );
       } else {
-        await logCommand('RefreshConfig', `${REMOTE_CONFIG_PARAM} fetched — unchanged.`, 'info');
+        await logCommand('RefreshConfig', `remote config fetched from ${url} — unchanged.`, 'info');
       }
       return result;
     }

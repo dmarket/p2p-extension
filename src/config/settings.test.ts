@@ -335,6 +335,19 @@ describe('web overrides', () => {
     expect(parse({ web: { notaryStuckAfterMs: 30_000 } }).web.notaryStuckAfterMs).toBe(30_000);
   });
 
+  it('remoteConfigFetchIntervalMs defaults to 1h and accepts only 15 min..7 days', () => {
+    const interval = (v: unknown) =>
+      parse({ web: { remoteConfigFetchIntervalMs: v } }).web.remoteConfigFetchIntervalMs;
+    const hour = 60 * 60 * 1000;
+    expect(parse({}).web.remoteConfigFetchIntervalMs).toBe(hour);
+    expect(interval(24 * hour)).toBe(24 * hour);
+    // Out of range is dropped, not clamped: a publish that would hit the CDN on every respawn, or freeze
+    // the document.
+    expect(interval(60_000)).toBe(hour);
+    expect(interval(30 * 24 * hour)).toBe(hour);
+    expect(interval('3600000')).toBe(hour);
+  });
+
   it('notaryProofTimeoutMs is floored at 1s — a smaller publish would abort every proof before it starts', () => {
     expect(parse({ web: { notaryProofTimeoutMs: 500 } }).web.notaryProofTimeoutMs).toBe(180_000);
     expect(parse({ web: { notaryProofTimeoutMs: 60_000 } }).web.notaryProofTimeoutMs).toBe(60_000);

@@ -27,7 +27,11 @@
     "check:core-params": "node scripts/check-core-params.mjs",
     "check:surface-priority": "node scripts/check-surface-priority.mjs",
     "check:create-trade-cause": "node scripts/check-create-trade-cause.mjs",
-    "postinstall": "wxt prepare"
+    "postinstall": "wxt prepare",
+    "config:download": "bash buckets/download.sh",
+    "config:upload:stage": "bash buckets/upload.sh stage",
+    "config:upload:prod": "bash buckets/upload.sh prod",
+    "config:stage-to-prod": "bash buckets/stage-to-prod.sh"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

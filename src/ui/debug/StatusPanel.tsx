@@ -202,7 +202,7 @@ export function StatusPanel(): preact.JSX.Element {
     void sendDebug({ type: 'debug:retry-proof' }).catch(() => {});
   };
 
-  // Force a Remote Config fetch now (bypasses the 1h client throttle). A changed document is applied by
+  // Force a remote-config fetch now (bypasses the client refetch throttle). A changed document is applied by
   // the SW immediately — the core restarts only if `tracker.*` differs; `web.*` is read at use-time.
   const onRefreshConfig = (): void => {
     setConfigBusy(true);
@@ -313,7 +313,7 @@ export function StatusPanel(): preact.JSX.Element {
         <button
           onClick={onRefreshConfig}
           disabled={configBusy}
-          title="Fetch Firebase Remote Config now, bypassing the 1h refetch throttle. A changed config is applied immediately (the core restarts only if tracker.* changed)."
+          title="Fetch the remote config now, bypassing the refetch throttle. A changed config is applied immediately (the core restarts only if tracker.* changed)."
         >
           refresh config
         </button>

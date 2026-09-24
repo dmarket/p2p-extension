@@ -15,6 +15,7 @@ interface ImportMetaEnv {
   readonly WXT_FIREBASE_API_KEY?: string;
   readonly WXT_FIREBASE_PROJECT_ID?: string;
   readonly WXT_FIREBASE_APP_ID?: string;
+  readonly WXT_DEV_REMOTE_CONFIG_URL?: string;
 }
 
 /**

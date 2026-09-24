@@ -32,6 +32,7 @@ import { STEAM_INTEGRATION, type AntiCsrfEndpoint } from '@/config/steam';
 import {
   readCachedEntries,
   REMOTE_CONFIG_CACHE_KEY,
+  REMOTE_CONFIG_FETCH_INTERVAL_MS,
   REMOTE_CONFIG_PARAM,
   type ConfigEntries,
 } from '@/infra/remoteConfig';
@@ -132,6 +133,15 @@ const NOTARY_STUCK_FLOOR_MS = 5_000;
  * restore the old behaviour without a release if reuse turns out to matter after all.
  */
 const NOTARY_PROOFS_PER_INSTANCE = 5;
+
+/**
+ * Bounds for a `web.remoteConfigFetchIntervalMs` override; the default lives beside the fetch
+ * (REMOTE_CONFIG_FETCH_INTERVAL_MS in src/infra/remoteConfig.ts). Out-of-range values are dropped, not
+ * clamped. The floor keeps one publish from turning every worker respawn into a CDN request; the ceiling keeps
+ * one publish from freezing installs on their current document for longer than a week.
+ */
+const REMOTE_CONFIG_FETCH_INTERVAL_MIN_MS = 15 * 60 * 1000;
+const REMOTE_CONFIG_FETCH_INTERVAL_MAX_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * Compiled defaults for the crash reporter (src/infra/report/). Remote config may only ever NARROW these —
@@ -314,6 +324,8 @@ interface WebSettings {
   notaryStuckAfterMs: number;
   /** Proofs one wasm instance serves before recycling; `0` never recycles — see NOTARY_PROOFS_PER_INSTANCE. */
   notaryProofsPerInstance: number;
+  /** Client-side remote-config refetch interval (ms) — see REMOTE_CONFIG_FETCH_INTERVAL_MS. */
+  remoteConfigFetchIntervalMs: number;
   dmarketUrl: string;
   errorReporting: ErrorReportingSettings;
 }
@@ -347,6 +359,7 @@ function defaultWeb(): WebSettings {
     notaryProofTimeoutMs: NOTARY_PROOF_TIMEOUT_MS,
     notaryStuckAfterMs: NOTARY_STUCK_AFTER_MS,
     notaryProofsPerInstance: NOTARY_PROOFS_PER_INSTANCE,
+    remoteConfigFetchIntervalMs: REMOTE_CONFIG_FETCH_INTERVAL_MS,
     dmarketUrl: DMARKET_URL,
     errorReporting: { ...ERROR_REPORTING_DEFAULTS, suppressSubstrings: [] },
   };
@@ -566,6 +579,29 @@ const NOTARY_SCHEMA = {
   sentBudgetMarginPercent: int(0),
 } satisfies Schema<Exclude<(typeof NOTARY_ORDER)[number], CoreOnlyNotaryParam>>;
 
+/**
+ * Every `tracker.*` field a remote document may set, per group — derived from the schemas above, so it cannot
+ * disagree with what the overlay actually accepts. `rejectAlways` keys are left out: they are on the schema
+ * only to close the remote channel. Consumed by the test that keeps `buckets/*\/p2p/extension-config.json`
+ * complete.
+ */
+export const PUBLISHABLE_TRACKER_FIELDS: Record<keyof TrackerOverrides, string[]> = Object.fromEntries(
+  Object.entries({
+    cadence: CADENCE_SCHEMA,
+    credentials: CREDENTIAL_SCHEMA,
+    http: HTTP_SCHEMA,
+    marketplaceRetry: MARKETPLACE_RETRY_SCHEMA,
+    marketplaceScrape: MARKETPLACE_SCRAPE_SCHEMA,
+    notary: NOTARY_SCHEMA,
+    steamEndpoints: STEAM_ENDPOINTS_SCHEMA,
+    steamScrape: STEAM_SCRAPE_SCHEMA,
+  } satisfies Record<keyof TrackerOverrides, Record<string, Validator>>).map(([group, schema]) => [
+    group,
+    Object.entries(schema as Record<string, Validator>)
+      .filter(([, validate]) => validate !== rejectAlways)
+      .map(([key]) => key),
+  ]),
+) as Record<keyof TrackerOverrides, string[]>;
 
 // ---- Parsing / overlay ----------------------------------------------------------------------------
 
@@ -649,6 +685,9 @@ function buildWeb(raw: Record<string, unknown>): WebSettings {
   // `0` means "never recycle", so the validator floor is 0 and no clamp follows: unlike the silence threshold,
   // every value here is serviceable — 1 is the old per-proof behaviour, and a large one is a long-lived realm.
   const proofsPerInstance = int(0)(raw.notaryProofsPerInstance) as number | undefined;
+  const fetchInterval = int(REMOTE_CONFIG_FETCH_INTERVAL_MIN_MS, REMOTE_CONFIG_FETCH_INTERVAL_MAX_MS)(
+    raw.remoteConfigFetchIntervalMs,
+  ) as number | undefined;
 
   if (anchor !== undefined) web.bannerAnchorSelector = anchor;
   if (logout !== undefined) web.logoutExpression = logout;
@@ -662,6 +701,7 @@ function buildWeb(raw: Record<string, unknown>): WebSettings {
     web.notaryStuckAfterMs = stuckAfter === 0 ? 0 : Math.max(stuckAfter, NOTARY_STUCK_FLOOR_MS);
   }
   if (proofsPerInstance !== undefined) web.notaryProofsPerInstance = proofsPerInstance;
+  if (fetchInterval !== undefined) web.remoteConfigFetchIntervalMs = fetchInterval;
   web.errorReporting = buildErrorReporting(isObj(raw.errorReporting) ? raw.errorReporting : {});
   return web;
 }

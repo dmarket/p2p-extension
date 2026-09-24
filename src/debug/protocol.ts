@@ -10,7 +10,7 @@
 // below, including "force tick" (`debug:force-tick`) — the SW nudges a cycle, reports the core's raw
 // blocking reason (or a host-side reason like not-activated / tracker down), and writes a visible
 // command log entry (src/debug/router.ts) — and "refresh config" (`debug:refresh-config`), which forces
-// a Firebase Remote Config fetch past its 1h client throttle and reports whether the document changed.
+// a remote-config fetch past its client throttle and reports whether the document changed.
 
 import type { BlockingReason } from '@/core/tracker';
 import type { DemandInjection } from '@/debug/demandState';
@@ -247,17 +247,13 @@ export interface ForceTickResult {
   reason: BlockingReason;
 }
 
-/** Outcome of a forced Remote Config fetch (`debug:refresh-config`). */
+/** Outcome of a forced remote-config fetch (`debug:refresh-config`). */
 export interface RefreshConfigResult {
   ok: true;
-  /** False when the build has no Firebase keys (WXT_FIREBASE_* unset) — no request was made. */
-  enabled: boolean;
-  /** True when the POST actually completed (the fetch stamp advanced); false = fell back to the cache. */
+  /** True when the server answered (the fetch stamp advanced, `304` included); false = fell back to the cache. */
   fetched: boolean;
-  /** True when the cached entries differ from what was cached before the fetch. */
+  /** True when the cached document differs from what was cached before the fetch. */
   changed: boolean;
-  /** Parameters cached: 1 when the template carries `p2p_tracker_config` (the only one cached), else 0. */
-  paramCount: number;
 }
 
 export type DebugResponse =

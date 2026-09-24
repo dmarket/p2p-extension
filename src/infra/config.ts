@@ -18,15 +18,19 @@ export const collectorConfig = {
     : trimmed(import.meta.env.WXT_COLLECTOR_URL),
 } as const;
 
+/** The production remote-config document (buckets/prod/p2p/extension-config.json). A public CDN URL. */
+const PROD_REMOTE_CONFIG_URL = 'https://cdn-main.dmarket.com/p2p/extension-config.json';
+
+/**
+ * Where the remote-config document is fetched from (src/infra/remoteConfig.ts). Debug builds read the stage
+ * document when `WXT_DEV_REMOTE_CONFIG_URL` is set (its host is internal, so it lives in .env) and fall back to
+ * production otherwise; the dev branch is dead-code-eliminated from production bundles.
+ */
 export const remoteConfigConfig = {
-  apiKey: trimmed(import.meta.env.WXT_FIREBASE_API_KEY),
-  projectId: trimmed(import.meta.env.WXT_FIREBASE_PROJECT_ID),
-  appId: trimmed(import.meta.env.WXT_FIREBASE_APP_ID),
+  url: import.meta.env.DEV
+    ? (trimmed(import.meta.env.WXT_DEV_REMOTE_CONFIG_URL) ?? PROD_REMOTE_CONFIG_URL)
+    : PROD_REMOTE_CONFIG_URL,
 } as const;
 
 /** True when error reporting has an endpoint to report to. Everything else about it is a no-op otherwise. */
 export const isCollectorEnabled = (): boolean => Boolean(collectorConfig.url);
-
-/** True when Firebase Remote Config fetching is configured. */
-export const isRemoteConfigEnabled = (): boolean =>
-  Boolean(remoteConfigConfig.apiKey && remoteConfigConfig.projectId && remoteConfigConfig.appId);

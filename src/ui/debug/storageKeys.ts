@@ -61,9 +61,10 @@ export const KNOWN_KEYS: Record<string, KeyInfo> = {
       'tracker.blockingReason row above. Re-read before the first Tracker.start on every worker spawn, so a ' +
       'simulation survives a respawn. Absent/invalid = nothing simulated.',
   },
-  'remoteconfig.instance_id': { desc: 'Firebase Remote Config app_instance_id (UUID).' },
-  'remoteconfig.cache': { desc: 'Cached Remote Config entries (object) for offline fallback. Holds the p2p_tracker_config JSON.' },
-  'remoteconfig.fetched_at': { desc: 'Last Remote Config fetch time (epoch ms) — client-side refetch throttle.' },
+  'remoteconfig.instance_id': { desc: 'Firebase-era app_instance_id (UUID). No longer read or written; left over on installs that ran a Firebase build.' },
+  'remoteconfig.cache': { desc: 'Cached remote-config document for offline fallback, under the p2p_tracker_config key.' },
+  'remoteconfig.fetched_at': { desc: 'Last remote-config answer (epoch ms, a 304 included) — client-side refetch throttle.' },
+  'remoteconfig.etag': { desc: 'ETag of the cached document, sent as If-None-Match so an unchanged document costs a bodiless 304.' },
   // ---- vendored core (all stored as strings) ----
   steam_credential: { desc: 'Steam session credential — JSON string containing a LIVE token.', sensitive: true },
   device_id: { desc: 'Stable device identifier (UUID) sent with every heartbeat. An id, not a credential.' },

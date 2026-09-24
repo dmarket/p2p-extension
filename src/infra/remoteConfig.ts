@@ -1,48 +1,37 @@
-import { isRemoteConfigEnabled, remoteConfigConfig } from './config';
+import { remoteConfigConfig } from './config';
 
-// Firebase Remote Config via its public REST endpoint — data-only JSON, no Firebase JS SDK and no
-// remote code, so it is MV3-safe and works from the service worker.
+// Remote config: one static JSON document on our CDN (buckets/<env>/p2p/extension-config.json, published with
+// buckets/upload.sh). Data only, no remote code, so it is MV3-safe and works from the service worker.
 //
-// NOTE: to actually reach the endpoint from a packaged extension the host
-// "https://firebaseremoteconfig.googleapis.com/*" must be in host_permissions. wxt.config.ts adds it
-// automatically, and only when the Firebase env vars are set (so a build without Remote Config keeps
-// minimal permissions). A failed fetch falls back to the cached entries (then to the caller's
-// defaults, in src/config/settings.ts), so the extension keeps working either way.
+// REACHABILITY. The CDN host is NOT in host_permissions — adding a host in an update is a privilege increase —
+// so this fetch goes through CORS, and the bucket must allow the extension's origin
+// (`chrome-extension://<id>`) for GET plus the `If-None-Match` preflight, and expose `ETag`. Debug builds add
+// the dev CDN host to host_permissions (wxt.config.ts), so they work without that. A failed fetch falls back
+// to the cached document, then to the compiled defaults (src/config/settings.ts), so the extension keeps
+// working either way.
 //
-// The fetched entries are consumed by the typed overlay in src/config/settings.ts, which parses the
-// single JSON config document and merges it over the compiled-in / core defaults.
+// The document is consumed by the typed overlay in src/config/settings.ts. It is cached under the same entries
+// shape the Firebase-era fetch used (`{ p2p_tracker_config: <json string> }`), so an install updating from that
+// era keeps its cache until the first fetch here replaces it.
 
-const ENDPOINT = 'https://firebaseremoteconfig.googleapis.com/v1';
-const INSTANCE_ID_KEY = 'remoteconfig.instance_id';
 const CACHE_KEY = 'remoteconfig.cache';
 const FETCHED_AT_KEY = 'remoteconfig.fetched_at';
+const ETAG_KEY = 'remoteconfig.etag';
 
-// The MV3 service worker respawns constantly (every event can spawn a fresh worker), and boot calls
-// fetchRemoteConfig() each time. Firebase's own server-side minimum fetch interval is 12h; this
-// client-side throttle stops us POSTing on every respawn while still refreshing often enough for a
-// config change to land within the hour. `fetchRemoteConfig(true)` bypasses it — that is what the debug
-// console's "refresh config" button calls to pick up a publish without waiting out the hour.
-const MIN_FETCH_INTERVAL_MS = 60 * 60 * 1000; // 1h
+/**
+ * Default client-side refetch interval; remote-overridable as `web.remoteConfigFetchIntervalMs`. The MV3 service
+ * worker respawns constantly and boot calls fetchRemoteConfig() on each spawn — this is what stops that from
+ * hitting the CDN every time. An unchanged document costs a `304` with no body. A shorter published interval
+ * only takes effect after each install's next scheduled fetch, since the interval itself arrives by a fetch.
+ * `fetchRemoteConfig(true)` bypasses it — that is what the debug console's "refresh config" button calls.
+ */
+export const REMOTE_CONFIG_FETCH_INTERVAL_MS = 60 * 60 * 1000;
 
-/** The Remote Config entries map: parameter name → raw string value (JSON strings included). */
+/** The cached entries map: parameter name → raw string value (JSON strings included). */
 export type ConfigEntries = Record<string, string>;
 
-/**
- * The ONE Remote Config parameter this client consumes: a single JSON document (a cross-client contract
- * — the iOS/Android clients read the same one). Parsed by the typed overlay in src/config/settings.ts.
- */
+/** The key the document is cached under. Parsed by the typed overlay in src/config/settings.ts. */
 export const REMOTE_CONFIG_PARAM = 'p2p_tracker_config';
-
-/**
- * Keep only the parameter above. The Firebase template may also carry parameters for other clients or
- * features; caching them would bloat storage, and every unrelated publish would change the cached value
- * and so fire a settings reload (storage.onChanged) for a config we don't read. A missing/non-string
- * value yields `{}` — i.e. "no config param", which the overlay resolves to the compiled defaults.
- */
-function pickConsumed(entries: ConfigEntries): ConfigEntries {
-  const value = entries[REMOTE_CONFIG_PARAM];
-  return typeof value === 'string' ? { [REMOTE_CONFIG_PARAM]: value } : {};
-}
 
 /** The storage key the parsed-config overlay (src/config/settings.ts) reads + subscribes to. */
 export { CACHE_KEY as REMOTE_CONFIG_CACHE_KEY };
@@ -50,16 +39,7 @@ export { CACHE_KEY as REMOTE_CONFIG_CACHE_KEY };
 /** Last-successful-fetch stamp — read by the debug console to tell a real fetch from a silent fallback. */
 export { FETCHED_AT_KEY as REMOTE_CONFIG_FETCHED_AT_KEY };
 
-async function getInstanceId(): Promise<string> {
-  const stored = await browser.storage.local.get(INSTANCE_ID_KEY);
-  const existing = stored[INSTANCE_ID_KEY];
-  if (typeof existing === 'string' && existing) return existing;
-  const id = crypto.randomUUID();
-  await browser.storage.local.set({ [INSTANCE_ID_KEY]: id });
-  return id;
-}
-
-/** Read the last cached Remote Config entries (or `{}` when absent/malformed). Never throws. */
+/** Read the last cached entries (or `{}` when absent/malformed). Never throws. */
 export async function readCachedEntries(): Promise<ConfigEntries> {
   try {
     const stored = await browser.storage.local.get(CACHE_KEY);
@@ -80,15 +60,39 @@ async function readFetchStamp(): Promise<number | undefined> {
   }
 }
 
-async function isCacheFresh(): Promise<boolean> {
+async function isCacheFresh(minIntervalMs: number): Promise<boolean> {
   const at = await readFetchStamp();
-  return at !== undefined && Date.now() - at < MIN_FETCH_INTERVAL_MS;
+  return at !== undefined && Date.now() - at < minIntervalMs;
 }
 
 /**
- * Has a fetch ever completed on this install? (The stamp is written on every ok reply, including the
- * entry-less kind, and never on a failure — so this is "we have heard from the server at least once",
- * not "we have a cache".)
+ * The validator to send, or `undefined` when there is no document to revalidate. Tied to the cache: an ETag
+ * without the body it describes would get a `304` for a document we no longer hold.
+ */
+async function readEtag(): Promise<string | undefined> {
+  try {
+    const stored = await browser.storage.local.get([ETAG_KEY, CACHE_KEY]);
+    const etag = stored[ETAG_KEY];
+    const cache = stored[CACHE_KEY] as ConfigEntries | undefined;
+    return typeof etag === 'string' && etag && typeof cache?.[REMOTE_CONFIG_PARAM] === 'string' ? etag : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** A JSON object, i.e. a document the overlay can read. An error page served as 200 is not one. */
+function isJsonObject(text: string): boolean {
+  try {
+    const doc: unknown = JSON.parse(text);
+    return typeof doc === 'object' && doc !== null && !Array.isArray(doc);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Has a fetch ever completed on this install? (The stamp is written on every ok reply, `304` included, and
+ * never on a failure — so this is "we have heard from the server at least once", not "we have a cache".)
  *
  * The service worker uses it to tell a FIRST install from every other spawn: only the first has no
  * document to boot with, and only the first is therefore worth waiting for rather than booting the core
@@ -99,35 +103,43 @@ export async function hasFetchedRemoteConfig(): Promise<boolean> {
 }
 
 /**
- * Fetch the latest Remote Config entries, caching them for offline/failure fallback. Returns the
- * cached entries (or `{}`) when disabled, throttled, or on any error, so callers always get a usable
- * map. Throttled across service-worker respawns (see MIN_FETCH_INTERVAL_MS); pass `force` to bypass.
+ * Fetch the latest document, caching it for offline/failure fallback. Returns the cached entries (or `{}`) when
+ * throttled or on any error, so callers always get a usable map.
+ *
+ * @param minIntervalMs the resolved `web.remoteConfigFetchIntervalMs`. A parameter rather than a read of the
+ *   settings snapshot because src/config/settings.ts imports this module — reading it back would be a cycle.
  */
-export async function fetchRemoteConfig(force = false): Promise<ConfigEntries> {
-  if (!isRemoteConfigEnabled()) return readCachedEntries();
-  if (!force && (await isCacheFresh())) return readCachedEntries();
-  const { apiKey, projectId, appId } = remoteConfigConfig;
+export async function fetchRemoteConfig(
+  force = false,
+  minIntervalMs = REMOTE_CONFIG_FETCH_INTERVAL_MS,
+): Promise<ConfigEntries> {
+  if (!force && (await isCacheFresh(minIntervalMs))) return readCachedEntries();
   try {
-    const url = `${ENDPOINT}/projects/${projectId}/namespaces/firebase:fetch?key=${apiKey}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ app_id: appId, app_instance_id: await getInstanceId() }),
+    const etag = await readEtag();
+    const response = await fetch(remoteConfigConfig.url, {
+      headers: etag ? { 'If-None-Match': etag } : {},
+      // Our own ETag is the only cache layer: with the HTTP cache in play, a `304` could come back to us as the
+      // browser's cached `200`, and a stale CDN copy could be served without asking at all.
+      cache: 'no-store',
+      // The CDN sits under `.dmarket.com`, which is where the DMarket session cookies are scoped. Nothing about
+      // a public config file needs them, so they must not ride along.
+      credentials: 'omit',
     });
-    if (!response.ok) return readCachedEntries();
-    const data = (await response.json()) as { entries?: ConfigEntries };
-    // A 200 carrying no `entries` field at all (NO_CHANGE / NO_TEMPLATE style reply) says nothing about
-    // the template's contents — KEEP the cache, or every such reply would wipe the live overrides.
-    // Still stamp fetched_at so a healthy poll doesn't re-hit the network on every respawn. An explicit
-    // `entries: {}` is a real (empty) template and IS written, hence the `undefined` check.
-    if (data.entries === undefined) {
+    if (response.status === 304) {
       await browser.storage.local.set({ [FETCHED_AT_KEY]: Date.now() });
       return readCachedEntries();
     }
-    // Cache ONLY the parameter we consume (see pickConsumed). Writing the cache also fires
-    // storage.onChanged → the settings snapshot refreshes.
-    const entries = pickConsumed(data.entries);
+    if (!response.ok) return readCachedEntries();
+    const text = await response.text();
+    // Keep the last good document over anything unreadable: a truncated body or an HTML error page must not
+    // drop every live override until the next good fetch.
+    if (!isJsonObject(text)) return readCachedEntries();
+    const entries: ConfigEntries = { [REMOTE_CONFIG_PARAM]: text };
+    const nextEtag = response.headers.get('ETag');
+    // Writing the cache fires storage.onChanged → the settings snapshot refreshes.
     await browser.storage.local.set({ [CACHE_KEY]: entries, [FETCHED_AT_KEY]: Date.now() });
+    if (nextEtag) await browser.storage.local.set({ [ETAG_KEY]: nextEtag });
+    else await browser.storage.local.remove(ETAG_KEY);
     return entries;
   } catch (error) {
     console.debug('[dmarket-p2p] remote config fetch failed', error);

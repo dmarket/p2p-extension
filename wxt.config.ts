@@ -155,11 +155,11 @@ export default defineConfig({
     // content-script `matches`, which would inject the page bridge across the whole domain. So does a
     // local Steam stand-in (WXT_DEV_STEAM_URL), for the same reason as an API host.
     'build:manifestGenerated'(wxt, manifest) {
-      // Firebase Remote Config host — added in ALL modes, but only when the extension is actually
-      // configured for Remote Config (all three WXT_FIREBASE_* set, the same gate as the runtime
-      // isRemoteConfigEnabled()). A public clone with no Firebase keys keeps a minimal manifest; the
-      // host itself is a fixed public Google endpoint (not derived from any secret). See
-      // src/infra/remoteConfig.ts. (Read lazily from process.env — populated only by hook time.)
+      // Firebase Remote Config host — no longer fetched from (the config document now comes from the CDN,
+      // src/infra/remoteConfig.ts), kept for ONE more release so rolling back to Firebase would not be a
+      // privilege increase. Removing a host permission is always safe; remove this block, the WXT_FIREBASE_*
+      // env and the verify-build lock entry together. Still gated on all three WXT_FIREBASE_* being set, so a
+      // public clone keeps a minimal manifest. (Read lazily from process.env — populated only by hook time.)
       if (
         process.env.WXT_FIREBASE_API_KEY &&
         process.env.WXT_FIREBASE_PROJECT_ID &&
@@ -221,6 +221,14 @@ export default defineConfig({
       // nothing is injected there. Independent of the endpoint pairs, since a stand-in Steam is just as
       // useful against the production DMarket endpoints.
       const devSteamHosts = origin('WXT_DEV_STEAM_URL');
+      // The stage remote-config document (WXT_DEV_REMOTE_CONFIG_URL). A host permission lets a debug build read
+      // it without the CDN's CORS allowing the extension origin; the production build relies on CORS instead.
+      const devRemoteConfigHosts = patternFor(
+        endpointMatchPattern,
+        'WXT_DEV_REMOTE_CONFIG_URL',
+        process.env.WXT_DEV_REMOTE_CONFIG_URL,
+        wxt.logger,
+      );
       // The cookie-domain grants are independent of the endpoint pairs: they exist so cookie EVENTS for
       // the dev/stage session cookies reach us at all (see cookieDomainPatterns), so they are added even
       // if only this variable is set.
@@ -230,7 +238,8 @@ export default defineConfig({
         devApiHosts.length === 0 &&
         devSteamHosts.length === 0 &&
         devCookieHosts.length === 0 &&
-        devCollectorHosts.length === 0
+        devCollectorHosts.length === 0 &&
+        devRemoteConfigHosts.length === 0
       ) {
         return;
       }
@@ -242,6 +251,7 @@ export default defineConfig({
         ...devCookieHosts,
         // Never into content_scripts.matches — nothing is injected on the collector.
         ...devCollectorHosts,
+        ...devRemoteConfigHosts,
       ];
       for (const cs of manifest.content_scripts ?? []) {
         if (cs.js?.some((j) => j.includes('dmarket-bridge'))) {

@@ -32,9 +32,9 @@ export function forceTick(): Promise<ForceTickResponse> {
 }
 
 /**
- * Force a Firebase Remote Config fetch now via the dev-only `debug:refresh-config` message, bypassing the
- * 1h client-side refetch throttle — so a just-published `p2p_tracker_config` lands without waiting. The
- * SW reports whether the POST really happened and whether the document changed, and writes a visible
+ * Force a remote-config fetch now via the dev-only `debug:refresh-config` message, bypassing the client-side
+ * refetch throttle — so a just-published document lands without waiting. The SW reports whether the server
+ * really answered and whether the document changed, and writes a visible
  * command entry. A changed document is applied immediately (the core restarts only if `tracker.*`
  * differs; `web.*` is read at use-time).
  */

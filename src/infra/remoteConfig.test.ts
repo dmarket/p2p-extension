@@ -1,17 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { jsonResponse, stubFetch } from '@/testing/stubs';
+import { stubFetch } from '@/testing/stubs';
 
-// The Remote Config fetch/cache seam. The property that matters most is the entry-less-200 guard: a 200
-// carrying no `entries` field (a NO_CHANGE / NO_TEMPLATE-style reply) used to be written as
-// `data.entries ?? {}`, which WIPED the cache — dropping every live override until the next good fetch.
-// Easy to hit repeatedly once the debug console grew a force button.
+// The remote-config fetch/cache seam: one static JSON document on the CDN, revalidated with its ETag. The
+// properties that matter: the last good document survives every kind of bad answer, an unchanged document
+// costs a bodiless 304, and the request never carries the DMarket session cookies scoped over the CDN host.
 
 // The env config is read at module scope in @/infra/config, so mutating import.meta.env after import
 // changes nothing — the module itself is mocked instead (the same pattern consent.test.ts uses).
-vi.mock('@/infra/config', () => ({
-  isRemoteConfigEnabled: () => true,
-  remoteConfigConfig: { apiKey: 'test-key', projectId: 'test-project', appId: 'test-app' },
-}));
+const URL_UNDER_TEST = 'https://cdn.test/p2p/extension-config.json';
+vi.mock('@/infra/config', () => ({ remoteConfigConfig: { url: 'https://cdn.test/p2p/extension-config.json' } }));
 
 const {
   fetchRemoteConfig,
@@ -22,106 +19,132 @@ const {
   REMOTE_CONFIG_PARAM,
 } = await import('@/infra/remoteConfig');
 
+const ETAG_KEY = 'remoteconfig.etag';
+const DOC = '{"tracker":{"cadence":{"fallbackHeartbeatIntervalMs":60000}}}';
 const CACHED = { [REMOTE_CONFIG_PARAM]: '{"tracker":{}}' };
+const HOUR = 60 * 60 * 1000;
+
+/** A fresh Response per call: a body reads exactly once (see jsonResponse in @/testing/stubs). */
+const reply = (body: string | null, status = 200, etag?: string) => () =>
+  Promise.resolve(new Response(body, { status, headers: etag ? { ETag: etag } : {} }));
 
 let fetchMock: ReturnType<typeof stubFetch>;
 beforeEach(() => {
   fetchMock = stubFetch();
 });
 
-/** Seed a live cache + a stale-enough stamp so an unforced fetch is not throttled away. */
-async function seedCache(): Promise<void> {
+/** A live cache + its ETag + a stamp old enough that an unforced fetch is not throttled away. */
+async function seedCache(etag = '"old"'): Promise<void> {
   await browser.storage.local.set({
     [REMOTE_CONFIG_CACHE_KEY]: CACHED,
-    [REMOTE_CONFIG_FETCHED_AT_KEY]: Date.now() - 2 * 60 * 60 * 1000,
+    [REMOTE_CONFIG_FETCHED_AT_KEY]: Date.now() - 2 * HOUR,
+    [ETAG_KEY]: etag,
   });
 }
 
-describe('the entry-less-200 guard', () => {
-  it('a 200 with NO entries field keeps the cache and stamps fetched_at', async () => {
-    await seedCache();
-    fetchMock.mockResolvedValue(jsonResponse({ state: 'NO_CHANGE' }));
+const readStamp = async (): Promise<unknown> =>
+  (await browser.storage.local.get(REMOTE_CONFIG_FETCHED_AT_KEY))[REMOTE_CONFIG_FETCHED_AT_KEY];
+
+describe('the request', () => {
+  it('GETs the configured URL without cookies and outside the HTTP cache', async () => {
+    fetchMock.mockImplementation(reply(DOC));
+    await fetchRemoteConfig(true);
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(URL_UNDER_TEST);
+    expect(init?.method ?? 'GET').toBe('GET');
+    // The CDN is under .dmarket.com, where the DMarket session cookies are scoped.
+    expect(init?.credentials).toBe('omit');
+    // Our ETag is the only cache layer, so a 304 reaches us as a 304.
+    expect(init?.cache).toBe('no-store');
+  });
+
+  it('revalidates with the cached ETag, and sends none when there is no document to revalidate', async () => {
+    fetchMock.mockImplementation(reply(null, 304));
+    await seedCache('"v1"');
+    await fetchRemoteConfig();
+    expect(fetchMock.mock.calls[0]![1]?.headers).toEqual({ 'If-None-Match': '"v1"' });
+
+    // An ETag without its body would get a 304 for a document we no longer hold.
+    await browser.storage.local.remove(REMOTE_CONFIG_CACHE_KEY);
+    await fetchRemoteConfig(true);
+    expect(fetchMock.mock.calls[1]![1]?.headers).toEqual({});
+  });
+});
+
+describe('the answers', () => {
+  it('a 200 caches the document under p2p_tracker_config, with its ETag and a fresh stamp', async () => {
+    fetchMock.mockImplementation(reply(DOC, 200, '"v2"'));
     const before = Date.now();
 
-    const entries = await fetchRemoteConfig(true);
+    await expect(fetchRemoteConfig(true)).resolves.toEqual({ [REMOTE_CONFIG_PARAM]: DOC });
 
-    expect(entries).toEqual(CACHED);
+    const stored = await browser.storage.local.get([
+      REMOTE_CONFIG_CACHE_KEY,
+      REMOTE_CONFIG_FETCHED_AT_KEY,
+      ETAG_KEY,
+    ]);
+    expect(stored[REMOTE_CONFIG_CACHE_KEY]).toEqual({ [REMOTE_CONFIG_PARAM]: DOC });
+    expect(stored[REMOTE_CONFIG_FETCHED_AT_KEY] as number).toBeGreaterThanOrEqual(before);
+    expect(stored[ETAG_KEY]).toBe('"v2"');
+  });
+
+  it('a 304 keeps the cache and stamps the fetch', async () => {
+    await seedCache();
+    fetchMock.mockImplementation(reply(null, 304));
+    const before = Date.now();
+
+    await expect(fetchRemoteConfig()).resolves.toEqual(CACHED);
+
     const stored = await browser.storage.local.get([REMOTE_CONFIG_CACHE_KEY, REMOTE_CONFIG_FETCHED_AT_KEY]);
-    expect(stored[REMOTE_CONFIG_CACHE_KEY]).toEqual(CACHED); // NOT wiped
-    expect(stored[REMOTE_CONFIG_FETCHED_AT_KEY] as number).toBeGreaterThanOrEqual(before); // but stamped
-  });
-
-  it('an EXPLICIT empty entries object is a real (empty) template and IS written', async () => {
-    // The check is on `undefined`, not falsiness — an operator who really emptied the template must see
-    // the overrides drop.
-    await seedCache();
-    fetchMock.mockResolvedValue(jsonResponse({ entries: {} }));
-    await expect(fetchRemoteConfig(true)).resolves.toEqual({});
-    const stored = await browser.storage.local.get(REMOTE_CONFIG_CACHE_KEY);
-    expect(stored[REMOTE_CONFIG_CACHE_KEY]).toEqual({});
-  });
-});
-
-describe('pickConsumed — only our parameter is cached', () => {
-  it('filters a mixed template down to p2p_tracker_config', async () => {
-    fetchMock.mockResolvedValue(
-      jsonResponse({
-        entries: {
-          [REMOTE_CONFIG_PARAM]: '{"tracker":{"http":{"requestTimeoutMs":45000}}}',
-          other_feature_flag: 'true',
-          ios_something: '{"x":1}',
-        },
-      }),
-    );
-    const entries = await fetchRemoteConfig(true);
-    expect(Object.keys(entries)).toEqual([REMOTE_CONFIG_PARAM]);
-  });
-
-  it('an unrelated-parameter publish leaves the cached value byte-identical (no settings reload)', async () => {
-    // The cache write is what fires storage.onChanged → subscribeSettings; caching foreign params would
-    // make every unrelated publish restart-adjacent work.
-    await seedCache();
-    fetchMock.mockResolvedValue(
-      jsonResponse({ entries: { ...CACHED, some_new_unrelated_param: 'v2' } }),
-    );
-    await fetchRemoteConfig(true);
-    const stored = await browser.storage.local.get(REMOTE_CONFIG_CACHE_KEY);
     expect(stored[REMOTE_CONFIG_CACHE_KEY]).toEqual(CACHED);
+    expect(stored[REMOTE_CONFIG_FETCHED_AT_KEY] as number).toBeGreaterThanOrEqual(before);
   });
 
-  it('a template without our parameter, or with a non-string value, caches {} (→ compiled defaults)', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ entries: { other: 'x' } }));
-    await expect(fetchRemoteConfig(true)).resolves.toEqual({});
-    fetchMock.mockResolvedValue(jsonResponse({ entries: { [REMOTE_CONFIG_PARAM]: 42 } }));
-    await expect(fetchRemoteConfig(true)).resolves.toEqual({});
+  it('a 200 without an ETag drops the old one, so the next fetch does not revalidate against it', async () => {
+    await seedCache('"old"');
+    fetchMock.mockImplementation(reply(DOC));
+    await fetchRemoteConfig(true);
+    expect((await browser.storage.local.get(ETAG_KEY))[ETAG_KEY]).toBeUndefined();
   });
-});
 
-describe('failure and throttle behaviour', () => {
-  it('a non-2xx writes NOTHING and falls back to the cache', async () => {
+  it.each([
+    ['an HTML error page', '<html>not found</html>'],
+    ['a truncated body', '{"tracker":'],
+    ['a JSON array', '[1,2,3]'],
+    ['JSON null', 'null'],
+  ])('%s served as 200 keeps the last good document and writes nothing', async (_, body) => {
     await seedCache();
-    fetchMock.mockResolvedValue(jsonResponse({ error: 'x' }, 503));
-    const stampBefore = (await browser.storage.local.get(REMOTE_CONFIG_FETCHED_AT_KEY))[
-      REMOTE_CONFIG_FETCHED_AT_KEY
-    ];
+    const stampBefore = await readStamp();
+    fetchMock.mockImplementation(reply(body));
 
     await expect(fetchRemoteConfig(true)).resolves.toEqual(CACHED);
 
     const stored = await browser.storage.local.get([REMOTE_CONFIG_CACHE_KEY, REMOTE_CONFIG_FETCHED_AT_KEY]);
     expect(stored[REMOTE_CONFIG_CACHE_KEY]).toEqual(CACHED);
-    // The stamp is the debug console's "did a POST really land" signal — a failure must not advance it.
     expect(stored[REMOTE_CONFIG_FETCHED_AT_KEY]).toBe(stampBefore);
   });
 
-  it('a rejected fetch (network down) falls back to the cache without throwing', async () => {
+  it('a non-2xx writes nothing and falls back to the cache', async () => {
+    await seedCache();
+    const stampBefore = await readStamp();
+    fetchMock.mockImplementation(reply('forbidden', 403));
+
+    await expect(fetchRemoteConfig(true)).resolves.toEqual(CACHED);
+    expect(await readStamp()).toBe(stampBefore);
+  });
+
+  it('a rejected fetch (network down, or CORS refused) falls back to the cache without throwing', async () => {
     await seedCache();
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
     const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
     await expect(fetchRemoteConfig(true)).resolves.toEqual(CACHED);
     debug.mockRestore();
   });
+});
 
-  it('honours the 1h throttle and lets force bypass it', async () => {
+describe('the throttle', () => {
+  it('honours the default 1h interval and lets force bypass it', async () => {
     await browser.storage.local.set({
       [REMOTE_CONFIG_CACHE_KEY]: CACHED,
       [REMOTE_CONFIG_FETCHED_AT_KEY]: Date.now() - 10_000, // fresh
@@ -129,31 +152,23 @@ describe('failure and throttle behaviour', () => {
     await expect(fetchRemoteConfig()).resolves.toEqual(CACHED);
     expect(fetchMock).not.toHaveBeenCalled(); // throttled: no network on a respawn-shaped call
 
-    fetchMock.mockResolvedValue(jsonResponse({ entries: CACHED }));
+    fetchMock.mockImplementation(reply(DOC));
     await fetchRemoteConfig(true);
     expect(fetchMock).toHaveBeenCalledTimes(1); // force = the debug console's refresh button
   });
 
-  it('a stale stamp really does re-fetch without force', async () => {
-    await seedCache(); // stamp 2h old
-    fetchMock.mockResolvedValue(jsonResponse({ entries: CACHED }));
-    await fetchRemoteConfig();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
+  it('uses the interval the caller resolved from settings, not the default', async () => {
+    await browser.storage.local.set({
+      [REMOTE_CONFIG_CACHE_KEY]: CACHED,
+      [REMOTE_CONFIG_FETCHED_AT_KEY]: Date.now() - 30 * 60 * 1000, // 30 min: fresh by the 1h default
+    });
+    fetchMock.mockImplementation(reply(DOC));
 
-  it('reuses one persisted app_instance_id across fetches', async () => {
-    // mockImplementation, NOT mockResolvedValue: a Response body reads exactly once, so serving the
-    // same object twice makes the second call's .json() throw — the code under test then silently
-    // exercises its failure fallback while the assertions below (which only read the REQUEST bodies)
-    // still pass. Each call gets a fresh Response.
-    fetchMock.mockImplementation(() => Promise.resolve(jsonResponse({ entries: CACHED })));
-    await fetchRemoteConfig(true);
-    await fetchRemoteConfig(true);
-    const bodies = fetchMock.mock.calls.map(
-      (c) => (JSON.parse((c[1] as RequestInit).body as string) as { app_instance_id: string }).app_instance_id,
-    );
-    expect(bodies[0]).toBe(bodies[1]);
-    expect(bodies[0]).toMatch(/^[0-9a-f-]{36}$/);
+    await fetchRemoteConfig();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await fetchRemoteConfig(false, 15 * 60 * 1000); // a published 15 min override
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -173,25 +188,15 @@ describe('hasFetchedRemoteConfig (the first-install signal)', () => {
   // every other one, so getting it wrong either restores the double boot or makes EVERY spawn wait.
   it('is false on a fresh install, and true once any ok reply has landed', async () => {
     await expect(hasFetchedRemoteConfig()).resolves.toBe(false);
-
-    fetchMock.mockImplementation(() =>
-      Promise.resolve(jsonResponse({ entries: { [REMOTE_CONFIG_PARAM]: '{"tracker":{}}' } })),
-    );
+    fetchMock.mockImplementation(reply(DOC));
     await fetchRemoteConfig();
-
     await expect(hasFetchedRemoteConfig()).resolves.toBe(true);
   });
 
   it('stays false after a FAILED fetch, so the next spawn is still the first', async () => {
-    fetchMock.mockImplementation(() => Promise.resolve(jsonResponse({}, 500)));
+    fetchMock.mockImplementation(reply('oops', 500));
     await fetchRemoteConfig();
     await expect(hasFetchedRemoteConfig()).resolves.toBe(false);
-  });
-
-  it('is true after an entry-less 200, which is a real answer from the server', async () => {
-    fetchMock.mockImplementation(() => Promise.resolve(jsonResponse({ state: 'NO_TEMPLATE' })));
-    await fetchRemoteConfig();
-    await expect(hasFetchedRemoteConfig()).resolves.toBe(true);
   });
 
   it('is unaffected by a non-numeric stamp left by an older build', async () => {

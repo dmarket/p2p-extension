@@ -20,7 +20,6 @@ import { setBlockingReason, setLinkedSteamId } from '@/state/blocking';
 import { setActiveTrackingCount } from '@/state/activeCount';
 import { registerReportRelay, reportError, setReportSink } from '@/infra/report/reporter';
 import { enqueue, flush } from '@/infra/report/outbox';
-import { isRemoteConfigEnabled } from '@/infra/config';
 import { fetchRemoteConfig, hasFetchedRemoteConfig } from '@/infra/remoteConfig';
 import { resolveNotaryUrl } from '@/config/notaryUrl';
 import { extensionVersion } from '@/util/extensionVersion';
@@ -501,9 +500,11 @@ export default defineBackground(() => {
   // the async gap is one fast storage read.
   const bootCore = async (): Promise<void> => {
     // Decided BEFORE the fetch starts, so its own stamp write can never be read as "already fetched".
-    const firstFetchEver = isRemoteConfigEnabled() && !(await hasFetchedRemoteConfig());
-    // One remote-config refresh per spawn (throttled to 1h inside; a no-op when unconfigured).
-    const configFetch = fetchRemoteConfig();
+    const firstFetchEver = !(await hasFetchedRemoteConfig());
+    // One remote-config refresh per spawn, throttled inside to `web.remoteConfigFetchIntervalMs` (1h by
+    // default). The interval is read from the CACHED document, so the settings load comes first — one storage
+    // read, and the fetch below cannot start without it anyway.
+    const configFetch = fetchRemoteConfig(false, (await loadSettings()).web.remoteConfigFetchIntervalMs);
     // FIRST INSTALL ONLY: there is no cached document yet, so starting the core now means starting it on
     // compiled defaults and then having that very fetch restart it — a second full boot cycle plus the
     // forced heartbeat `restartWith` fires, landing in the same window as the install-time content-script

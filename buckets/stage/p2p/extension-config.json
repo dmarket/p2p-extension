@@ -1,0 +1,104 @@
+{
+  "tracker": {
+    "cadence": {
+      "activeOfferIntervalMs": 180000,
+      "revertWatchIntervalMs": 3600000,
+      "maxActionDelayMs": 3600000,
+      "webPollFloorMs": 60000,
+      "iosForegroundPollFloorMs": 30000,
+      "iosBackgroundPollFloorMs": 900000,
+      "androidForegroundPollFloorMs": 30000,
+      "androidBackgroundPollFloorMs": 900000,
+      "webHeartbeatFloorMs": 60000,
+      "iosForegroundHeartbeatFloorMs": 90000,
+      "iosBackgroundHeartbeatFloorMs": 900000,
+      "androidForegroundHeartbeatFloorMs": 90000,
+      "androidBackgroundHeartbeatFloorMs": 900000,
+      "expeditedOfferIntervalMs": 15000,
+      "expeditedWindowMs": 300000,
+      "fallbackHeartbeatIntervalMs": 60000
+    },
+    "credentials": {
+      "steamSkewMs": 60000,
+      "marketplaceSkewMs": 60000,
+      "sessionGateHeadroomMs": 3600000,
+      "marketplaceSessionGateHeadroomMs": 600000,
+      "marketplaceRefreshMinLifeMs": 60000,
+      "marketplaceRefreshMinIntervalMs": 60000
+    },
+    "http": {
+      "requestTimeoutMs": 30000
+    },
+    "marketplaceRetry": {
+      "maxRetries": 3,
+      "retryBaseDelayMs": 500,
+      "retryMaxDelayMs": 8000
+    },
+    "marketplaceScrape": {
+      "cookieName": "dm-trade-token",
+      "refreshCookieName": "dm-trade-refresh-token",
+      "tokenRefreshPath": "/marketplace-api/v1/refresh-token",
+      "deferRefreshWhileSiteTabOpen": false
+    },
+    "steamEndpoints": {
+      "getTradeOfferPath": "/IEconService/GetTradeOffer/v1/",
+      "getTradeOffersPath": "/IEconService/GetTradeOffers/v1/",
+      "getTradeHistoryPath": "/IEconService/GetTradeHistory/v1/",
+      "getPlayerSummariesPath": "/ISteamUser/GetPlayerSummaries/v2/",
+      "getSteamLevelPath": "/IPlayerService/GetSteamLevel/v1/",
+      "historyMaxTrades": 50,
+      "bulkOfferThreshold": 1
+    },
+    "steamScrape": {
+      "tokenRegex": "data-loyalty_webapi_token=\"&quot;([a-zA-Z0-9_.\\-]+)&quot;",
+      "steamIdRegex": "g_steamID\\s*=\\s*\"(\\d+)\"",
+      "steamSessionCookieName": "steamLoginSecure",
+      "steamSessionIdCookieName": "sessionid"
+    }
+  },
+  "web": {
+    "bannerAnchorSelector": ".maincontent",
+    "logoutExpression": "Logout();",
+    "tradeOffersUrl": "https://steamcommunity.com/my/tradeoffers",
+    "steamLoginUrl": "https://steamcommunity.com/login/home/?goto=my%2Ftradeoffers",
+    "activeBannerLink": "https://dmarket.com/ingame-items/item-list/csgo-skins",
+    "antiCsrf": [
+      {
+        "ruleId": 4,
+        "host": "steamcommunity.com",
+        "path": "/tradeoffer/*/cancel",
+        "site": "community"
+      },
+      {
+        "ruleId": 2,
+        "host": "steamcommunity.com",
+        "path": "/login/settoken",
+        "site": "community"
+      },
+      {
+        "ruleId": 3,
+        "host": "store.steampowered.com",
+        "path": "/login/settoken",
+        "site": "store"
+      },
+      {
+        "ruleId": 5,
+        "host": "login.steampowered.com",
+        "path": "/jwt/ajaxrefresh",
+        "site": "community"
+      }
+    ],
+    "notaryProofTimeoutMs": 180000,
+    "notaryStuckAfterMs": 25000,
+    "notaryProofsPerInstance": 5,
+    "remoteConfigFetchIntervalMs": 3600000,
+    "dmarketUrl": "https://dmarket.com/",
+    "errorReporting": {
+      "enabled": true,
+      "maxPerDay": 10,
+      "maxPerDayFromPage": 3,
+      "fpCooldownMs": 1800000,
+      "suppressSubstrings": []
+    }
+  }
+}
