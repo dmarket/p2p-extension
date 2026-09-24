@@ -64,6 +64,7 @@ export const KNOWN_KEYS: Record<string, KeyInfo> = {
   'remoteconfig.instance_id': { desc: 'Firebase-era app_instance_id (UUID). No longer read or written; left over on installs that ran a Firebase build.' },
   'remoteconfig.cache': { desc: 'Cached remote-config document for offline fallback, under the p2p_tracker_config key.' },
   'remoteconfig.fetched_at': { desc: 'Last remote-config answer (epoch ms, a 304 included) — client-side refetch throttle.' },
+  'remoteconfig.failed_at': { desc: 'Last failed remote-config fetch (epoch ms). Unforced fetches back off for 15 min after it; cleared by the next good answer.' },
   'remoteconfig.etag': { desc: 'ETag of the cached document, sent as If-None-Match so an unchanged document costs a bodiless 304.' },
   // ---- vendored core (all stored as strings) ----
   steam_credential: { desc: 'Steam session credential — JSON string containing a LIVE token.', sensitive: true },

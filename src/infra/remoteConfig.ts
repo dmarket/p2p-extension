@@ -17,6 +17,15 @@ import { remoteConfigConfig } from './config';
 const CACHE_KEY = 'remoteconfig.cache';
 const FETCHED_AT_KEY = 'remoteconfig.fetched_at';
 const ETAG_KEY = 'remoteconfig.etag';
+const FAILED_AT_KEY = 'remoteconfig.failed_at';
+
+/**
+ * How long a failed fetch holds off the next unforced one. A failure writes no `fetched_at`, so without this
+ * every worker spawn (about once a minute while deals are tracked) would retry: a CDN outage or a CORS
+ * misconfiguration would turn into a request per install per minute instead of per interval. 15 min is the
+ * floor of `web.remoteConfigFetchIntervalMs`, so a failure never delays the next attempt past a healthy one.
+ */
+const FAILURE_BACKOFF_MS = 15 * 60 * 1000;
 
 /**
  * Default client-side refetch interval; remote-overridable as `web.remoteConfigFetchIntervalMs`. The MV3 service
@@ -65,6 +74,25 @@ async function isCacheFresh(minIntervalMs: number): Promise<boolean> {
   return at !== undefined && Date.now() - at < minIntervalMs;
 }
 
+async function isBackingOff(): Promise<boolean> {
+  try {
+    const at = (await browser.storage.local.get(FAILED_AT_KEY))[FAILED_AT_KEY];
+    return typeof at === 'number' && Date.now() - at < FAILURE_BACKOFF_MS;
+  } catch {
+    return false;
+  }
+}
+
+/** Record a failed attempt and fall back to the cache. */
+async function failed(): Promise<ConfigEntries> {
+  try {
+    await browser.storage.local.set({ [FAILED_AT_KEY]: Date.now() });
+  } catch {
+    /* the fallback below still applies */
+  }
+  return readCachedEntries();
+}
+
 /**
  * The validator to send, or `undefined` when there is no document to revalidate. Tied to the cache: an ETag
  * without the body it describes would get a `304` for a document we no longer hold.
@@ -104,7 +132,7 @@ export async function hasFetchedRemoteConfig(): Promise<boolean> {
 
 /**
  * Fetch the latest document, caching it for offline/failure fallback. Returns the cached entries (or `{}`) when
- * throttled or on any error, so callers always get a usable map.
+ * throttled, backing off after a failure, or on any error, so callers always get a usable map.
  *
  * @param minIntervalMs the resolved `web.remoteConfigFetchIntervalMs`. A parameter rather than a read of the
  *   settings snapshot because src/config/settings.ts imports this module — reading it back would be a cycle.
@@ -113,7 +141,7 @@ export async function fetchRemoteConfig(
   force = false,
   minIntervalMs = REMOTE_CONFIG_FETCH_INTERVAL_MS,
 ): Promise<ConfigEntries> {
-  if (!force && (await isCacheFresh(minIntervalMs))) return readCachedEntries();
+  if (!force && ((await isCacheFresh(minIntervalMs)) || (await isBackingOff()))) return readCachedEntries();
   try {
     const etag = await readEtag();
     const response = await fetch(remoteConfigConfig.url, {
@@ -127,22 +155,24 @@ export async function fetchRemoteConfig(
     });
     if (response.status === 304) {
       await browser.storage.local.set({ [FETCHED_AT_KEY]: Date.now() });
+      await browser.storage.local.remove(FAILED_AT_KEY);
       return readCachedEntries();
     }
-    if (!response.ok) return readCachedEntries();
+    if (!response.ok) return failed();
     const text = await response.text();
     // Keep the last good document over anything unreadable: a truncated body or an HTML error page must not
     // drop every live override until the next good fetch.
-    if (!isJsonObject(text)) return readCachedEntries();
+    if (!isJsonObject(text)) return failed();
     const entries: ConfigEntries = { [REMOTE_CONFIG_PARAM]: text };
     const nextEtag = response.headers.get('ETag');
     // Writing the cache fires storage.onChanged → the settings snapshot refreshes.
     await browser.storage.local.set({ [CACHE_KEY]: entries, [FETCHED_AT_KEY]: Date.now() });
     if (nextEtag) await browser.storage.local.set({ [ETAG_KEY]: nextEtag });
     else await browser.storage.local.remove(ETAG_KEY);
+    await browser.storage.local.remove(FAILED_AT_KEY);
     return entries;
   } catch (error) {
     console.debug('[dmarket-p2p] remote config fetch failed', error);
-    return readCachedEntries();
+    return failed();
   }
 }

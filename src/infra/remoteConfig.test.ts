@@ -113,7 +113,7 @@ describe('the answers', () => {
     ['a truncated body', '{"tracker":'],
     ['a JSON array', '[1,2,3]'],
     ['JSON null', 'null'],
-  ])('%s served as 200 keeps the last good document and writes nothing', async (_, body) => {
+  ])('%s served as 200 keeps the last good document and its stamp', async (_, body) => {
     await seedCache();
     const stampBefore = await readStamp();
     fetchMock.mockImplementation(reply(body));
@@ -125,7 +125,7 @@ describe('the answers', () => {
     expect(stored[REMOTE_CONFIG_FETCHED_AT_KEY]).toBe(stampBefore);
   });
 
-  it('a non-2xx writes nothing and falls back to the cache', async () => {
+  it('a non-2xx keeps the document and its stamp, and falls back to the cache', async () => {
     await seedCache();
     const stampBefore = await readStamp();
     fetchMock.mockImplementation(reply('forbidden', 403));
@@ -169,6 +169,58 @@ describe('the throttle', () => {
 
     await fetchRemoteConfig(false, 15 * 60 * 1000); // a published 15 min override
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the failure backoff', () => {
+  // A failure writes no fetched_at, so without a backoff every worker spawn would retry: a CDN outage or a CORS
+  // misconfiguration would become a request per install per minute.
+  const FAILED_AT_KEY = 'remoteconfig.failed_at';
+
+  it('holds off unforced fetches for 15 min after a failure, then retries', async () => {
+    await seedCache();
+    fetchMock.mockImplementation(reply('oops', 500));
+    await fetchRemoteConfig();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await fetchRemoteConfig();
+    expect(fetchMock).toHaveBeenCalledTimes(1); // backing off: no second request
+
+    await browser.storage.local.set({ [FAILED_AT_KEY]: Date.now() - 16 * 60 * 1000 });
+    await fetchRemoteConfig();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['a non-2xx', reply('forbidden', 403)],
+    ['a body that is not a JSON object', reply('<html>')],
+    ['a rejected fetch', () => Promise.reject(new TypeError('Failed to fetch'))],
+  ])('%s starts the backoff', async (_, impl) => {
+    await seedCache();
+    fetchMock.mockImplementation(impl);
+    const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
+    await fetchRemoteConfig();
+    debug.mockRestore();
+    expect((await browser.storage.local.get(FAILED_AT_KEY))[FAILED_AT_KEY]).toEqual(expect.any(Number));
+  });
+
+  it('force bypasses it, and a good answer clears it', async () => {
+    await seedCache();
+    await browser.storage.local.set({ [FAILED_AT_KEY]: Date.now() });
+    fetchMock.mockImplementation(reply(DOC));
+
+    await fetchRemoteConfig(true);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect((await browser.storage.local.get(FAILED_AT_KEY))[FAILED_AT_KEY]).toBeUndefined();
+  });
+
+  it('a 304 clears it too', async () => {
+    await seedCache();
+    await browser.storage.local.set({ [FAILED_AT_KEY]: Date.now() });
+    fetchMock.mockImplementation(reply(null, 304));
+    await fetchRemoteConfig(true);
+    expect((await browser.storage.local.get(FAILED_AT_KEY))[FAILED_AT_KEY]).toBeUndefined();
   });
 });
 
