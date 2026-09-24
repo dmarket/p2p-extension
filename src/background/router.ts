@@ -174,10 +174,16 @@ async function answer(
  * Register the service-worker message router for the dmarket.com bridge. Must be called synchronously
  * on every worker spawn. `getHandle` returns the current tracker handle (undefined if boot failed);
  * `bootSettled` is the entrypoint's boot promise — see {@link answer} for which requests wait on it.
+ * `onPresence` runs on every presence ping, before the answer and without delaying it.
  */
-export function registerBridgeRouter(getHandle: () => TrackerHandle | undefined, bootSettled: Promise<void>): void {
+export function registerBridgeRouter(
+  getHandle: () => TrackerHandle | undefined,
+  bootSettled: Promise<void>,
+  onPresence?: () => void,
+): void {
   browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!isBridgeRequest(message)) return undefined;
+    if (message.kind === 'presence') onPresence?.();
     answer(message, getHandle, bootSettled)
       .then(sendResponse)
       .catch((error) => {

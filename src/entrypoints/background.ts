@@ -21,11 +21,12 @@ import { setBlockingReason, setLinkedSteamId } from '@/state/blocking';
 import { setActiveTrackingCount } from '@/state/activeCount';
 import { registerReportRelay, reportError, setReportSink } from '@/infra/report/reporter';
 import { enqueue, flush } from '@/infra/report/outbox';
-import { fetchRemoteConfig, hasFetchedRemoteConfig } from '@/infra/remoteConfig';
+import { fetchRemoteConfig, hasFetchedRemoteConfig, type ConfigEntries } from '@/infra/remoteConfig';
 import { resolveNotaryUrl } from '@/config/notaryUrl';
 import { extensionVersion } from '@/util/extensionVersion';
 import {
   DMARKET_ORIGINS,
+  getSettings,
   loadSettings,
   parseSettings,
   subscribeSettings,
@@ -54,6 +55,9 @@ const REPORT_FLUSH_DELAY_MS = 5_000;
  * boot-then-restart, whereas a longer wait would delay the first heartbeat of a fresh install.
  */
 const FIRST_CONFIG_FETCH_BUDGET_MS = 3_000;
+
+/** Presence pings can come every second; one remote-config freshness check a minute is plenty. */
+const CONFIG_CHECK_MIN_GAP_MS = 60_000;
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -112,8 +116,29 @@ export default defineBackground(() => {
     settleBoot = resolve;
   });
 
+  // Remote config: fetched once per spawn (bootCore) and on presence pings. The pings matter because a page
+  // that re-asks presence every second or two — which it does while a forced update is `checking` /
+  // `applying` — keeps the worker alive, and a worker that never respawns would never refetch. Throttled
+  // twice: here to one attempt a minute, inside fetchRemoteConfig to `web.remoteConfigFetchIntervalMs`.
+  let lastConfigCheckAt = 0;
+  const onConfigFetched = (entries: ConfigEntries): void => {
+    // Read from the document just fetched, not the snapshot: the snapshot refreshes through
+    // storage.onChanged, which has not fired yet at this point.
+    void evaluateForceUpdate(parseSettings(entries).web.minExtensionVersion, { recheck: true });
+  };
+  const refreshRemoteConfig = (intervalMs = getSettings().web.remoteConfigFetchIntervalMs) => {
+    lastConfigCheckAt = Date.now();
+    return fetchRemoteConfig(false, intervalMs, onConfigFetched);
+  };
+  const refreshRemoteConfigOnPresence = (): void => {
+    // After the boot, whose own fetch has just stamped the clock — never a second fetch racing it.
+    void bootSettled.then(() => {
+      if (Date.now() - lastConfigCheckAt >= CONFIG_CHECK_MIN_GAP_MS) void refreshRemoteConfig();
+    });
+  };
+
   // Register the dmarket.com bridge router synchronously (reads the handle lazily).
-  registerBridgeRouter(() => handle, bootSettled);
+  registerBridgeRouter(() => handle, bootSettled, refreshRemoteConfigOnPresence);
 
   // Apply a downloaded update as soon as no proof is running, instead of when the browser next restarts.
   // Chrome parks an MV3 update until the extension is idle, and the warm offscreen prover document means it
@@ -513,11 +538,7 @@ export default defineBackground(() => {
     // Every spawn: a new rule, or a check an evicted worker did not finish, is acted on at once. A minimum that
     // has already ended in `restart_required` is left alone here; it is re-asked only on a completed fetch.
     void evaluateForceUpdate(cached.web.minExtensionVersion);
-    const configFetch = fetchRemoteConfig(false, cached.web.remoteConfigFetchIntervalMs, (entries) => {
-      // Read from the document just fetched, not the snapshot: the snapshot refreshes through
-      // storage.onChanged, which has not fired yet at this point.
-      void evaluateForceUpdate(parseSettings(entries).web.minExtensionVersion, { recheck: true });
-    });
+    const configFetch = refreshRemoteConfig(cached.web.remoteConfigFetchIntervalMs);
     // FIRST INSTALL ONLY: there is no cached document yet, so starting the core now means starting it on
     // compiled defaults and then having that very fetch restart it — a second full boot cycle plus the
     // forced heartbeat `restartWith` fires, landing in the same window as the install-time content-script

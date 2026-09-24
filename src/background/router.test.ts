@@ -113,6 +113,16 @@ describe('the presence pong carries the forced-update status', () => {
   });
 });
 
+describe('presence pings are the host hook for work that must not wait for a respawn', () => {
+  it('calls onPresence on a presence ping, not on writes', async () => {
+    const onPresence = vi.fn();
+    registerBridgeRouter(() => HANDLE, Promise.resolve(), onPresence);
+    await new Promise<BridgeResponse>((resolve) => void fire({ kind: 'presence' }, resolve));
+    await new Promise<BridgeResponse>((resolve) => void fire({ kind: 'request-cycle' }, resolve));
+    expect(onPresence).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('the bridge router waits for the core boot before answering presence', () => {
   it('answers presence with the booted state, not the pre-boot defaults', async () => {
     const bridge = registerBooting();
