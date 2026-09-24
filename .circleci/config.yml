@@ -85,6 +85,28 @@ version: 2.1
 #   `upload_to_store`'s preflight refuses a non-increasing version (exit 3) before uploading anything,
 #   and says this in its output.
 #
+# FORCED UPDATE — raising `web.minExtensionVersion` in the prod config (scripts/ci/force-update.sh).
+#   Not every release is forced: forcing puts every seller still on an older build behind the "update the
+#   extension" prompt. So a release pipeline offers one more approval, `hold_force_update`, after `release`.
+#   Approving it runs `mark_force_update`, which records the version in buckets/prod/force-update.json on
+#   `main` — and nothing else, because store review takes anywhere from hours to a month.
+#
+#   The `force_update_poll` workflow then does the waiting, from a schedule trigger named
+#   `force-update-poll` (every 30 min, branch `main`, created once in Project Settings -> Triggers; the
+#   workflow runs for no other schedule). With no marker it ends in seconds. Once Chrome's update server
+#   serves the marked version, it raises the minimum in the live document (ifGenerationMatch on the
+#   generation it read), commits that document and the marker's removal to `main`, and optionally posts to
+#   Slack. Waiting for the update server is what makes the extension's single `requestUpdateCheck()` find
+#   the update instead of being throttled for ~5 h.
+#
+#   Leaving `hold_force_update` unapproved is the normal "not forced" answer; the release pipeline then
+#   stays "On Hold" rather than green, and that is the only cost. `mark_force_update` does not check the
+#   release branch out — `delete_release_branch` may already have removed it — it clones `main` instead.
+#
+#   Project env vars: GCS_CONFIG_SA_CLIENT_EMAIL / GCS_CONFIG_SA_PRIVATE_KEY (a service account that can read
+#   and overwrite gs://cdn-main-dmarket-com/p2p/extension-config.json) and, optionally, SLACK_WEBHOOK_URL.
+#   Pushing to `main` uses org-global's GITHUB_TOKEN, whose owner is an admin and bypasses the rulesets.
+#
 # ENVIRONMENT — no .env file is ever written in CI. Vite folds `process.env` keys matching its
 #   envPrefix (WXT sets `['VITE_','WXT_']`) into `import.meta.env`, taking precedence over .env
 #   files, and wxt.config.ts's manifest hooks read `process.env.WXT_*` directly. So plain context
@@ -330,6 +352,26 @@ jobs:
           name: Upload and submit for review
           command: bash scripts/ci/upload-to-store.sh upload
 
+  # Records "force the update to this release's version" on `main` for the poller below. No `checkout`: the
+  # release branch may already be deleted, and the marker belongs on `main` anyway. The repo is public, so
+  # the clone needs no credentials; the push inside the script uses GITHUB_TOKEN.
+  mark_force_update:
+    executor: node
+    steps:
+      - run:
+          name: Record the forced update on main
+          command: git clone -q --depth 50 "https://github.com/${REPO_SLUG}.git" repo && bash repo/scripts/ci/force-update.sh mark
+
+  # Every 30 min from the `force-update-poll` schedule. Ends at once without a marker; installs dependencies
+  # only on the one run that publishes.
+  poll_force_update:
+    executor: node
+    steps:
+      - checkout
+      - run:
+          name: Raise the minimum once the store serves the forced release
+          command: bash scripts/ci/force-update.sh poll
+
   # The last job of a release: deletes the `release/vX.Y.Z` branch. Last rather than right after the
   # tag, because every job above checks the branch out — and a failed store step is retried by
   # re-running this workflow, which needs the branch to still exist.
@@ -343,6 +385,11 @@ jobs:
 
 workflows:
   ci:
+    # Schedules exist for the forced-update poll only; running checks and both builds every 30 minutes on an
+    # unchanged `main` would be pure waste.
+    when:
+      not:
+        equal: [scheduled_pipeline, << pipeline.trigger_source >>]
     jobs:
       - check
       # The two builds run in parallel with EACH OTHER, but both wait for `check`.
@@ -438,3 +485,26 @@ workflows:
           context:
             - org-global
           filters: *release_branches
+      # Optional, and independent of the store path: approve only for a release every seller must move to.
+      # See FORCED UPDATE in the header.
+      - hold_force_update:
+          type: approval
+          requires:
+            - release
+          filters: *release_branches
+      - mark_force_update:
+          requires:
+            - hold_force_update
+          context:
+            - org-global
+          filters: *release_branches
+
+  force_update_poll:
+    when:
+      and:
+        - equal: [scheduled_pipeline, << pipeline.trigger_source >>]
+        - equal: [force-update-poll, << pipeline.schedule.name >>]
+    jobs:
+      - poll_force_update:
+          context:
+            - org-global

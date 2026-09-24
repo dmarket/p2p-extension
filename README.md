@@ -108,6 +108,12 @@ npm run config:stage-to-prod    # copy the stage document over the local prod on
 The scripts touch that one object only: the buckets are shared with other DMarket clients. Uploads use
 a generation precondition, so a change someone else published after the diff is never overwritten.
 
+`web.minExtensionVersion` is the oldest version allowed to keep working (numeric, e.g. `1.0.6`). An
+install below it asks Chrome for the update once, reloads onto it when Chrome has it, and reports its
+progress to dmarket.com in the presence `pong` as `update: { required, minVersion, state }` — the page
+renders that and compares nothing itself. CI raises it after a forced release (see below); it can also
+be raised by hand like any other field.
+
 Two things are compiled in rather than configured, because their absence is silent and expensive: the
 DMarket API and FE origins, and the production notary URL. So a production build arms the real TLSN
 prover with no configuration at all; remote config can redirect the notary but can no longer switch it
@@ -229,6 +235,16 @@ badge would only point people at an older stable build than the one actually in 
 The debug build is deliberately **not** published — it is not what ships, and it inlines the internal
 `WXT_DEV_*`/`WXT_STAGE_*` endpoints. Download it from the `build-debug` job's **Artifacts** tab in
 CircleCI, on any push.
+
+### Forcing an update
+
+A release pipeline also offers `hold_force_update`. Approve it only for a release every seller must move
+to. It records the version in `buckets/prod/force-update.json` on `main`; a CircleCI schedule
+(`force-update-poll`, every 30 min) then asks Chrome's update server what it serves, and once that is
+the forced version it raises `web.minExtensionVersion` in the live prod document and commits the result
+to `main`. Nothing waits on store review inline, and the extension's single update check finds the
+build because it is already being served. Leaving the approval alone is the normal answer: the
+pipeline then stays "On Hold".
 
 A push whose version is already tagged releases nothing, so re-pushing a release branch is safe;
 `[skip release]` in the commit message skips it explicitly. `main` still runs `check` and both builds
