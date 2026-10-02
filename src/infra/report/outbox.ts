@@ -43,6 +43,9 @@ interface QueueItem extends PendingReport {
   count: number;
 }
 
+/** The daily budget a report is charged to. See {@link bucketOf}. */
+type Bucket = 'internal' | 'page' | 'proof';
+
 interface Policy {
   /** UTC day (`YYYY-MM-DD`) the counters below belong to; a different day resets them with no timer. */
   day: string;
@@ -50,8 +53,10 @@ interface Policy {
   internal: number;
   /** Reports sent today that originated from page-controlled input — a much smaller, separate budget. */
   page: number;
+  /** Reports sent today that narrate a failed notary proof (see `maxPerDayProof`). */
+  proof: number;
   /** Whether today's "budget exhausted" notice has already been sent, per bucket. */
-  noticeSent: { internal?: boolean; page?: boolean };
+  noticeSent: Partial<Record<Bucket, boolean>>;
   /** fingerprint → last-sent epoch ms, for the cooldown. Pruned to the tracked cap on write. */
   lastSent: Record<string, number>;
   /**
@@ -76,6 +81,7 @@ const emptyPolicy = (): Policy => ({
   day: '',
   internal: 0,
   page: 0,
+  proof: 0,
   noticeSent: {},
   lastSent: {},
   occurrences: {},
@@ -263,9 +269,9 @@ interface Verdict {
   send: boolean;
   /** Appended to the message: the occurrence count, any dropped-report notice, any budget notice. */
   suffix: string;
-  bucket: 'internal' | 'page';
+  bucket: Bucket;
   /** Set when this send IS the once-a-day budget-exhausted notice. */
-  noticeForBucket?: 'internal' | 'page';
+  noticeForBucket?: Bucket;
   /** How many dropped reports this message accounts for, so the commit subtracts exactly that. */
   droppedReported: number;
   /** Running total of sightings for this fingerprint, to be stored on a successful send. */
@@ -279,8 +285,8 @@ interface Verdict {
 async function decide(item: QueueItem): Promise<Verdict> {
   const policy = rollDay(await readPolicy());
   const settings = getSettings().web.errorReporting;
-  const bucket: 'internal' | 'page' = item.fromPage === true ? 'page' : 'internal';
-  const cap = bucket === 'page' ? settings.maxPerDayFromPage : settings.maxPerDay;
+  const bucket = bucketOf(item);
+  const cap = { internal: settings.maxPerDay, page: settings.maxPerDayFromPage, proof: settings.maxPerDayProof }[bucket];
 
   if (policy[bucket] >= cap) {
     // Emit exactly ONE notice per bucket per day. Without it a blinded reporter is indistinguishable from
@@ -316,6 +322,16 @@ async function decide(item: QueueItem): Promise<Verdict> {
     droppedReported: dropped,
     occurrences,
   };
+}
+
+/**
+ * Page-originated input wins over a proof failure: the page bucket is the anti-blinding guard, and nothing a
+ * page sends may be charged anywhere else.
+ */
+function bucketOf(item: PendingReport): Bucket {
+  if (item.fromPage === true) return 'page';
+  if (item.proof === true) return 'proof';
+  return 'internal';
 }
 
 /** Bound the two per-fingerprint maps so the policy row cannot grow without limit. */

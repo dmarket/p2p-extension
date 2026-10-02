@@ -24,6 +24,8 @@ export interface PendingReport {
    * separate, much smaller budget so a hostile page cannot exhaust the internal one and blind the reporter.
    */
   fromPage?: boolean;
+  /** A failed notary proof rather than a crash — charged to its own budget, see `maxPerDayProof`. */
+  proof?: boolean;
 }
 
 type ReportSink = (report: PendingReport) => void;
@@ -122,16 +124,19 @@ export function setReportSink(fn: ReportSink): void {
  *
  * @param options.fromPage the input that led here came from the web page (see {@link PendingReport}).
  * @param options.fromCore the failure came out of the tracker core even if its stack does not say so.
+ * @param options.coreSummary the message is a core-authored summary — see `MessageOrigin` in describe.ts.
+ * @param options.proof a failed notary proof, charged to its own budget (see {@link PendingReport}).
  */
 export function reportError(
   error: unknown,
-  options: { fromPage?: boolean; fromCore?: boolean } = {},
+  options: { fromPage?: boolean; fromCore?: boolean; coreSummary?: boolean; proof?: boolean } = {},
 ): void {
   if (depth > 0) return; // a reporter-internal failure must not re-enter
   depth += 1;
   try {
     if (sentThisSpawn >= MAX_PER_SPAWN) return;
-    const described: Described = describeError(error, context, options.fromCore ?? false);
+    const origin = options.coreSummary === true ? 'core-summary' : options.fromCore === true ? 'core' : 'auto';
+    const described: Described = describeError(error, context, origin);
     if (isSuppressed(described.message)) return;
     if (seenThisSpawn.has(described.fingerprint)) return;
     seenThisSpawn.set(described.fingerprint, Date.now());
@@ -143,6 +148,7 @@ export function reportError(
       fingerprint: described.fingerprint,
       timestamp: new Date().toISOString(),
       ...(options.fromPage === true ? { fromPage: true } : {}),
+      ...(options.proof === true ? { proof: true } : {}),
     });
   } catch {
     /* reporting must never surface into the caller */

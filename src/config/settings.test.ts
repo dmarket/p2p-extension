@@ -386,6 +386,8 @@ describe('errorReporting — remote config can only ever NARROW the reporter', (
     // …widening does not: a hostile publish cannot raise volume or shorten the cooldown.
     expect(er({ maxPerDay: 1000 }).maxPerDay).toBe(10);
     expect(er({ maxPerDayFromPage: 1000 }).maxPerDayFromPage).toBe(3);
+    expect(er({ maxPerDayProof: 1000 }).maxPerDayProof).toBe(10);
+    expect(er({ maxPerDayProof: 2 }).maxPerDayProof).toBe(2);
     expect(er({ fpCooldownMs: 1 }).fpCooldownMs).toBe(1_800_000);
   });
 

@@ -98,6 +98,7 @@
       "enabled": true,
       "maxPerDay": 10,
       "maxPerDayFromPage": 3,
+      "maxPerDayProof": 10,
       "fpCooldownMs": 1800000,
       "suppressSubstrings": []
     }

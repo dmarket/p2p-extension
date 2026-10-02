@@ -95,6 +95,20 @@ function allowlistCoreMessage(raw: string): string {
   return [cls, head || null, status ? `status=${status}` : null].filter(Boolean).join(' ');
 }
 
+/**
+ * Where a message came from, which decides how much of it may be kept:
+ * - `auto`: core-origin if the stack's top frames are in the core bundle, else the extension's own;
+ * - `core`: core-origin regardless of the stack — reduced to the {@link allowlistCoreMessage} shape;
+ * - `core-summary`: a string the core ALREADY reduced for this boundary — `redactedSummary()`, as carried
+ *   in a lifecycle frame's `reason` (`ClassName: detail`, named secrets and bare JWTs scrubbed, capped at
+ *   200). Kept whole, because the allowlist would keep the class and cut the detail at its first paren —
+ *   and the detail (a prover's error chain, say) is the part worth having. Still scrubbed and capped here.
+ */
+export type MessageOrigin = 'auto' | 'core' | 'core-summary';
+
+/** The core caps a summary at 200 chars; the rest is room for the label a host puts in front of it. */
+const CORE_SUMMARY_MAX = 320;
+
 /** Reduce a stack to frame locations, dropping any interleaved message text a `Caused by:` line carries. */
 function allowlistCoreStack(stack: string): string {
   return stack
@@ -126,18 +140,21 @@ function normalizeForFingerprint(message: string): string {
 /**
  * Describe a thrown value for reporting: redacted, capped, classified, and fingerprinted.
  *
- * @param forceCore treat as core-origin regardless of the stack — for a failure caught around a
- *   `Tracker.*` call, where the stack may not name a core frame at all.
+ * @param origin see {@link MessageOrigin}. `core` is for a failure caught around a `Tracker.*` call, where
+ *   the stack may not name a core frame at all.
  */
-export function describeError(error: unknown, context: ReportContext, forceCore = false): Described {
+export function describeError(error: unknown, context: ReportContext, origin: MessageOrigin = 'auto'): Described {
   const rawMessage = extractMessage(error);
   const rawStack = extractStack(error);
-  const fromCore = forceCore || (rawStack !== null && CORE_FRAME.test(rawStack));
+  const fromCore = origin !== 'auto' || (rawStack !== null && CORE_FRAME.test(rawStack));
 
   // Redaction always runs, on both layers, and always BEFORE the cap.
-  const message = fromCore
-    ? redactAndCap(allowlistCoreMessage(rawMessage), MESSAGE_MAX)
-    : redactAndCap(rawMessage, MESSAGE_MAX);
+  const message =
+    origin === 'core-summary'
+      ? redactAndCap(rawMessage, CORE_SUMMARY_MAX)
+      : fromCore
+        ? redactAndCap(allowlistCoreMessage(rawMessage), MESSAGE_MAX)
+        : redactAndCap(rawMessage, MESSAGE_MAX);
   const stack =
     rawStack === null
       ? null

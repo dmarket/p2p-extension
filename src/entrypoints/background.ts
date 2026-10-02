@@ -19,6 +19,7 @@ import { initIcon } from '@/background/icon';
 import { isActivated, subscribeActivation } from '@/state/activation';
 import { setBlockingReason, setLinkedSteamId } from '@/state/blocking';
 import { setActiveTrackingCount } from '@/state/activeCount';
+import { reportIfProofFailed, type ProofFailedFrame } from '@/infra/report/proof';
 import { registerReportRelay, reportError, setReportSink } from '@/infra/report/reporter';
 import { enqueue, flush } from '@/infra/report/outbox';
 import { fetchRemoteConfig, hasFetchedRemoteConfig, type ConfigEntries } from '@/infra/remoteConfig';
@@ -299,7 +300,7 @@ export default defineBackground(() => {
     } catch {
       /* never break the core's cycle */
     }
-    let parsed: { event?: unknown; tokenSteamId?: unknown; linkedSteamId?: unknown };
+    let parsed: { event?: unknown; tokenSteamId?: unknown; linkedSteamId?: unknown } & ProofFailedFrame;
     try {
       parsed = JSON.parse(json) as typeof parsed;
     } catch {
@@ -320,6 +321,12 @@ export default defineBackground(() => {
       // linked to DMarket" and the user has no way to tell a stale verdict from a real one. It is their own
       // linked id; the other account's id (`tokenSteamId`) is pushed to the FE but never stored or shown.
       if (typeof parsed.linkedSteamId === 'string') void setLinkedSteamId(parsed.linkedSteamId);
+    }
+    // The only production record of WHY a proof failed — see src/infra/report/proof.ts.
+    try {
+      reportIfProofFailed(parsed);
+    } catch {
+      /* never break the core's cycle */
     }
     // Re-read the core's resolved blocking reason on the settled events and persist it.
     if (typeof parsed.event === 'string' && BLOCKING_EVENTS.has(parsed.event) && handle !== undefined) {

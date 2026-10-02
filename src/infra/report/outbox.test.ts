@@ -209,6 +209,37 @@ describe('daily budgets', () => {
   });
 });
 
+describe('the proof bucket', () => {
+  it('failed proofs exhaust their own cap with one notice and never spend the crash budget', async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    // maxPerDayProof is 10 (compiled default). Twelve distinct proof failures:
+    for (let i = 0; i < 12; i += 1) {
+      enqueue(report(`fp-proof-${i}`, { proof: true }));
+      await settled();
+    }
+    // 10 sent + 1 budget notice; the 12th is silent.
+    expect(fetchMock.mock.calls).toHaveLength(11);
+    expect(sentMessage(fetchMock, 10)).toContain('proof report budget exhausted');
+
+    // A crash on the same device still gets through: a bad notary day cannot blind the reporter.
+    enqueue(report('fp-crash'));
+    await settled();
+    expect(fetchMock.mock.calls).toHaveLength(12);
+    const policy = await readPolicy();
+    expect(policy.proof).toBe(11);
+    expect(policy.internal).toBe(1);
+  });
+
+  it('page-originated input is charged to the page bucket even when flagged as a proof', async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    enqueue(report('fp-both', { proof: true, fromPage: true }));
+    await settled();
+    const policy = await readPolicy();
+    expect(policy.page).toBe(1);
+    expect(policy.proof).toBe(0);
+  });
+});
+
 describe('the UTC day roll', () => {
   it('a new day resets the budget, the ladder AND the notice flag (the shared-EMPTY_POLICY regression)', async () => {
     // Pre-fix, `rollDay` built the new day by spreading a module-scope EMPTY_POLICY whose three map

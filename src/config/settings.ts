@@ -163,6 +163,13 @@ const ERROR_REPORTING_DEFAULTS = {
    * the reporter for the rest of the day.
    */
   maxPerDayFromPage: 3,
+  /**
+   * Reports per UTC day that narrate a failed notary proof (`ProofFailed`). Its own bucket because a proof
+   * failure is an operational outcome, not a crash, and on a device whose proofs keep failing it recurs on
+   * every tick — sharing {@link maxPerDay} would let a bad notary day blind the crash reporter on exactly the
+   * installs that most need it.
+   */
+  maxPerDayProof: 10,
   /** Per-fingerprint cooldown; the occurrence ladder still lets 1/2/4/8… through. */
   fpCooldownMs: 1_800_000,
   /** Extra suppression substrings, MERGED with the compiled list — never replacing it. */
@@ -343,6 +350,7 @@ interface ErrorReportingSettings {
   enabled: boolean;
   maxPerDay: number;
   maxPerDayFromPage: number;
+  maxPerDayProof: number;
   fpCooldownMs: number;
   suppressSubstrings: string[];
 }
@@ -733,15 +741,15 @@ function buildWeb(raw: Record<string, unknown>): WebSettings {
 function buildErrorReporting(raw: Record<string, unknown>): ErrorReportingSettings {
   const d = ERROR_REPORTING_DEFAULTS;
   const enabled = typeof raw.enabled === 'boolean' ? raw.enabled : d.enabled;
-  const maxPerDay = intOrNull(raw.maxPerDay);
-  const maxPerDayFromPage = intOrNull(raw.maxPerDayFromPage);
+  // A published cap only ever lowers the compiled one.
+  const atMost = (v: unknown, cap: number): number => Math.min(cap, intOrNull(v) ?? cap);
   const fpCooldownMs = intOrNull(raw.fpCooldownMs);
   return {
     // `false` always wins: a kill switch must work, an "enable" must not resurrect a disabled reporter.
     enabled: enabled && d.enabled,
-    maxPerDay: maxPerDay === null ? d.maxPerDay : Math.min(d.maxPerDay, maxPerDay),
-    maxPerDayFromPage:
-      maxPerDayFromPage === null ? d.maxPerDayFromPage : Math.min(d.maxPerDayFromPage, maxPerDayFromPage),
+    maxPerDay: atMost(raw.maxPerDay, d.maxPerDay),
+    maxPerDayFromPage: atMost(raw.maxPerDayFromPage, d.maxPerDayFromPage),
+    maxPerDayProof: atMost(raw.maxPerDayProof, d.maxPerDayProof),
     fpCooldownMs: fpCooldownMs === null ? d.fpCooldownMs : Math.max(d.fpCooldownMs, fpCooldownMs),
     // MERGED with the compiled list, never replacing it, and substrings only — a remote-supplied regex run
     // over attacker-influenceable error text is a ReDoS in the service worker.

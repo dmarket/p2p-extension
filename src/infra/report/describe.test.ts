@@ -82,7 +82,7 @@ describe('core-origin messages are ALLOWLISTED, not scrubbed', () => {
     const d = describeError(
       withStack('SomeException: detail {"body":"B"}', '    at anon (ext://background.js:1:1)'),
       'background',
-      true,
+      'core',
     );
     expect(d.fromCore).toBe(true);
     expect(d.message).not.toContain('"B"');
