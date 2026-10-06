@@ -85,29 +85,37 @@ version: 2.1
 #   `upload_to_store`'s preflight refuses a non-increasing version (exit 3) before uploading anything,
 #   and says this in its output.
 #
-# FORCED UPDATE — raising `web.minExtensionVersion` in the prod config (scripts/ci/force-update.sh).
-#   Not every release is forced: forcing puts every seller still on an older build behind the "update the
-#   extension" prompt. So a release pipeline offers one more approval, `hold_force_update`, after `release`.
-#   Approving it runs `mark_force_update`, which creates a CircleCI schedule `force-update-<version>`
-#   through API v2 — every 30 min on `main`, the version and a 45-day deadline as pipeline parameters — and
-#   nothing else, because store review takes anywhere from hours to a month.
+# STORE WATCH + FORCED UPDATE (scripts/ci/force-update.sh).
+#   Every release that reaches `upload_to_store` gets `watch_store_release`, which creates a CircleCI schedule
+#   `store-release-<version>` through API v2 — every 30 min on `main`, the version, a 45-day deadline and this
+#   release's workflow id as pipeline parameters — and nothing else, because store review takes anywhere from
+#   hours to a month.
 #
-#   That schedule runs `force_update_poll`. Once Chrome's update server serves the version, it raises the
-#   minimum in the live document (ifGenerationMatch on the generation it read), commits that document to
-#   `main`, optionally posts to Slack, and DELETES ITS OWN SCHEDULE. So nothing runs between forced
-#   releases. A schedule still waiting at its deadline deletes itself and fails loudly. Waiting for the
-#   update server is what makes the extension's single `requestUpdateCheck()` find the update instead of
-#   being throttled for ~5 h.
+#   That schedule runs `store_watch`. Once Chrome's update server serves the version it starts ONE
+#   `store_release` pipeline through the API and DELETES ITS OWN SCHEDULE. That pipeline runs two jobs in
+#   parallel: `notify_store_release` (the "live in the Chrome Web Store" notice in the release channel, always)
+#   and `raise_min_version` (only when the release was forced). A schedule still waiting at its deadline starts
+#   the same pipeline with outcome `expired` (a warning notice, no raise), deletes itself and fails loudly.
+#   Waiting for the update server is what makes the extension's single `requestUpdateCheck()` find the update
+#   instead of being throttled for ~5 h — and it is when users actually get the release.
 #
-#   Leaving `hold_force_update` unapproved is the normal "not forced" answer; the release pipeline then
-#   stays "On Hold" rather than green, and that is the only cost. `mark_force_update` does not check the
-#   release branch out — `delete_release_branch` may already have removed it — it clones `main` instead.
+#   FORCING is decided HERE, in the release pipeline, by `hold_force_update`, and nowhere else: the deferred
+#   pipelines only read that approval's state through the API. The minimum is raised once the version is served
+#   AND the approval is given, by whichever happens second — `raise_min_version` when the approval came first,
+#   `approve_force_update` when the store was faster than the approver. Both are idempotent.
+#
+#   Leaving `hold_force_update` unapproved is the normal "not forced" answer; the release pipeline then stays
+#   "On Hold" rather than green, and that is the only cost. Neither `watch_store_release` nor
+#   `approve_force_update` checks the release branch out — `delete_release_branch` may already have removed
+#   it — they clone `main` instead.
 #
 #   Project env vars: CIRCLE_API_TOKEN (a CircleCI PERSONAL token — API v2 accepts no project token; it
-#   expires within a year and dies with its owner's access), GCP_WIF_AUDIENCE (the Workload Identity pool
-#   provider; Cloud Storage is reached with the job's OIDC token, no stored key) and, optionally,
-#   SLACK_WEBHOOK_URL. Pushing to `main` uses org-global's GITHUB_TOKEN, whose owner is an admin and
-#   bypasses the rulesets.
+#   expires within a year and dies with its owner's access; the pipelines it starts run as its owner) and
+#   P2P_EXTENSION_DEPLOY_SA_KEY (set by devops: base64 of a service-account JSON key scoped to
+#   p2p/extension-config.json; the node script signs with it, no gcloud needed). Pushing to `main` uses org-global's GITHUB_TOKEN, whose owner is an admin and bypasses the
+#   rulesets. Slack goes through the `circleci/slack` orb with the org context `dm-release-notify`
+#   (SLACK_ACCESS_TOKEN + SLACK_DEFAULT_CHANNEL) — the same bot, channel and message shape as every backend
+#   "deployed to prod" notice (see `release_notice`).
 #
 # ENVIRONMENT — no .env file is ever written in CI. Vite folds `process.env` keys matching its
 #   envPrefix (WXT sets `['VITE_','WXT_']`) into `import.meta.env`, taking precedence over .env
@@ -188,15 +196,44 @@ version: 2.1
 # CI build's provenance depend on whatever was published that minute. CI builds only what the
 # lockfile says: `npx wxt zip --mode <mode>`.
 
-# Set only by a `force-update-<version>` schedule (scripts/ci/force-update.mjs `scheduleBody`); empty on every
-# other pipeline, which is what keeps `force_update_poll` from running anywhere else.
+# Set only by a `store-release-<version>` schedule (scripts/ci/force-update.mjs `scheduleBody`) and by the
+# `store_release` pipeline it starts (`storeReleaseParameters`); empty on every other pipeline, which is what keeps
+# `store_watch` and `store_release` from running anywhere else.
 parameters:
-  force_update_version:
+  store_watch_version:
     type: string
     default: ''
-  force_update_until:
+  store_watch_until:
     type: string
     default: ''
+  release_workflow_id:
+    type: string
+    default: ''
+  release_label:
+    type: string
+    default: ''
+  release_sha:
+    type: string
+    default: ''
+  release_actor:
+    type: string
+    default: ''
+  # `store_release` only.
+  store_release_outcome:
+    type: enum
+    enum: ['', served, expired]
+    default: ''
+  store_served_version:
+    type: string
+    default: ''
+  force_update:
+    type: boolean
+    default: false
+
+orbs:
+  # The same orb and version the backend repos use for their release-channel notices (dmarket/p2p,
+  # dmarket/steam-provenance). It reads SLACK_ACCESS_TOKEN and SLACK_DEFAULT_CHANNEL from context dm-release-notify.
+  slack: circleci/slack@4.4.4
 
 executors:
   node:
@@ -227,6 +264,52 @@ commands:
           key: npm-v1-{{ checksum "package-lock.json" }}
           paths:
             - ~/.npm
+
+  # A release-channel notice in the backend's shape (dmarket/p2p `notify`): headline, quoted commit, one context
+  # line, a View Job button. `force-update.sh notice-env` writes the text (JSON-escaped) to $BASH_ENV, like the
+  # backend's `extract_deploy_info`; the orb substitutes it into this body. Needs context `dm-release-notify`.
+  release_notice:
+    parameters:
+      kind:
+        description: served | expired | raised
+        type: string
+      script:
+        description: Path to force-update.sh — `repo/scripts/…` in the jobs that clone `main` instead of checking out.
+        type: string
+        default: scripts/ci/force-update.sh
+    steps:
+      - run:
+          name: Prepare the release notice
+          command: bash << parameters.script >> notice-env << parameters.kind >>
+      - slack/notify:
+          event: pass
+          custom: |
+            {
+              "blocks": [
+                { "type": "section", "text": { "type": "mrkdwn", "text": "$NOTICE_HEADLINE" } },
+                { "type": "section", "text": { "type": "mrkdwn", "text": "> $NOTICE_QUOTE" } },
+                {
+                  "type": "context",
+                  "elements": [
+                    { "type": "mrkdwn", "text": "*Author*: $NOTICE_AUTHOR" },
+                    { "type": "mrkdwn", "text": "*Triggered by*: $NOTICE_TRIGGERED_BY" },
+                    { "type": "mrkdwn", "text": "*Version*: $NOTICE_VERSION" },
+                    { "type": "mrkdwn", "text": "*Commit*: $NOTICE_COMMIT" }
+                  ]
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "action_id": "store_release_view_job",
+                      "text": { "type": "plain_text", "text": "View Job" },
+                      "url": "${CIRCLE_BUILD_URL}"
+                    }
+                  ]
+                }
+              ]
+            }
 
 jobs:
   check:
@@ -364,28 +447,72 @@ jobs:
           name: Upload and submit for review
           command: bash scripts/ci/upload-to-store.sh upload
 
-  # Creates the schedule that waits for this release to be served. No `checkout`: the release branch may
-  # already be deleted, so the script comes from `main` (the repo is public, the clone needs no credentials).
-  mark_force_update:
+  # Creates the schedule that watches for this release in the store. No `checkout`: the release branch may already
+  # be deleted, so the script comes from `main` (the repo is public, the clone needs no credentials).
+  watch_store_release:
     executor: node
     steps:
       - run:
-          name: Schedule the wait for this release
-          command: git clone -q --depth 50 "https://github.com/${REPO_SLUG}.git" repo && bash repo/scripts/ci/force-update.sh mark
+          name: Schedule the watch for this release
+          command: git clone -q --depth 50 "https://github.com/${REPO_SLUG}.git" repo && bash repo/scripts/ci/force-update.sh watch
 
-  # Every 30 min from a `force-update-<version>` schedule. Installs dependencies only on the one run that
-  # publishes, and deletes its schedule at the end of that run.
-  poll_force_update:
+  # After `hold_force_update` is approved. Raises the minimum now if the store already serves the release; otherwise
+  # leaves it to the watch, which reads this approval when the version is served.
+  approve_force_update:
+    executor: node
+    steps:
+      - run:
+          name: Raise the minimum now if the store already serves the release
+          command: git clone -q "https://github.com/${REPO_SLUG}.git" repo && bash repo/scripts/ci/force-update.sh approve
+      # Reached only when it raised: otherwise the step above halts the job.
+      - release_notice:
+          kind: raised
+          script: repo/scripts/ci/force-update.sh
+
+  # Every 30 min from a `store-release-<version>` schedule: one GET while waiting; when served, starts the
+  # `store_release` pipeline and deletes the schedule. Holds no Slack, GitHub or Cloud Storage credential.
+  poll_store_release:
     executor: node
     environment:
-      FORCE_UPDATE_VERSION: << pipeline.parameters.force_update_version >>
-      FORCE_UPDATE_UNTIL: << pipeline.parameters.force_update_until >>
+      STORE_WATCH_VERSION: << pipeline.parameters.store_watch_version >>
+      STORE_WATCH_UNTIL: << pipeline.parameters.store_watch_until >>
+      RELEASE_WORKFLOW_ID: << pipeline.parameters.release_workflow_id >>
+      RELEASE_LABEL: << pipeline.parameters.release_label >>
+      RELEASE_SHA: << pipeline.parameters.release_sha >>
+      RELEASE_ACTOR: << pipeline.parameters.release_actor >>
       SCHEDULE_ID: << pipeline.schedule.id >>
     steps:
       - checkout
       - run:
-          name: Raise the minimum once the store serves the forced release
+          name: Start the release notice once the store serves the version
           command: bash scripts/ci/force-update.sh poll
+
+  notify_store_release:
+    executor: node
+    environment: &store_release_env
+      STORE_WATCH_VERSION: << pipeline.parameters.store_watch_version >>
+      STORE_WATCH_UNTIL: << pipeline.parameters.store_watch_until >>
+      STORE_SERVED_VERSION: << pipeline.parameters.store_served_version >>
+      FORCE_UPDATE: << pipeline.parameters.force_update >>
+      RELEASE_LABEL: << pipeline.parameters.release_label >>
+      RELEASE_SHA: << pipeline.parameters.release_sha >>
+      RELEASE_ACTOR: << pipeline.parameters.release_actor >>
+    steps:
+      - checkout
+      - release_notice:
+          kind: << pipeline.parameters.store_release_outcome >>
+
+  raise_min_version:
+    executor: node
+    environment: *store_release_env
+    steps:
+      - checkout
+      - run:
+          name: Raise web.minExtensionVersion in the prod config
+          command: bash scripts/ci/force-update.sh raise
+      # Reached only when it raised: an already-raised document halts the job above.
+      - release_notice:
+          kind: raised
 
   # The last job of a release: deletes the `release/vX.Y.Z` branch. Last rather than right after the
   # tag, because every job above checks the branch out — and a failed store step is retried by
@@ -400,11 +527,13 @@ jobs:
 
 workflows:
   ci:
-    # The only schedules are the forced-update waits; running checks and both builds every 30 minutes on an
-    # unchanged `main` would be pure waste.
+    # The only schedules are the store watches, and the only API-started pipelines are the `store_release` ones
+    # they start; running checks and both builds for those on an unchanged `main` would be pure waste.
     when:
-      not:
-        equal: [scheduled_pipeline, << pipeline.trigger_source >>]
+      and:
+        - not:
+            equal: [scheduled_pipeline, << pipeline.trigger_source >>]
+        - equal: ['', << pipeline.parameters.store_release_outcome >>]
     jobs:
       - check
       # The two builds run in parallel with EACH OTHER, but both wait for `check`.
@@ -500,25 +629,55 @@ workflows:
           context:
             - org-global
           filters: *release_branches
-      # Optional, and independent of the store path: approve only for a release every seller must move to.
-      # See FORCED UPDATE in the header.
+      # Every release that reached the store is watched until Chrome serves it; see STORE WATCH in the header.
+      - watch_store_release:
+          requires:
+            - upload_to_store
+          filters: *release_branches
+      # Optional: approve only for a release every seller must move to. The ONLY place a release is forced — the
+      # deferred pipelines read this approval's state. After `upload_to_store`, because forcing a version that was
+      # never submitted means nothing.
       - hold_force_update:
           type: approval
           requires:
-            - release
+            - upload_to_store
           filters: *release_branches
-      - mark_force_update:
+      - approve_force_update:
           requires:
             - hold_force_update
+          context:
+            - org-global
+            - dm-release-notify
           filters: *release_branches
 
-  force_update_poll:
+  store_watch:
     when:
       and:
         - equal: [scheduled_pipeline, << pipeline.trigger_source >>]
         - not:
-            equal: ['', << pipeline.parameters.force_update_version >>]
+            equal: ['', << pipeline.parameters.store_watch_version >>]
     jobs:
-      - poll_force_update:
+      - poll_store_release
+
+  # Started by `poll_store_release` through the API once the store serves the release (or the watch expired).
+  store_release:
+    when:
+      not:
+        equal: ['', << pipeline.parameters.store_release_outcome >>]
+    jobs:
+      - notify_store_release:
+          context:
+            - dm-release-notify
+
+  # Same pipeline, in parallel with the notice: the forced-update raise. A separate workflow because CircleCI has
+  # no per-job condition — `force_update` is what `poll_store_release` read from `hold_force_update`.
+  store_release_forced:
+    when:
+      and:
+        - equal: [served, << pipeline.parameters.store_release_outcome >>]
+        - << pipeline.parameters.force_update >>
+    jobs:
+      - raise_min_version:
           context:
             - org-global
+            - dm-release-notify

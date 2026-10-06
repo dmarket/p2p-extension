@@ -236,15 +236,22 @@ The debug build is deliberately **not** published — it is not what ships, and 
 `WXT_DEV_*`/`WXT_STAGE_*` endpoints. Download it from the `build-debug` job's **Artifacts** tab in
 CircleCI, on any push.
 
-### Forcing an update
+### Watching the store, and forcing an update
 
-A release pipeline also offers `hold_force_update`. Approve it only for a release every seller must move
-to. It creates a CircleCI schedule for that release (`force-update-<version>`, every 30 min on `main`)
-through the API; the schedule asks Chrome's update server what it serves, and once that is the forced
-version it raises `web.minExtensionVersion` in the live prod document, commits the result to `main` and
-deletes itself. Nothing runs between forced releases, nothing waits on store review inline, and the
-extension's single update check finds the build because it is already being served. Leaving the
-approval alone is the normal answer: the pipeline then stays "On Hold".
+Every release that reaches `upload_to_store` gets a CircleCI schedule, `store-release-<version>`, created
+through the API and polling Chrome's update server every 30 min on `main`. Once the store actually serves
+the version, it starts one `store_release` pipeline and deletes itself. That pipeline posts
+":rocket: p2p-extension … is live in the Chrome Web Store" to the release channel (org context
+`dm-release-notify`) and, in parallel, raises `web.minExtensionVersion` in the live prod document if the
+release was forced. A release still unserved after 45 days gets a warning instead. Nothing runs between
+releases, and nothing waits on store review inline.
+
+Forcing is decided in the release pipeline and nowhere else: approve `hold_force_update` only for a
+release every seller must move to. The deferred pipelines only read that approval. The minimum is raised
+once the version is served **and** the approval is given, by whichever comes second, so approving after the
+store was faster still works. Leaving the approval alone is the normal answer: the pipeline then stays
+"On Hold". Waiting for the update server is also what makes the extension's single update check find the
+build instead of being throttled for hours.
 
 A push whose version is already tagged releases nothing, so re-pushing a release branch is safe;
 `[skip release]` in the commit message skips it explicitly. `main` still runs `check` and both builds

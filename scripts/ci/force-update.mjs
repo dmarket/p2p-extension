@@ -9,16 +9,26 @@
 //   raise <file> <version>       set web.minExtensionVersion in a config document to <version>, never lower;
 //                                prints `raised` or `unchanged`
 //   gcs-get <file>               download the live prod document to <file>, print its generation
-//   gcs-put <file> <generation>  upload <file> as the live prod document, only if it is still <generation>
-//   schedule <version>           create the CircleCI schedule that polls for <version> (replacing one for an
-//                                older version; a no-op when one for this version or newer exists)
-//   unschedule <schedule-id>     delete that schedule — the poll's last act
+//   gcs-put <file> <generation>  upload <file> as the live prod document, only if it is still <generation>,
+//                                then read it back anonymously (it must stay public for the CDN)
+//   schedule <version>           create the CircleCI schedule that watches for <version> (replacing one for an
+//                                older version; a no-op when one for this version or newer exists). The
+//                                release it belongs to comes from RELEASE_* (see scheduleFromEnv)
+//   approved <workflow-id>       print `yes` when that workflow's `hold_force_update` was approved, else `no`
+//   trigger <outcome> <force> <served>
+//                                start the `store_release` pipeline: outcome `served|expired`, force `yes|no`
+//   unschedule <schedule-id>     delete that schedule — the watch's last act
 //
-// THE SCHEDULE. A forced release creates its own schedule trigger (every 30 min, branch `main`) through the
-// CircleCI API v2, carrying the version and a deadline as pipeline parameters, and the poll deletes it once
-// it has published — so nothing runs between forced releases. Named `force-update-<version>`; there is at
-// most one. The API needs a PERSONAL token (project tokens are not accepted by v2), and the endpoint exists
-// only for GitHub OAuth projects, which this one is.
+// THE SCHEDULE. Every release that reaches the store creates its own schedule trigger (every 30 min, branch
+// `main`) through the CircleCI API v2, carrying the version, a deadline and the release pipeline's workflow id
+// as pipeline parameters. It watches Chrome's update server; once the version is served it starts one
+// `store_release` pipeline (the Slack notice, and the forced-update raise when approved) and deletes itself —
+// so nothing runs between releases. Named `store-release-<version>`; there is at most one. The API needs a
+// PERSONAL token (project tokens are not accepted by v2), and the endpoint exists only for GitHub OAuth
+// projects, which this one is.
+//
+// THE APPROVAL LIVES IN THE RELEASE PIPELINE. `hold_force_update` is an approval job there; the watch only READS
+// its state (`approved`), so no deferred pipeline ever decides whether a release is forced.
 //
 // THE UPDATE SERVER. `GET https://clients2.google.com/service/update2/crx?response=updatecheck&…&x=id%3D<id>
 // %26v%3D0.0.0%26uc` is the request Chrome itself makes (Omaha update2), so its answer is what users actually
@@ -30,36 +40,43 @@
 // the bucket is shared with the frontend. The upload carries `ifGenerationMatch`, so a publish that landed
 // after the download is never overwritten; and the same `Cache-Control` / `Content-Type` as buckets/upload.sh.
 //
-// NO STORED KEY. The job's CircleCI OIDC token is exchanged at Google STS for a short-lived access token
-// (Workload Identity Federation, direct resource access — no service account, no key). The pool's provider
-// trusts `https://oidc.circleci.com/org/<org-id>` with this project's id as the attribute condition, and the
-// bucket grants that federated principal read + overwrite on THIS ONE OBJECT through an IAM condition on
-// `resource.name`. IAM conditions need uniform bucket-level access on the bucket.
+// THE KEY. A service-account key made by devops, in the project env var `P2P_EXTENSION_DEPLOY_SA_KEY` (base64 of the
+// JSON key file, the same shape the frontend's `gcloud_auth` step decodes). No gcloud here: the key's
+// `client_email` + `private_key` sign a JWT-bearer grant for a short-lived Cloud Storage token
+// (cws-upload.mjs `getAccessToken`), and everything else is the JSON API. Devops scope the account to this one
+// object; this script never names any other.
 //
 // Environment:
-//   CIRCLE_OIDC_TOKEN_V2   gcs-*: set by CircleCI in the job
-//   GCP_WIF_AUDIENCE       gcs-*: the pool provider, `//iam.googleapis.com/projects/<number>/locations/global/
-//                          workloadIdentityPools/<pool>/providers/<provider>` (not a secret; project env var)
-//   CIRCLE_API_TOKEN       schedule / unschedule: a CircleCI personal API token (project env var)
-//   REPO_SLUG              schedule: owner/repo (the executor sets it)
+//   P2P_EXTENSION_DEPLOY_SA_KEY
+//                          gcs-*: base64 of the service-account JSON key (project env var, set by devops)
+//   CIRCLE_API_TOKEN       schedule / approved / trigger / unschedule: a CircleCI personal API token (project
+//                          env var)
+//   REPO_SLUG              schedule / trigger: owner/repo (the executor sets it)
+//   RELEASE_WORKFLOW_ID,
+//   RELEASE_LABEL,
+//   RELEASE_SHA,
+//   RELEASE_ACTOR          schedule: the release it watches for (the job sets them from CIRCLE_*)
+//   STORE_WATCH_VERSION,
+//   STORE_WATCH_UNTIL      trigger: the watched version and deadline, forwarded with the RELEASE_* above
 //
 // Exit codes: 0 ok · 1 HTTP/transport/bad input · 2 usage or missing credentials · 3 the upload lost a race
 // (the object's generation moved since it was read).
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { compareVersions, HttpError } from './cws-upload.mjs';
+import { compareVersions, getAccessToken, HttpError, normalizePem } from './cws-upload.mjs';
 
 export const EXTENSION_ID = 'leiaegebcffagcllcekifnpohnnnffpo';
 export const BUCKET = 'cdn-main-dmarket-com';
 export const OBJECT = 'p2p/extension-config.json';
 export const STORAGE_SCOPE = 'https://www.googleapis.com/auth/devstorage.read_write';
 const CACHE_CONTROL = 'public, max-age=300';
-export const SCHEDULE_PREFIX = 'force-update-';
-/** How long a forced release may wait for the store before its schedule gives up. Review can take a month. */
+export const SCHEDULE_PREFIX = 'store-release-';
+/** The approval job, in the release pipeline, whose state decides whether a release is forced. */
+export const FORCE_APPROVAL_JOB = 'hold_force_update';
+/** How long a release may wait for the store before its schedule gives up. Review can take a month. */
 export const SCHEDULE_LIFETIME_DAYS = 45;
 const CIRCLE_API = 'https://circleci.com/api/v2';
-export const STS_URL = 'https://sts.googleapis.com/v1/token';
 const EXIT = { OK: 0, HTTP: 1, USAGE: 2, RACE: 3 };
 
 /** A numeric Chrome version, the only form this pipeline handles (`1.0.6`, never `1.0.6-beta`). */
@@ -107,30 +124,34 @@ export function raiseMinimum(text, version) {
 
 class UsageError extends Error {}
 
-/** Exchange the job's CircleCI OIDC token for a Cloud Storage access token (Workload Identity Federation). */
-export async function federatedAccessToken({ env = process.env, fetch: f = fetch } = {}) {
-  const subjectToken = (env.CIRCLE_OIDC_TOKEN_V2 ?? '').trim();
-  const audience = (env.GCP_WIF_AUDIENCE ?? '').trim();
-  if (!subjectToken) throw new UsageError('CIRCLE_OIDC_TOKEN_V2 is not set — CircleCI sets it in every job');
-  if (!audience) throw new UsageError('GCP_WIF_AUDIENCE must be set (project env var, the pool provider name)');
-  const res = await f(STS_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      grantType: 'urn:ietf:params:oauth:grant-type:token-exchange',
-      audience,
-      scope: STORAGE_SCOPE,
-      requestedTokenType: 'urn:ietf:params:oauth:token-type:access_token',
-      subjectToken,
-      subjectTokenType: 'urn:ietf:params:oauth:token-type:jwt',
-    }),
-  });
-  const text = await res.text();
-  // The body names the failed attribute condition or audience; it never echoes the subject token.
-  if (!res.ok) throw new HttpError('STS token exchange', res.status, text);
-  const token = JSON.parse(text).access_token;
-  if (!token) throw new HttpError('STS token exchange returned no access_token', res.status, '(body withheld)');
-  return token;
+/**
+ * The service account behind `P2P_EXTENSION_DEPLOY_SA_KEY`: base64 of the JSON key file, or the JSON itself.
+ * Errors name the variable and the missing field, never any key material.
+ */
+export function readServiceAccountKey(env = process.env) {
+  const raw = (env.P2P_EXTENSION_DEPLOY_SA_KEY ?? '').trim();
+  if (!raw) throw new UsageError('P2P_EXTENSION_DEPLOY_SA_KEY must be set (project env var, base64 of the JSON key)');
+  let key;
+  try {
+    key = JSON.parse(raw.startsWith('{') ? raw : Buffer.from(raw.replace(/\s+/g, ''), 'base64').toString('utf8'));
+  } catch {
+    throw new UsageError('P2P_EXTENSION_DEPLOY_SA_KEY is neither a JSON key nor base64 of one');
+  }
+  if (typeof key?.client_email !== 'string' || !key.client_email) {
+    throw new UsageError('P2P_EXTENSION_DEPLOY_SA_KEY has no client_email');
+  }
+  let pem;
+  try {
+    pem = normalizePem(key.private_key);
+  } catch {
+    throw new UsageError('P2P_EXTENSION_DEPLOY_SA_KEY has no usable private_key');
+  }
+  return { email: key.client_email, pem, ...(typeof key.token_uri === 'string' ? { tokenUrl: key.token_uri } : {}) };
+}
+
+/** A short-lived Cloud Storage token for that account (JWT-bearer grant). */
+export async function storageAccessToken({ env = process.env, fetch: f = fetch } = {}) {
+  return getAccessToken({ ...readServiceAccountKey(env), scope: STORAGE_SCOPE, fetch: f });
 }
 
 const objectUrl = (bucket, object) =>
@@ -147,7 +168,10 @@ export async function gcsGet({ token, fetch: f = fetch, bucket = BUCKET, object 
   return { generation: String(generation), text: await media.text() };
 }
 
-/** Upload with `ifGenerationMatch`. Resolves `false` when the object moved since `generation` was read. */
+/**
+ * Upload with `ifGenerationMatch`. Resolves the new generation, or `false` when the object moved since
+ * `generation` was read.
+ */
 export async function gcsPut({ token, text, generation, fetch: f = fetch, bucket = BUCKET, object = OBJECT }) {
   const boundary = `force-update-${Date.now().toString(36)}`;
   const metadata = { name: object, contentType: 'application/json', cacheControl: CACHE_CONTROL };
@@ -164,7 +188,31 @@ export async function gcsPut({ token, text, generation, fetch: f = fetch, bucket
   });
   if (res.status === 412) return false;
   if (!res.ok) throw new HttpError(`uploading gs://${bucket}/${object}`, res.status, await res.text());
-  return true;
+  const { generation: written } = await res.json().catch(() => ({}));
+  return { generation: written === undefined ? undefined : String(written) };
+}
+
+/**
+ * Read the object back WITHOUT credentials and require the bytes just written. The upload sends no
+ * `predefinedAcl` (the account may not set ACLs), so the object takes the bucket's default object ACL — which
+ * this repo cannot read. Every object in the bucket carries `allUsers: READER`, so the default is public today;
+ * if that ever changes, the CDN would start answering 403 for the extension's config, silently. This turns
+ * that into a failed job. Pinned to the written generation, so a later publish cannot mask it.
+ */
+export async function verifyPublicRead({ text, generation, fetch: f = fetch, bucket = BUCKET, object = OBJECT }) {
+  const pin = generation === undefined ? '' : `&generation=${encodeURIComponent(generation)}`;
+  const res = await f(`${objectUrl(bucket, object)}?alt=media${pin}`, { cache: 'no-store' });
+  if (!res.ok) {
+    throw new HttpError(
+      `gs://${bucket}/${object} was written but is not publicly readable (the bucket's default object ACL is ` +
+        'not public?) — the CDN will not serve it; restore `allUsers: READER` on the object',
+      res.status,
+      await res.text(),
+    );
+  }
+  if ((await res.text()) !== text) {
+    throw new Error(`gs://${bucket}/${object} reads back different bytes than were written`);
+  }
 }
 
 // ── CircleCI schedule ─────────────────────────────────────────────────────────────────────────────
@@ -186,8 +234,8 @@ async function circle(f, token, method, path, body) {
   return text ? JSON.parse(text) : {};
 }
 
-/** Every force-update schedule of the project, with the version its name carries. */
-export async function listForceSchedules({ token, slug, fetch: f = fetch }) {
+/** Every store-release watch of the project, with the version its name carries. */
+export async function listWatchSchedules({ token, slug, fetch: f = fetch }) {
   const out = [];
   let page;
   do {
@@ -202,13 +250,37 @@ export async function listForceSchedules({ token, slug, fetch: f = fetch }) {
   return out;
 }
 
-/** The request body for the schedule that polls for `version` until `until` (an ISO date). */
-export function scheduleBody(version, until) {
+/**
+ * The release a watch belongs to. `workflowId` is the release pipeline's workflow — the one holding
+ * `hold_force_update` — and is required; the rest only feed the Slack notice.
+ */
+export function releaseFromEnv(env = process.env) {
+  const pick = (k) => (env[k] ?? '').trim();
+  const release = {
+    workflowId: pick('RELEASE_WORKFLOW_ID'),
+    label: pick('RELEASE_LABEL'),
+    sha: pick('RELEASE_SHA'),
+    actor: pick('RELEASE_ACTOR'),
+  };
+  if (!release.workflowId) throw new UsageError('RELEASE_WORKFLOW_ID must be set (the release job sets it)');
+  return release;
+}
+
+/** The request body for the schedule that watches for `version` until `until` (an ISO date). */
+export function scheduleBody(version, until, release) {
   return {
     name: `${SCHEDULE_PREFIX}${version}`,
-    description: `Raise web.minExtensionVersion to ${version} once Chrome's update server serves it (scripts/ci/force-update.sh). Deletes itself.`,
+    description: `Announce ${release.label || version} once Chrome's update server serves it, and raise web.minExtensionVersion if hold_force_update was approved (scripts/ci/force-update.sh). Deletes itself.`,
     'attribution-actor': 'current',
-    parameters: { branch: 'main', force_update_version: version, force_update_until: until },
+    parameters: {
+      branch: 'main',
+      store_watch_version: version,
+      store_watch_until: until,
+      release_workflow_id: release.workflowId,
+      release_label: release.label || version,
+      release_sha: release.sha,
+      release_actor: release.actor,
+    },
     timetable: {
       'per-hour': 2,
       'hours-of-day': Array.from({ length: 24 }, (_, h) => h),
@@ -218,15 +290,17 @@ export function scheduleBody(version, until) {
 }
 
 /**
- * Make sure exactly one schedule polls for the highest forced version. Returns what it did: `created`,
- * `kept` (one for this version or newer already exists), and the ids of older ones it deleted.
+ * Make sure exactly one schedule watches for the highest released version. Returns what it did: `created`,
+ * `kept` (one for this version or newer already exists), and the ids of older ones it deleted. An older watch
+ * is replaced because the store holds one pending submission: once a newer one was uploaded, the older
+ * version will never be served, and its watch would only expire.
  */
-export async function ensureSchedule({ token, slug, version, now = Date.now(), fetch: f = fetch }) {
+export async function ensureSchedule({ token, slug, version, release, now = Date.now(), fetch: f = fetch }) {
   if (!isChromeVersion(version)) throw new Error(`not a numeric extension version: ${JSON.stringify(version)}`);
-  const existing = await listForceSchedules({ token, slug, fetch: f });
+  const existing = await listWatchSchedules({ token, slug, fetch: f });
   if (existing.some((s) => compareVersions(s.version, version) >= 0)) return { outcome: 'kept', deleted: [] };
   const until = new Date(now + SCHEDULE_LIFETIME_DAYS * 86_400_000).toISOString().slice(0, 10);
-  const created = await circle(f, token, 'POST', `/project/gh/${slug}/schedule`, scheduleBody(version, until));
+  const created = await circle(f, token, 'POST', `/project/gh/${slug}/schedule`, scheduleBody(version, until, release));
   // Replaced only after the new one exists, so a failure in between never leaves the release unwatched.
   for (const old of existing) await circle(f, token, 'DELETE', `/schedule/${old.id}`);
   return { outcome: 'created', id: created.id, until, deleted: existing.map((s) => s.id) };
@@ -236,11 +310,57 @@ export async function deleteSchedule({ token, id, fetch: f = fetch }) {
   await circle(f, token, 'DELETE', `/schedule/${encodeURIComponent(id)}`);
 }
 
+/**
+ * Whether the release pipeline's `hold_force_update` was approved. An approval job reads `on_hold` until
+ * someone approves it and gains `approved_by` when they do; a canceled workflow, an unapproved hold or a
+ * workflow without the job all read as not approved — forcing is opt-in.
+ */
+export async function forceApproved({ token, workflowId, job = FORCE_APPROVAL_JOB, fetch: f = fetch }) {
+  let page;
+  do {
+    const query = page ? `?page-token=${encodeURIComponent(page)}` : '';
+    const data = await circle(f, token, 'GET', `/workflow/${encodeURIComponent(workflowId)}/job${query}`);
+    const hold = (data.items ?? []).find((item) => item.name === job);
+    if (hold) return hold.type === 'approval' && (Boolean(hold.approved_by) || hold.status === 'success');
+    page = data.next_page_token;
+  } while (page);
+  return false;
+}
+
+/** The parameters of the `store_release` pipeline the watch starts (declared in .circleci/config.yml). */
+export function storeReleaseParameters({ outcome, force, served, env = process.env }) {
+  if (outcome !== 'served' && outcome !== 'expired') throw new Error(`unknown outcome: ${JSON.stringify(outcome)}`);
+  const pick = (k) => (env[k] ?? '').trim();
+  return {
+    store_release_outcome: outcome,
+    force_update: force === true,
+    store_served_version: served ?? '',
+    store_watch_version: pick('STORE_WATCH_VERSION'),
+    store_watch_until: pick('STORE_WATCH_UNTIL'),
+    release_label: pick('RELEASE_LABEL'),
+    release_sha: pick('RELEASE_SHA'),
+    release_actor: pick('RELEASE_ACTOR'),
+  };
+}
+
+/** Start a pipeline on `main` with `parameters`. Resolves to its number, for the log. */
+export async function triggerPipeline({ token, slug, parameters, fetch: f = fetch }) {
+  const data = await circle(f, token, 'POST', `/project/gh/${slug}/pipeline`, { branch: 'main', parameters });
+  return data.number;
+}
+
 // ── CLI ───────────────────────────────────────────────────────────────────────────────────────────
 
 const USAGE =
   'usage: force-update.mjs served | raise <file> <version> | gcs-get <file> | gcs-put <file> <generation>' +
-  ' | schedule <version> | unschedule <schedule-id>';
+  ' | schedule <version> | approved <workflow-id> | trigger <served|expired> <yes|no> <served-version>' +
+  ' | unschedule <schedule-id>';
+
+function repoSlug() {
+  const slug = process.env.REPO_SLUG;
+  if (!slug) throw new UsageError('REPO_SLUG must be set (the CircleCI executor sets it)');
+  return slug;
+}
 
 async function main() {
   const [cmd, ...args] = process.argv.slice(2);
@@ -259,30 +379,41 @@ async function main() {
       return EXIT.OK;
     }
     if ((cmd === 'gcs-get' && args.length === 1) || (cmd === 'gcs-put' && args.length === 2)) {
-      const token = await federatedAccessToken();
+      const token = await storageAccessToken();
       if (cmd === 'gcs-get') {
         const { generation, text } = await gcsGet({ token });
         writeFileSync(args[0], text);
         console.log(generation);
         return EXIT.OK;
       }
-      const ok = await gcsPut({ token, text: readFileSync(args[0], 'utf8'), generation: args[1] });
-      if (!ok) {
+      const text = readFileSync(args[0], 'utf8');
+      const written = await gcsPut({ token, text, generation: args[1] });
+      if (!written) {
         console.error(`gs://${BUCKET}/${OBJECT} changed since generation ${args[1]} — not overwritten.`);
         return EXIT.RACE;
       }
+      await verifyPublicRead({ text, generation: written.generation });
       return EXIT.OK;
     }
     if (cmd === 'schedule' && args.length === 1) {
-      const slug = process.env.REPO_SLUG;
-      if (!slug) throw new UsageError('REPO_SLUG must be set (the CircleCI executor sets it)');
-      const result = await ensureSchedule({ token: circleToken(), slug, version: args[0] });
+      const release = releaseFromEnv();
+      const result = await ensureSchedule({ token: circleToken(), slug: repoSlug(), version: args[0], release });
       console.log(
         result.outcome === 'kept'
           ? `A schedule for ${args[0]} or newer already exists; nothing to do.`
-          : `Created schedule ${SCHEDULE_PREFIX}${args[0]} (${result.id}), polling every 30 min until ${result.until}.` +
+          : `Created schedule ${SCHEDULE_PREFIX}${args[0]} (${result.id}), watching every 30 min until ${result.until}.` +
               (result.deleted.length ? ` Replaced: ${result.deleted.join(', ')}.` : ''),
       );
+      return EXIT.OK;
+    }
+    if (cmd === 'approved' && args.length === 1) {
+      console.log((await forceApproved({ token: circleToken(), workflowId: args[0] })) ? 'yes' : 'no');
+      return EXIT.OK;
+    }
+    if (cmd === 'trigger' && args.length === 3 && ['yes', 'no'].includes(args[1])) {
+      const parameters = storeReleaseParameters({ outcome: args[0], force: args[1] === 'yes', served: args[2] });
+      const number = await triggerPipeline({ token: circleToken(), slug: repoSlug(), parameters });
+      console.log(`Started pipeline ${number}: ${JSON.stringify(parameters)}`);
       return EXIT.OK;
     }
     if (cmd === 'unschedule' && args.length === 1) {

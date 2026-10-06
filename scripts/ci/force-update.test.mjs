@@ -1,16 +1,22 @@
 import { describe, expect, it, vi } from 'vitest';
+import { generateKeyPairSync } from 'node:crypto';
 import {
   ensureSchedule,
-  federatedAccessToken,
+  forceApproved,
   gcsGet,
   gcsPut,
-  listForceSchedules,
+  listWatchSchedules,
   parseServedVersion,
   raiseMinimum,
+  readServiceAccountKey,
+  releaseFromEnv,
   scheduleBody,
   servedVersion,
-  STS_URL,
+  storageAccessToken,
+  storeReleaseParameters,
+  triggerPipeline,
   updateCheckUrl,
+  verifyPublicRead,
 } from './force-update.mjs';
 
 // The forced-update pipeline raises the minimum only when Chrome's update server serves the build, only
@@ -75,8 +81,10 @@ describe('Cloud Storage', () => {
   });
 
   it('uploads only over the generation it read, with the bucket scripts’ headers', async () => {
-    const f = vi.fn(() => Promise.resolve(new Response('{}')));
-    await expect(gcsPut({ token: 't', text: DOC, generation: '42', fetch: f })).resolves.toBe(true);
+    const f = vi.fn(() => Promise.resolve(new Response(JSON.stringify({ generation: 43 }))));
+    await expect(gcsPut({ token: 't', text: DOC, generation: '42', fetch: f })).resolves.toEqual({
+      generation: '43',
+    });
     const [url, init] = f.mock.calls[0];
     expect(url).toContain('uploadType=multipart&ifGenerationMatch=42');
     expect(init.body).toContain('"cacheControl":"public, max-age=300"');
@@ -88,28 +96,61 @@ describe('Cloud Storage', () => {
     const f = vi.fn(() => Promise.resolve(new Response('precondition', { status: 412 })));
     await expect(gcsPut({ token: 't', text: DOC, generation: '42', fetch: f })).resolves.toBe(false);
   });
+
+  it('reads the written generation back without credentials', async () => {
+    const f = vi.fn(() => Promise.resolve(new Response(DOC)));
+    await verifyPublicRead({ text: DOC, generation: '43', fetch: f });
+    const [url, init] = f.mock.calls[0];
+    expect(url).toContain('/o/p2p%2Fextension-config.json?alt=media&generation=43');
+    expect(init.headers).toBeUndefined();
+  });
+
+  it('fails when the written object is not public — the CDN would answer 403', async () => {
+    const f = vi.fn(() => Promise.resolve(new Response('Anonymous caller', { status: 403 })));
+    await expect(verifyPublicRead({ text: DOC, generation: '43', fetch: f })).rejects.toThrow(/not publicly readable/);
+  });
+
+  it('fails when the public copy is not what was written', async () => {
+    const f = vi.fn(() => Promise.resolve(new Response('{}')));
+    await expect(verifyPublicRead({ text: DOC, generation: '43', fetch: f })).rejects.toThrow(/different bytes/);
+  });
 });
 
-describe('Workload Identity Federation', () => {
-  const env = { CIRCLE_OIDC_TOKEN_V2: 'oidc.jwt', GCP_WIF_AUDIENCE: '//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/providers/c' };
+describe('the deploy service-account key', () => {
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const json = {
+    type: 'service_account',
+    client_email: 'p2p-ext@example.iam.gserviceaccount.com',
+    private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+    token_uri: 'https://token.test/token',
+  };
+  const env = { P2P_EXTENSION_DEPLOY_SA_KEY: Buffer.from(JSON.stringify(json)).toString('base64') };
 
-  it('exchanges the job OIDC token for a Cloud Storage access token, with no stored key', async () => {
+  it('reads the base64 JSON key, as devops stores it, and the raw JSON too', () => {
+    expect(readServiceAccountKey(env)).toMatchObject({ email: json.client_email, tokenUrl: json.token_uri });
+    expect(readServiceAccountKey({ P2P_EXTENSION_DEPLOY_SA_KEY: JSON.stringify(json) }).email).toBe(json.client_email);
+  });
+
+  it('signs a JWT-bearer grant for the Cloud Storage scope at the token_uri from the key', async () => {
     const f = vi.fn(() => Promise.resolve(new Response(JSON.stringify({ access_token: 'ya29.x' }))));
-    await expect(federatedAccessToken({ env, fetch: f })).resolves.toBe('ya29.x');
+    await expect(storageAccessToken({ env, fetch: f })).resolves.toBe('ya29.x');
     const [url, init] = f.mock.calls[0];
-    expect(url).toBe(STS_URL);
-    expect(JSON.parse(init.body)).toMatchObject({
-      audience: env.GCP_WIF_AUDIENCE,
-      subjectToken: 'oidc.jwt',
-      subjectTokenType: 'urn:ietf:params:oauth:token-type:jwt',
+    expect(url).toBe(json.token_uri);
+    const assertion = new URLSearchParams(init.body).get('assertion');
+    const claims = JSON.parse(Buffer.from(assertion.split('.')[1], 'base64url').toString());
+    expect(claims).toMatchObject({
+      iss: json.client_email,
       scope: 'https://www.googleapis.com/auth/devstorage.read_write',
+      aud: json.token_uri,
     });
   });
 
-  it('names the missing setting instead of calling STS', async () => {
+  it('names what is wrong, without key material, and calls nothing', async () => {
     const f = vi.fn();
-    await expect(federatedAccessToken({ env: { ...env, GCP_WIF_AUDIENCE: '' }, fetch: f })).rejects.toThrow(/GCP_WIF_AUDIENCE/);
-    await expect(federatedAccessToken({ env: { ...env, CIRCLE_OIDC_TOKEN_V2: '' }, fetch: f })).rejects.toThrow(/OIDC/);
+    await expect(storageAccessToken({ env: {}, fetch: f })).rejects.toThrow(/P2P_EXTENSION_DEPLOY_SA_KEY must be set/);
+    expect(() => readServiceAccountKey({ P2P_EXTENSION_DEPLOY_SA_KEY: 'not-a-key' })).toThrow(/neither a JSON key/);
+    const noPem = Buffer.from(JSON.stringify({ ...json, private_key: '' })).toString('base64');
+    expect(() => readServiceAccountKey({ P2P_EXTENSION_DEPLOY_SA_KEY: noPem })).toThrow(/no usable private_key/);
     expect(f).not.toHaveBeenCalled();
   });
 });
@@ -129,10 +170,20 @@ describe('the per-release schedule', () => {
     return { f, calls };
   }
 
-  it('polls every 30 min on main, carrying the version and a deadline', () => {
-    const body = scheduleBody('1.0.7', '2026-11-08');
-    expect(body.name).toBe('force-update-1.0.7');
-    expect(body.parameters).toEqual({ branch: 'main', force_update_version: '1.0.7', force_update_until: '2026-11-08' });
+  const RELEASE = { workflowId: 'wf-1', label: '1.0.7-beta', sha: 'abc123', actor: 'someone' };
+
+  it('watches every 30 min on main, carrying the version, a deadline and the release pipeline it came from', () => {
+    const body = scheduleBody('1.0.7', '2026-11-08', RELEASE);
+    expect(body.name).toBe('store-release-1.0.7');
+    expect(body.parameters).toEqual({
+      branch: 'main',
+      store_watch_version: '1.0.7',
+      store_watch_until: '2026-11-08',
+      release_workflow_id: 'wf-1',
+      release_label: '1.0.7-beta',
+      release_sha: 'abc123',
+      release_actor: 'someone',
+    });
     expect(body.timetable['per-hour']).toBe(2);
     expect(body.timetable['hours-of-day']).toHaveLength(24);
     expect(body.timetable['days-of-week']).toHaveLength(7);
@@ -141,7 +192,7 @@ describe('the per-release schedule', () => {
   it('creates one, with a 45-day deadline, when none is waiting', async () => {
     const { f, calls } = fakeCircle([{ id: 'other', name: 'nightly' }]);
     const now = Date.UTC(2026, 8, 24);
-    await expect(ensureSchedule({ token: 't', slug: 'dmarket/p2p-extension', version: '1.0.7', now, fetch: f })).resolves.toEqual({
+    await expect(ensureSchedule({ token: 't', slug: 'dmarket/p2p-extension', version: '1.0.7', release: RELEASE, now, fetch: f })).resolves.toEqual({
       outcome: 'created',
       id: 'new-id',
       until: '2026-11-08',
@@ -150,26 +201,101 @@ describe('the per-release schedule', () => {
     expect(calls).toEqual(['GET /project/gh/dmarket/p2p-extension/schedule', 'POST /project/gh/dmarket/p2p-extension/schedule']);
   });
 
+  it('ignores the old force-update- schedules, which this pipeline no longer creates', async () => {
+    const { f, calls } = fakeCircle([{ id: 'legacy', name: 'force-update-1.0.8' }]);
+    await expect(ensureSchedule({ token: 't', slug: 's/r', version: '1.0.7', release: RELEASE, fetch: f })).resolves.toMatchObject({ outcome: 'created', deleted: [] });
+    expect(calls).toEqual(['GET /project/gh/s/r/schedule', 'POST /project/gh/s/r/schedule']);
+  });
+
   it('replaces a wait for an older version — creating first, so the release is never unwatched', async () => {
-    const { f, calls } = fakeCircle([{ id: 'old', name: 'force-update-1.0.6' }]);
-    const result = await ensureSchedule({ token: 't', slug: 's/r', version: '1.0.7', fetch: f });
+    const { f, calls } = fakeCircle([{ id: 'old', name: 'store-release-1.0.6' }]);
+    const result = await ensureSchedule({ token: 't', slug: 's/r', version: '1.0.7', release: RELEASE, fetch: f });
     expect(result.deleted).toEqual(['old']);
     expect(calls).toEqual(['GET /project/gh/s/r/schedule', 'POST /project/gh/s/r/schedule', 'DELETE /schedule/old']);
   });
 
   it('keeps a wait for this version or a newer one and creates nothing', async () => {
-    const { f, calls } = fakeCircle([{ id: 'newer', name: 'force-update-1.0.8' }]);
-    await expect(ensureSchedule({ token: 't', slug: 's/r', version: '1.0.7', fetch: f })).resolves.toEqual({ outcome: 'kept', deleted: [] });
+    const { f, calls } = fakeCircle([{ id: 'newer', name: 'store-release-1.0.8' }]);
+    await expect(ensureSchedule({ token: 't', slug: 's/r', version: '1.0.7', release: RELEASE, fetch: f })).resolves.toEqual({ outcome: 'kept', deleted: [] });
     expect(calls).toEqual(['GET /project/gh/s/r/schedule']);
   });
 
   it('follows the list across pages and ignores schedules it does not own', async () => {
     const pages = [
-      { items: [{ id: 'a', name: 'force-update-1.0.6' }, { id: 'b', name: 'force-update-junk' }], next_page_token: 'p2' },
+      { items: [{ id: 'a', name: 'store-release-1.0.6' }, { id: 'b', name: 'store-release-junk' }], next_page_token: 'p2' },
       { items: [{ id: 'c', name: 'something-else' }], next_page_token: null },
     ];
     const f = vi.fn(() => Promise.resolve(new Response(JSON.stringify(pages.shift()))));
-    await expect(listForceSchedules({ token: 't', slug: 's/r', fetch: f })).resolves.toEqual([{ id: 'a', version: '1.0.6' }]);
+    await expect(listWatchSchedules({ token: 't', slug: 's/r', fetch: f })).resolves.toEqual([{ id: 'a', version: '1.0.6' }]);
     expect(f.mock.calls[1][0]).toContain('page-token=p2');
+  });
+});
+
+describe('the release the watch belongs to', () => {
+  it('needs the release workflow id — it is where the forced-update approval lives', () => {
+    expect(() => releaseFromEnv({})).toThrow(/RELEASE_WORKFLOW_ID/);
+    expect(releaseFromEnv({ RELEASE_WORKFLOW_ID: ' wf ', RELEASE_LABEL: '1.0.7-beta' })).toEqual({
+      workflowId: 'wf',
+      label: '1.0.7-beta',
+      sha: '',
+      actor: '',
+    });
+  });
+});
+
+describe('reading the forced-update approval', () => {
+  const jobs = (items, next = null) => Promise.resolve(new Response(JSON.stringify({ items, next_page_token: next })));
+  const hold = (extra) => ({ name: 'hold_force_update', type: 'approval', ...extra });
+
+  it('is approved once someone approved the hold', async () => {
+    const f = vi.fn(() => jobs([{ name: 'release', type: 'build', status: 'success' }, hold({ status: 'success', approved_by: 'u-1' })]));
+    await expect(forceApproved({ token: 't', workflowId: 'wf-1', fetch: f })).resolves.toBe(true);
+    expect(f.mock.calls[0][0]).toBe('https://circleci.com/api/v2/workflow/wf-1/job');
+  });
+
+  it('is not approved while on hold, when canceled, or when the workflow has no such job', async () => {
+    for (const items of [[hold({ status: 'on_hold' })], [hold({ status: 'canceled' })], [{ name: 'release', type: 'build' }]]) {
+      await expect(forceApproved({ token: 't', workflowId: 'wf', fetch: vi.fn(() => jobs(items)) })).resolves.toBe(false);
+    }
+  });
+
+  it('never reads a same-named build job as an approval', async () => {
+    const f = vi.fn(() => jobs([{ name: 'hold_force_update', type: 'build', status: 'success' }]));
+    await expect(forceApproved({ token: 't', workflowId: 'wf', fetch: f })).resolves.toBe(false);
+  });
+
+  it('follows the job list across pages', async () => {
+    const pages = [jobs([{ name: 'a', type: 'build' }], 'p2'), jobs([hold({ approved_by: 'u' })])];
+    const f = vi.fn(() => pages.shift());
+    await expect(forceApproved({ token: 't', workflowId: 'wf', fetch: f })).resolves.toBe(true);
+    expect(f.mock.calls[1][0]).toContain('page-token=p2');
+  });
+});
+
+describe('starting the store_release pipeline', () => {
+  const ENV = { STORE_WATCH_VERSION: '1.0.7', STORE_WATCH_UNTIL: '2026-11-08', RELEASE_LABEL: '1.0.7-beta', RELEASE_SHA: 'abc', RELEASE_ACTOR: 'me' };
+
+  it('carries the outcome, the force decision as a boolean and the release for the notice', () => {
+    expect(storeReleaseParameters({ outcome: 'served', force: true, served: '1.0.7', env: ENV })).toEqual({
+      store_release_outcome: 'served',
+      force_update: true,
+      store_served_version: '1.0.7',
+      store_watch_version: '1.0.7',
+      store_watch_until: '2026-11-08',
+      release_label: '1.0.7-beta',
+      release_sha: 'abc',
+      release_actor: 'me',
+    });
+    expect(storeReleaseParameters({ outcome: 'expired', force: false, served: '1.0.6', env: ENV }).force_update).toBe(false);
+    expect(() => storeReleaseParameters({ outcome: 'maybe', env: ENV })).toThrow(/outcome/);
+  });
+
+  it('starts it on main', async () => {
+    const f = vi.fn(() => Promise.resolve(new Response(JSON.stringify({ number: 42 }), { status: 201 })));
+    await expect(triggerPipeline({ token: 't', slug: 's/r', parameters: { a: 1 }, fetch: f })).resolves.toBe(42);
+    const [url, init] = f.mock.calls[0];
+    expect(url).toBe('https://circleci.com/api/v2/project/gh/s/r/pipeline');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({ branch: 'main', parameters: { a: 1 } });
   });
 });
