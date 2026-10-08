@@ -1,3 +1,5 @@
+import { defaultEnvironment } from '@/config/defaultEnvironment';
+
 /**
  * The notary WebSocket the TLSN prover attests through: the compiled default, and the precedence that
  * resolves it against the two things allowed to override it.
@@ -27,14 +29,12 @@ export const PROD_NOTARY_URL = 'wss://api.dmarket.com/provenance/v1/';
  * says why. Production used to have no default at all and took the URL from remote config only, which made
  * arming the real prover depend on a publish that might never happen.
  *
- * Dev builds prefer the dev notary when the gitignored .env configures one (`WXT_DEV_NOTARY_URL` — same
- * reason as the endpoint defaults in the service worker: the repository carries no internal hostnames) and
- * fall back to production otherwise. `import.meta.env.DEV` is a compile-time constant, so that arm and the
- * variable with it are dead code in a shipped bundle.
+ * Debug builds take the notary of the environment they boot against (src/config/defaultEnvironment.ts — Stage,
+ * else Dev, from the gitignored .env: `WXT_STAGE_NOTARY_URL` / `WXT_DEV_NOTARY_URL`) and fall back to production
+ * when that environment configures none. The internal arm is behind `import.meta.env.DEV`, a compile-time
+ * constant, so it is dead code in a shipped bundle.
  */
-export const DEFAULT_NOTARY_URL = import.meta.env.DEV
-  ? import.meta.env.WXT_DEV_NOTARY_URL || PROD_NOTARY_URL
-  : PROD_NOTARY_URL;
+export const DEFAULT_NOTARY_URL = defaultEnvironment().notaryUrl ?? PROD_NOTARY_URL;
 
 /**
  * Resolve the notary URL to hand the core, or `undefined` to leave the slot unset (→ the core's own
