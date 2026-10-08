@@ -85,7 +85,7 @@ const b64url = (input) => Buffer.from(input).toString('base64url');
 
 /**
  * RS256 JWT for the OAuth 2.0 JWT-bearer grant (Google service accounts). `now` in ms. `scope` defaults to the
- * Web Store's; scripts/ci/force-update.mjs reuses this with the Cloud Storage one.
+ * Web Store's; scripts/ci/gcs.mjs reuses this with the Cloud Storage one.
  */
 export function buildServiceAccountJwt(
   email,

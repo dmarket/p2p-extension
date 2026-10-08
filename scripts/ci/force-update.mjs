@@ -40,11 +40,9 @@
 // the bucket is shared with the frontend. The upload carries `ifGenerationMatch`, so a publish that landed
 // after the download is never overwritten; and the same `Cache-Control` / `Content-Type` as buckets/upload.sh.
 //
-// THE KEY. A service-account key made by devops, in the project env var `P2P_EXTENSION_DEPLOY_SA_KEY` (base64 of the
-// JSON key file, the same shape the frontend's `gcloud_auth` step decodes). No gcloud here: the key's
-// `client_email` + `private_key` sign a JWT-bearer grant for a short-lived Cloud Storage token
-// (cws-upload.mjs `getAccessToken`), and everything else is the JSON API. Devops scope the account to this one
-// object; this script never names any other.
+// THE KEY. A service-account key made by devops, in the project env var `P2P_EXTENSION_DEPLOY_SA_KEY`; the client
+// that signs with it lives in gcs.mjs (no gcloud). This script never names any object but the one above; the same
+// account also uploads the debug build (publish-debug-build.mjs).
 //
 // Environment:
 //   P2P_EXTENSION_DEPLOY_SA_KEY
@@ -64,12 +62,12 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { compareVersions, getAccessToken, HttpError, normalizePem } from './cws-upload.mjs';
+import { compareVersions, HttpError } from './cws-upload.mjs';
+import { objectUrl, storageAccessToken, uploadObject, UsageError } from './gcs.mjs';
 
 export const EXTENSION_ID = 'leiaegebcffagcllcekifnpohnnnffpo';
 export const BUCKET = 'cdn-main-dmarket-com';
 export const OBJECT = 'p2p/extension-config.json';
-export const STORAGE_SCOPE = 'https://www.googleapis.com/auth/devstorage.read_write';
 const CACHE_CONTROL = 'public, max-age=300';
 export const SCHEDULE_PREFIX = 'store-release-';
 /** The approval job, in the release pipeline, whose state decides whether a release is forced. */
@@ -122,41 +120,6 @@ export function raiseMinimum(text, version) {
 
 // ── Cloud Storage ─────────────────────────────────────────────────────────────────────────────────
 
-class UsageError extends Error {}
-
-/**
- * The service account behind `P2P_EXTENSION_DEPLOY_SA_KEY`: base64 of the JSON key file, or the JSON itself.
- * Errors name the variable and the missing field, never any key material.
- */
-export function readServiceAccountKey(env = process.env) {
-  const raw = (env.P2P_EXTENSION_DEPLOY_SA_KEY ?? '').trim();
-  if (!raw) throw new UsageError('P2P_EXTENSION_DEPLOY_SA_KEY must be set (project env var, base64 of the JSON key)');
-  let key;
-  try {
-    key = JSON.parse(raw.startsWith('{') ? raw : Buffer.from(raw.replace(/\s+/g, ''), 'base64').toString('utf8'));
-  } catch {
-    throw new UsageError('P2P_EXTENSION_DEPLOY_SA_KEY is neither a JSON key nor base64 of one');
-  }
-  if (typeof key?.client_email !== 'string' || !key.client_email) {
-    throw new UsageError('P2P_EXTENSION_DEPLOY_SA_KEY has no client_email');
-  }
-  let pem;
-  try {
-    pem = normalizePem(key.private_key);
-  } catch {
-    throw new UsageError('P2P_EXTENSION_DEPLOY_SA_KEY has no usable private_key');
-  }
-  return { email: key.client_email, pem, ...(typeof key.token_uri === 'string' ? { tokenUrl: key.token_uri } : {}) };
-}
-
-/** A short-lived Cloud Storage token for that account (JWT-bearer grant). */
-export async function storageAccessToken({ env = process.env, fetch: f = fetch } = {}) {
-  return getAccessToken({ ...readServiceAccountKey(env), scope: STORAGE_SCOPE, fetch: f });
-}
-
-const objectUrl = (bucket, object) =>
-  `https://storage.googleapis.com/storage/v1/b/${bucket}/o/${encodeURIComponent(object)}`;
-
 /** Download the live object at one generation: metadata first, then the bytes pinned to that generation. */
 export async function gcsGet({ token, fetch: f = fetch, bucket = BUCKET, object = OBJECT }) {
   const auth = { Authorization: `Bearer ${token}` };
@@ -173,23 +136,18 @@ export async function gcsGet({ token, fetch: f = fetch, bucket = BUCKET, object 
  * `generation` was read.
  */
 export async function gcsPut({ token, text, generation, fetch: f = fetch, bucket = BUCKET, object = OBJECT }) {
-  const boundary = `force-update-${Date.now().toString(36)}`;
-  const metadata = { name: object, contentType: 'application/json', cacheControl: CACHE_CONTROL };
-  const body =
-    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
-    `--${boundary}\r\nContent-Type: application/json\r\n\r\n${text}\r\n--${boundary}--`;
-  const url =
-    `https://storage.googleapis.com/upload/storage/v1/b/${bucket}/o` +
-    `?uploadType=multipart&ifGenerationMatch=${encodeURIComponent(generation)}`;
-  const res = await f(url, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
-    body,
+  const written = await uploadObject({
+    token,
+    bucket,
+    object,
+    bytes: Buffer.from(text),
+    contentType: 'application/json',
+    cacheControl: CACHE_CONTROL,
+    ifGenerationMatch: generation,
+    fetch: f,
   });
-  if (res.status === 412) return false;
-  if (!res.ok) throw new HttpError(`uploading gs://${bucket}/${object}`, res.status, await res.text());
-  const { generation: written } = await res.json().catch(() => ({}));
-  return { generation: written === undefined ? undefined : String(written) };
+  if (!written) return false;
+  return { generation: written.generation === undefined ? undefined : String(written.generation) };
 }
 
 /**

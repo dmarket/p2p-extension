@@ -43,6 +43,12 @@ the README.
 - **The extension reports its own version** to dmarket.com (`pong.version`) and to the backend
   (heartbeat `clientVersion`), instead of the core library's.
 
+### Engineering
+
+- **The debug build reaches the QA autotests without a CircleCI token.** After every green
+  `build-debug` on `main`, CI uploads the debug zip over `latest.zip` in a private stage Cloud Storage
+  bucket (`publish_debug_build`), with the version, commit and build in the object's metadata.
+
 ## [1.0.5-beta] - 2026-09-23
 
 Built against `@dmarket/p2p-tracker-core` `1.0.3-beta`.

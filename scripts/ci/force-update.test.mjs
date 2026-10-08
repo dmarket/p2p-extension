@@ -8,16 +8,15 @@ import {
   listWatchSchedules,
   parseServedVersion,
   raiseMinimum,
-  readServiceAccountKey,
   releaseFromEnv,
   scheduleBody,
   servedVersion,
-  storageAccessToken,
   storeReleaseParameters,
   triggerPipeline,
   updateCheckUrl,
   verifyPublicRead,
 } from './force-update.mjs';
+import { readServiceAccountKey, storageAccessToken } from './gcs.mjs';
 
 // The forced-update pipeline raises the minimum only when Chrome's update server serves the build, only
 // upwards, and never over a publish that landed after it read the document.
@@ -87,9 +86,10 @@ describe('Cloud Storage', () => {
     });
     const [url, init] = f.mock.calls[0];
     expect(url).toContain('uploadType=multipart&ifGenerationMatch=42');
-    expect(init.body).toContain('"cacheControl":"public, max-age=300"');
-    expect(init.body).toContain('"name":"p2p/extension-config.json"');
-    expect(init.body).toContain(DOC);
+    const body = init.body.toString();
+    expect(body).toContain('"cacheControl":"public, max-age=300"');
+    expect(body).toContain('"name":"p2p/extension-config.json"');
+    expect(body).toContain(DOC);
   });
 
   it('reports a lost race as `false`, not as success or an error', async () => {
