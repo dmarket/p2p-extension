@@ -19,6 +19,9 @@ the README.
 - **The debug build reaches the QA autotests without a CircleCI token.** After every green
   `build-debug` on `main`, CI uploads the debug zip over `latest.zip` in a private stage Cloud Storage
   bucket (`publish_debug_build`), with the version, commit and build in the object's metadata.
+- **Debug builds start on Stage.** A debug build boots against the Stage environment (API, FE and its
+  own notary) when the build environment configures it, else Dev, else Prod; the debug console's Stage
+  preset is the highlighted one.
 
 ## [1.0.5-beta] - 2026-09-23
 

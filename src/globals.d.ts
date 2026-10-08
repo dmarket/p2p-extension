@@ -7,6 +7,7 @@ interface ImportMetaEnv {
   readonly WXT_DEV_FE_URL?: string;
   readonly WXT_STAGE_API_URL?: string;
   readonly WXT_STAGE_FE_URL?: string;
+  readonly WXT_STAGE_NOTARY_URL?: string;
   readonly WXT_DEV_STEAM_URL?: string;
   readonly WXT_DEV_NOTARY_URL?: string;
   readonly WXT_DEV_NOTARY_ROOT_PEM?: string;

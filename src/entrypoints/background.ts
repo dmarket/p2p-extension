@@ -22,6 +22,7 @@ import { registerReportRelay, reportError, setReportSink } from '@/infra/report/
 import { enqueue, flush } from '@/infra/report/outbox';
 import { isRemoteConfigEnabled } from '@/infra/config';
 import { fetchRemoteConfig, hasFetchedRemoteConfig } from '@/infra/remoteConfig';
+import { defaultEnvironment } from '@/config/defaultEnvironment';
 import { resolveNotaryUrl } from '@/config/notaryUrl';
 import { extensionVersion } from '@/util/extensionVersion';
 import {
@@ -33,17 +34,10 @@ import {
 } from '@/config/settings';
 
 // The core talks to two endpoints: the DMarket API (base URL) and the FE origin the marketplace
-// token is read from. Debug builds default to the Dev environment when it is configured in the
-// gitignored .env (WXT_DEV_* — see .env.example; the repository carries no internal hostnames);
-// production builds — and debug builds without a .env — default to Prod. `import.meta.env.DEV` is a
-// compile-time constant, so the Dev branch is dead-code-eliminated from production bundles.
-// Overridable via env (and, in debug builds, at runtime from the debug console).
-const DEFAULT_API_BASE_URL = import.meta.env.DEV
-  ? import.meta.env.WXT_DEV_API_URL || 'https://api.dmarket.com'
-  : 'https://api.dmarket.com';
-const DEFAULT_FE_URL = import.meta.env.DEV
-  ? import.meta.env.WXT_DEV_FE_URL || 'https://dmarket.com/'
-  : 'https://dmarket.com/';
+// token is read from. Debug builds default to Stage, else Dev, when the gitignored .env configures
+// them; production builds — and debug builds without a .env — default to Prod
+// (src/config/defaultEnvironment.ts). Overridable at runtime from the debug console in debug builds.
+const { apiUrl: DEFAULT_API_BASE_URL, feUrl: DEFAULT_FE_URL } = defaultEnvironment();
 
 /** How long after boot to drain the crash-report outbox — clear of the boot cycle's Steam work. */
 const REPORT_FLUSH_DELAY_MS = 5_000;

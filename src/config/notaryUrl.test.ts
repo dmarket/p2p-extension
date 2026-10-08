@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { NotaryConfig } from '@dmarket/p2p-tracker-core-domain';
+import { defaultEnvironment } from '@/config/defaultEnvironment';
 import { DEFAULT_NOTARY_URL, PROD_NOTARY_URL, resolveNotaryUrl } from '@/config/notaryUrl';
 
 // The precedence table from resolveNotaryUrl's KDoc, asserted rather than described. Both bugs this
@@ -37,7 +38,7 @@ describe('resolveNotaryUrl', () => {
     // literal is pinned here because it is a deployed endpoint (a typo in it ships a build whose every
     // proof dies in the field).
     expect(PROD_NOTARY_URL).toBe('wss://api.dmarket.com/provenance/v1/');
-    expect(resolveNotaryUrl(undefined, undefined)).toBe(import.meta.env.WXT_DEV_NOTARY_URL || PROD_NOTARY_URL);
+    expect(resolveNotaryUrl(undefined, undefined)).toBe(defaultEnvironment().notaryUrl ?? PROD_NOTARY_URL);
   });
 
   it('agrees with the installed core, which defaults the same field to the same notary', () => {

@@ -5,18 +5,23 @@ import { publishRemoteConfig } from '@/testing/stubs';
 // The "Check DMarket" CTA resolver. The bug it exists for: on DM_SESSION_MISSING the popup opened prod
 // dmarket.com while a debug build's core read the marketplace cookie from the FE the debug console had
 // applied — so signing in fixed nothing and the button read as broken. Resolution order in a dev build:
-// debug.feUrl (console) > WXT_DEV_FE_URL (build default) > web.dmarketUrl (compiled/remote config).
+// debug.feUrl (console) > the default environment's FE (Stage, else Dev) > web.dmarketUrl (compiled/remote
+// config).
 //
 // `import.meta.env.DEV` is true under vitest, so the DEV chain is the branch under test — which is also
 // the branch with all the logic (production is a one-line `return configured`). The machine's real .env
-// leaks into import.meta.env here, so every test pins WXT_DEV_FE_URL itself (vi.stubEnv, undone by
-// unstubEnvs) instead of inheriting whatever the checkout has.
+// leaks into import.meta.env here, so every test pins the Stage and Dev pairs itself (vi.stubEnv, undone
+// by unstubEnvs) instead of inheriting whatever the checkout has. A pair counts only with both URLs, so the
+// Dev API URL is pinned here and each test sets the FE half.
 
 /** Publish a `web.dmarketUrl`, or nothing (so the compiled default stands). */
 const withConfiguredUrl = (url?: string): Promise<void> =>
   publishRemoteConfig(url === undefined ? {} : { web: { dmarketUrl: url } });
 
 beforeEach(async () => {
+  vi.stubEnv('WXT_STAGE_API_URL', '');
+  vi.stubEnv('WXT_STAGE_FE_URL', '');
+  vi.stubEnv('WXT_DEV_API_URL', 'https://api.dev.example');
   vi.stubEnv('WXT_DEV_FE_URL', '');
   await withConfiguredUrl(); // compiled default: https://dmarket.com/
 });
@@ -29,6 +34,13 @@ describe('resolveDmarketUrl — the dev resolution chain', () => {
   it('the build default substitutes the origin', async () => {
     vi.stubEnv('WXT_DEV_FE_URL', 'https://fe.dev.example/');
     await expect(resolveDmarketUrl()).resolves.toBe('https://fe.dev.example/');
+  });
+
+  it('a configured Stage pair is the build default, ahead of Dev', async () => {
+    vi.stubEnv('WXT_DEV_FE_URL', 'https://fe.dev.example/');
+    vi.stubEnv('WXT_STAGE_API_URL', 'https://api.stage.example');
+    vi.stubEnv('WXT_STAGE_FE_URL', 'https://fe.stage.example/');
+    await expect(resolveDmarketUrl()).resolves.toBe('https://fe.stage.example/');
   });
 
   it('the console override (debug.feUrl) wins over the build default', async () => {

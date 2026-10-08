@@ -12,6 +12,7 @@
 // command log entry (src/debug/router.ts) — and "refresh config" (`debug:refresh-config`), which forces
 // a Firebase Remote Config fetch past its 1h client throttle and reports whether the document changed.
 
+import { configuredInternalEnvironments, PROD_ENVIRONMENT } from '@/config/defaultEnvironment';
 import type { BlockingReason } from '@/core/tracker';
 import type { DemandInjection } from '@/debug/demandState';
 import type { SimulationState } from '@/debug/simulationState';
@@ -338,10 +339,6 @@ interface EnvPreset {
   feUrl: string;
 }
 
-/** A preset only exists when both of its endpoints are configured (in .env — see below). */
-const preset = (label: string, apiUrl: string | undefined, feUrl: string | undefined): EnvPreset[] =>
-  apiUrl && feUrl ? [{ label, apiUrl, feUrl }] : [];
-
 /**
  * Environment presets for the debug console's prefill buttons. Clicking one fills the FE + API fields
  * (the user then presses "apply & restart"); they are NOT a dropdown, so there is no "custom" entry —
@@ -349,13 +346,13 @@ const preset = (label: string, apiUrl: string | undefined, feUrl: string | undef
  *
  * The internal Stage/Dev endpoints come from the gitignored .env (WXT_STAGE_* / WXT_DEV_* — see
  * .env.example), so the repository carries no internal hostnames; without them only Prod appears
- * (the fields still accept any URL by hand).
+ * (the fields still accept any URL by hand). A preset exists only when both its endpoints are set — the
+ * same list, and the same rule, the build's boot default is picked from (src/config/defaultEnvironment.ts),
+ * so the highlighted button is Stage when Stage is configured.
  */
-export const ENVIRONMENTS: ReadonlyArray<EnvPreset> = [
-  { label: 'Prod', apiUrl: 'https://api.dmarket.com', feUrl: 'https://dmarket.com/' },
-  ...preset('Stage', import.meta.env.WXT_STAGE_API_URL, import.meta.env.WXT_STAGE_FE_URL),
-  ...preset('Dev', import.meta.env.WXT_DEV_API_URL, import.meta.env.WXT_DEV_FE_URL),
-];
+export const ENVIRONMENTS: ReadonlyArray<EnvPreset> = [PROD_ENVIRONMENT, ...configuredInternalEnvironments()].map(
+  ({ label, apiUrl, feUrl }) => ({ label, apiUrl, feUrl }),
+);
 
 /** Narrow a `chrome.runtime` message to a debug request (service-worker side). */
 export function isDebugRequest(message: unknown): message is DebugRequest {

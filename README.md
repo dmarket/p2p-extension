@@ -113,7 +113,7 @@ Open it from the popup's “debug console” link (dev builds only), or navigate
   proof (`proof:`) — a prover being *configured* and a proof being *attempted* are different facts,
   so they get separate pills;
 - an **endpoint switcher** for the **FE**, **API** and **notary** URLs, with **Prod / Stage / Dev**
-  prefill buttons for the first two (debug builds default to Dev). FE and API restart the tracker in
+  prefill buttons for the first two (debug builds default to Stage, else Dev). FE and API restart the tracker in
   place; the notary URL is applied independently;
 - **force tick** (an immediate heartbeat), **retry proof** (restart the tracker so a proof the core
   has latched off as refused is attempted again) and **refresh config** (fetch remote config now,

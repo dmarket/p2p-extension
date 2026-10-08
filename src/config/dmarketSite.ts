@@ -1,3 +1,4 @@
+import { defaultEnvironment } from '@/config/defaultEnvironment';
 import { getSettings } from '@/config/settings';
 
 /**
@@ -13,7 +14,8 @@ import { getSettings } from '@/config/settings';
  * Resolution order in a DEBUG build (mirrors the service worker's own FE chain — see
  * `bootCore` in src/entrypoints/background.ts):
  *   1. `debug.feUrl` — the debug console's applied FE (an explicit local operator action, so it wins);
- *   2. `WXT_DEV_FE_URL` — the build default a debug build boots against with no console override;
+ *   2. the FE of the environment a debug build boots against with no console override — Stage, else Dev
+ *      (src/config/defaultEnvironment.ts); skipped when .env configures neither;
  *   3. `web.dmarketUrl` — the compiled/remote-config value.
  * A PRODUCTION build always takes (3): the whole dev branch is behind `import.meta.env.DEV`, a
  * compile-time constant, so it is dead code there.
@@ -26,7 +28,8 @@ export async function resolveDmarketUrl(): Promise<string> {
   const configured = getSettings().web.dmarketUrl;
   if (!import.meta.env.DEV) return configured;
 
-  let devFeUrl = import.meta.env.WXT_DEV_FE_URL || '';
+  const fallback = defaultEnvironment();
+  let devFeUrl = fallback.label === 'Prod' ? '' : fallback.feUrl;
   try {
     // Key inlined rather than imported from @/debug/protocol: this module ships in every build, and the
     // debug tree does not exist in production.
