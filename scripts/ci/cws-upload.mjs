@@ -83,22 +83,29 @@ export function normalizePem(raw) {
 
 const b64url = (input) => Buffer.from(input).toString('base64url');
 
-/** RS256 JWT for the OAuth 2.0 JWT-bearer grant (Google service accounts). `now` in ms. */
-export function buildServiceAccountJwt(email, pem, { now = Date.now(), tokenUrl = DEFAULT_TOKEN_URL, ttlSeconds = 3600 } = {}) {
+/**
+ * RS256 JWT for the OAuth 2.0 JWT-bearer grant (Google service accounts). `now` in ms. `scope` defaults to the
+ * Web Store's; scripts/ci/gcs.mjs reuses this with the Cloud Storage one.
+ */
+export function buildServiceAccountJwt(
+  email,
+  pem,
+  { now = Date.now(), tokenUrl = DEFAULT_TOKEN_URL, ttlSeconds = 3600, scope = SCOPE } = {},
+) {
   const iat = Math.floor(now / 1000);
   const header = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
-  const claims = b64url(JSON.stringify({ iss: email, scope: SCOPE, aud: tokenUrl, iat, exp: iat + ttlSeconds }));
+  const claims = b64url(JSON.stringify({ iss: email, scope, aud: tokenUrl, iat, exp: iat + ttlSeconds }));
   const signature = createSign('RSA-SHA256').update(`${header}.${claims}`).sign(pem, 'base64url');
   return `${header}.${claims}.${signature}`;
 }
 
-export async function getAccessToken({ email, pem, tokenUrl = DEFAULT_TOKEN_URL, fetch: f = fetch, now }) {
+export async function getAccessToken({ email, pem, tokenUrl = DEFAULT_TOKEN_URL, fetch: f = fetch, now, scope }) {
   const res = await f(tokenUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: buildServiceAccountJwt(email, pem, { now, tokenUrl }),
+      assertion: buildServiceAccountJwt(email, pem, { now, tokenUrl, scope }),
     }),
   });
   const text = await res.text();

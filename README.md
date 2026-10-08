@@ -151,6 +151,7 @@ CircleCI (`.circleci/config.yml`). Every push runs:
 | `check` | — | `npm run compile` (tsc + the guard scripts), `npm run lint`, `npm test` |
 | `build-prod` | `check` | production zip → the job's **Artifacts** tab |
 | `build-debug` | `check` | development zip (debug console, internal endpoints) → **Artifacts** |
+| `publish_debug_build` | `build-debug` | `main` only: uploads that zip over the QA autotests' `latest.zip` in a stage Cloud Storage bucket |
 
 The two builds run in parallel with each other, but neither starts until the checks pass — an
 installable artifact should never come from a pipeline whose own checks are red.
@@ -203,7 +204,10 @@ badge would only point people at an older stable build than the one actually in 
 
 The debug build is deliberately **not** published — it is not what ships, and it inlines the internal
 `WXT_DEV_*`/`WXT_STAGE_*` endpoints. Download it from the `build-debug` job's **Artifacts** tab in
-CircleCI, on any push.
+CircleCI, on any push. From `main` it also goes to a private stage bucket, where the UI autotests pick
+it up (`scripts/ci/publish-debug-build.mjs`): the object is always overwritten, so it is the build of
+the last green `main` pipeline, and its metadata (`gsutil stat`) names the version, commit and build.
+The target is the project env var `DEBUG_BUILD_GCS_URI` (`gs://<bucket>/<object>`).
 
 A push whose version is already tagged releases nothing, so re-pushing a release branch is safe;
 `[skip release]` in the commit message skips it explicitly. `main` still runs `check` and both builds

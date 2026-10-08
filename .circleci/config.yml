@@ -9,6 +9,11 @@ version: 2.1
 #   `check` GATES both builds; the two builds then run in parallel with each other (the reasoning is at
 #   the `ci` workflow). Both zips are downloadable from the job's Artifacts tab and are meant to be
 #   installed by hand: unzip, then chrome://extensions -> Developer mode -> Load unpacked.
+#   - publish_debug_build (`main` only, after a green build-debug): uploads the debug zip over the QA
+#     autotests' `latest.zip` in a stage Cloud Storage bucket (scripts/ci/publish-debug-build.mjs).
+#     The tests download it with their own credentials and install it into Chrome. Always overwrites;
+#     the last build to finish is `latest`. The target is the project env var DEBUG_BUILD_GCS_URI
+#     (gs://<bucket>/<object>), kept out of this public repo like the other stage bucket names.
 #
 # RELEASE MODEL — releases come from a `release/vX.Y.Z` BRANCH; a human approves them.
 #   Land the `version` bump in package.json and the matching `## [x.y.z]` section of CHANGELOG.md on
@@ -42,7 +47,8 @@ version: 2.1
 #
 #   WHAT IS PUBLISHED: the production zip, its sourcemaps archive, the production manifest and
 #   SHA256SUMS. NOT the debug zip — it is not what ships, and it inlines internal hostnames; it stays
-#   in the `build-debug` job's Artifacts tab.
+#   in the `build-debug` job's Artifacts tab and, from `main`, in the private stage bucket the QA
+#   autotests read (`publish_debug_build`). Never anywhere public.
 #
 # STORE DEPLOY — the rest of the same release pipeline, after the tag:
 #     release  ->  pack_crx  ->  store_preflight  ->  upload_to_store  ->  delete_release_branch
@@ -257,6 +263,21 @@ jobs:
           paths:
             - artifacts
 
+  # After a green `build-debug` on `main`: the debug zip from the workspace, uploaded over the QA autotests'
+  # `latest.zip`. Node only — no `npm ci`, no context. Project env vars: DEBUG_BUILD_GCS_URI (the target) and
+  # P2P_EXTENSION_DEPLOY_SA_KEY (set by devops: base64 of a service-account JSON key with write access to the
+  # debug-build prefix; scripts/ci/gcs.mjs signs with it, no gcloud needed). Replacing the object needs
+  # storage.objects.delete as well as create; a 403 says so.
+  publish_debug_build:
+    executor: node
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          name: Upload the debug build as latest.zip (stage bucket)
+          command: node scripts/ci/publish-debug-build.mjs
+
   release:
     executor: node
     steps:
@@ -374,6 +395,14 @@ workflows:
             - check
           context:
             - p2p-extension-ci
+      # The QA autotests install the newest debug build from Cloud Storage; see the header. `main` only, so a
+      # feature branch never replaces what the tests run against.
+      - publish_debug_build:
+          requires:
+            - build-debug
+          filters:
+            branches:
+              only: main
       # Releasing is a manual act, and this is its ONLY approval. Nothing is tagged or published until
       # someone approves it, so a push to a release branch is a proposal, not a publication — but once
       # approved, the build goes all the way to the Chrome Web Store review queue without another click.

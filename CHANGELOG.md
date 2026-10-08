@@ -12,6 +12,14 @@ GitHub Release whose notes are this file's section for that version, with the in
 A push whose version already has a tag releases nothing, so re-pushing is safe. See "CI & releases" in
 the README.
 
+## [Unreleased]
+
+### Engineering
+
+- **The debug build reaches the QA autotests without a CircleCI token.** After every green
+  `build-debug` on `main`, CI uploads the debug zip over `latest.zip` in a private stage Cloud Storage
+  bucket (`publish_debug_build`), with the version, commit and build in the object's metadata.
+
 ## [1.0.5-beta] - 2026-09-23
 
 Built against `@dmarket/p2p-tracker-core` `1.0.3-beta`.
