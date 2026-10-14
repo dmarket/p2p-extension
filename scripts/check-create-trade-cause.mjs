@@ -76,10 +76,11 @@ const coreCauses = [
   ),
 ];
 
-// The core emits the field as `put_0(builder, 'cause', …)` in its create-trade outcome builder. Checked
-// separately from the enum: a core could in principle carry the type without reporting it, and it is the
-// REPORTING that this seam depends on.
-const coreReportsCause = /put_0\([^,]+, 'cause',/.test(read(CORE_FACADE));
+// The core emits the field as `put_N(builder, 'cause', …)` in its create-trade outcome builder. The `_N` is
+// Kotlin/JS name mangling and moves between builds (`put_0` in one snapshot, `put_1` in the next), so only
+// the `put` stem and the literal key are matched. Checked separately from the enum: a core could in
+// principle carry the type without reporting it, and it is the REPORTING that this seam depends on.
+const coreReportsCause = /put(?:_\d+)?\([^,]+, 'cause',/.test(read(CORE_FACADE));
 
 if (coreCauses.length === 0 || !coreReportsCause) {
   console.warn('\n⚠  The INSTALLED core does not report a coded create-trade cause.\n');
