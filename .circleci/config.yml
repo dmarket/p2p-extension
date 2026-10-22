@@ -247,7 +247,7 @@ executors:
     docker:
       # wxt declares engines.node >= 22; vite wants ^20.19 || >=22.12. Same image family as the core
       # repo's publish job.
-      - image: cimg/node:24.18
+      - image: cimg/node:24.22.1
     resource_class: medium
     environment:
       REPO_SLUG: dmarket/p2p-extension
