@@ -17,9 +17,10 @@ import { proofsInFlight } from '@/core/notary-trace';
 import type { AccountMismatchPush } from '@/messaging/protocol';
 import { initIcon } from '@/background/icon';
 import { isActivated, subscribeActivation } from '@/state/activation';
-import { setBlockingReason, setLinkedSteamId } from '@/state/blocking';
+import { setBlockingReason, setLinkedSteamId, subscribeBlockingReason } from '@/state/blocking';
 import { setActiveTrackingCount } from '@/state/activeCount';
 import { reportProofEvent, type ProofFrame } from '@/infra/report/proof';
+import { recordLifecycle, recordState } from '@/infra/diag/record';
 import { registerReportRelay, reportError, setReportSink } from '@/infra/report/reporter';
 import { enqueue, flush } from '@/infra/report/outbox';
 import { fetchRemoteConfig, hasFetchedRemoteConfig, type ConfigEntries } from '@/infra/remoteConfig';
@@ -308,6 +309,12 @@ export default defineBackground(() => {
       }
       return;
     }
+    // Into the local activity log (src/infra/diag/record.ts decides what of it is kept).
+    try {
+      recordLifecycle(parsed);
+    } catch {
+      /* never break the core's cycle */
+    }
     if (parsed.event === 'LinkedSteamIdMismatch') {
       if (typeof parsed.tokenSteamId === 'string') void pushAccountMismatch(parsed.tokenSteamId);
       // Remember WHICH account the user has to sign into. Only this event carries it, and a popup opened
@@ -390,6 +397,12 @@ export default defineBackground(() => {
       // deactivation zeroed it — with nothing watching them.
       if (handle !== started) return;
       void setActiveTrackingCount(count);
+    });
+    recordState('CoreBooted', {
+      ext: extensionVersion(),
+      build: __BUILD_ID__,
+      core: Tracker.version(),
+      prover: __PROVER_BUILD__,
     });
     console.info('[dmarket-p2p] tracker core booted', {
       version: extensionVersion(),
@@ -507,7 +520,12 @@ export default defineBackground(() => {
   // both start one. Registered synchronously, like every other listener here: writing the flag from the
   // Steam page is itself an event that wakes an evicted worker, and that spawn's own boot reconciles
   // anyway — this subscription is what covers a worker that was already awake.
-  subscribeActivation(() => void bootSettled.then(() => lifecycle.reconcile({ force: true })));
+  subscribeActivation((enabled) => {
+    recordState('ActivationChanged', { enabled });
+    void bootSettled.then(() => lifecycle.reconcile({ force: true }));
+  });
+  // Every surface reads this one key, so a change here is a change the user saw.
+  subscribeBlockingReason((reason) => recordState('BlockingReasonChanged', { reason }));
 
   // Apply the remote-config tracker overrides in place: rebuild the core against `next` only when it
   // actually differs from what's running (a restart re-runs the boot cycle, so it's paid only when

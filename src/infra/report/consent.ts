@@ -6,6 +6,7 @@
 
 // Default-on is what makes this opt-out rather than opt-in, which both stores allow for diagnostic data
 // provided the user can turn it off.
+import { clearDiagLog } from '@/infra/diag/store';
 import { DURABLE_KEYS, ENABLED_KEY } from '@/infra/report/keys';
 
 /** Whether the user has opted out. */
@@ -20,7 +21,7 @@ export async function isReportingEnabledByUser(): Promise<boolean> {
 /**
  * Record the user's choice. Turning it OFF also discards everything durable the reporter holds — the queued
  * reports, the daily counters, and the install id — so "off" means nothing about it is left on the machine,
- * not merely that nothing new is sent.
+ * not merely that nothing new is sent. The local activity log (src/infra/diag/) goes with it.
  */
 export async function setReportingEnabledByUser(enabled: boolean): Promise<void> {
   try {
@@ -35,6 +36,11 @@ export async function setReportingEnabledByUser(enabled: boolean): Promise<void>
   } catch {
     /* ignore — a flush with reporting disabled drops the backlog anyway */
   }
+  // Cleared, not paused: recording goes on while reporting is off, because the log is local and leaves the
+  // machine only through the user's own export.
+  await clearDiagLog().catch(() => {
+    /* no IndexedDB here — nothing was recorded either */
+  });
 }
 
 /**

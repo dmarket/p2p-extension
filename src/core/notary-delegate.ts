@@ -14,6 +14,7 @@ import {
 } from '@/core/notary-messages';
 import { describeSnapshot, type ProofSnapshot } from '@/core/notary-snapshot';
 import { beginProof, describeProofRequest, notaryTrace } from '@/core/notary-trace';
+import { recordNotary } from '@/infra/diag/record';
 import { parkProofDiag } from '@/infra/report/proofDiag';
 
 const OFFSCREEN_PATH = 'offscreen.html';
@@ -46,14 +47,16 @@ export const supportsOffscreenProver = (): boolean =>
 const snapshots = new Map<string, ProofSnapshot>();
 
 /**
- * The production consumer of the proving realm's phase lines: the last snapshot per in-flight proof is kept for
- * its failure report. A snapshot for a proof nobody is waiting on any more (it timed out, the worker kept
- * narrating) is not kept, so the map holds only live proofs.
+ * The production consumer of the proving realm's phase lines. Each one goes into the local activity log, and
+ * the last snapshot per in-flight proof is kept for its failure report. A snapshot for a proof nobody is waiting
+ * on any more (it timed out, the worker kept narrating) is not kept, so the map holds only live proofs; its line
+ * is still logged.
  *
  * A plain listener returning `undefined`: it never answers, and the phase relay expects no answer.
  */
 const onPhase = (message: unknown): undefined => {
   if (!isNotaryPhaseMessage(message)) return undefined;
+  recordNotary(message.note, message.level, message.proofId, message.snapshot);
   if (hasProofSnapshot(message) && live.has(message.proofId)) snapshots.set(message.proofId, message.snapshot);
   return undefined;
 };

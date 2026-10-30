@@ -37,6 +37,7 @@
 import { appendLog } from '@/debug/sessionLog';
 import { recordProofFrame } from '@/debug/proofState';
 import { CREDENTIAL_KEYS, findJwt, redactSecrets } from '@/util/redact';
+import { sanitizeFrame } from '@/infra/diag/record';
 import {
   MAX_LOG_ENTRIES,
   type CommandLogEntry,
@@ -122,9 +123,6 @@ export async function logCommand(
   }
 }
 
-/** Longest captured field value; a lifecycle field is a code, count or id, never a payload. */
-const MAX_FIELD_CHARS = 400;
-
 /**
  * Append a lifecycle event frame from the core to the session log and broadcast it live.
  *
@@ -139,24 +137,14 @@ const MAX_FIELD_CHARS = 400;
  */
 export async function logLifecycle(json: string): Promise<void> {
   try {
-    const parsed: unknown = JSON.parse(json);
-    if (typeof parsed !== 'object' || parsed === null) return;
-    const frame = parsed as Record<string, unknown>;
-    const event = frame['event'];
-    if (typeof event !== 'string' || event === '') return;
-    const fields: Record<string, string | number | boolean | null> = {};
-    for (const [key, value] of Object.entries(frame)) {
-      if (key === 'event') continue;
-      // The key is passed along because it is not in the text here: a lifecycle field arrives already split
-      // from its name, so `dealId`'s value has nothing in front of it to mark it as an id (see redactSecrets).
-      if (typeof value === 'string') fields[key] = redactSecrets(value, key).slice(0, MAX_FIELD_CHARS);
-      else if (typeof value === 'number' || typeof value === 'boolean' || value === null) fields[key] = value;
-    }
-    const entry: LifecycleLogEntry = { category: 'lifecycle', event, fields: Object.keys(fields).length ? fields : undefined };
+    // The production activity log's rules, so the two logs cannot disagree on what a frame may carry.
+    const frame = sanitizeFrame(JSON.parse(json));
+    if (!frame) return;
+    const entry: LifecycleLogEntry = { category: 'lifecycle', ...frame };
     // Mirror the proof-related frames so the console can answer "was a proof attempted?" in the present
     // tense. Fed from here rather than from its own parse: the fields are already scrubbed at this point,
     // and one parse per frame is enough.
-    recordProofFrame(event, entry.fields, Date.now());
+    recordProofFrame(entry.event, entry.fields, Date.now());
     const stored = await appendLog(entry, MAX_LOG_ENTRIES, Date.now());
     broadcast({ type: 'debug:log-entry', entry: stored });
   } catch {

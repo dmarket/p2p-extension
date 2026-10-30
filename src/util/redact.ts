@@ -57,6 +57,20 @@ export const CREDENTIAL_KEYS: readonly string[] = [
   'dm-trade-refresh-token',
 ];
 
+const squash = (name: string): string => name.toLowerCase().replace(/[-_]/g, '');
+const CREDENTIAL_NAMES = CREDENTIAL_KEYS.map(squash);
+
+/**
+ * Whether a structured field's NAME marks its value as a credential, whatever the value looks like. The text
+ * rules cannot see a name that is not in the text, and an opaque refresh token is neither JWT-shaped nor
+ * always long. A suffix match, so `accessToken`, `notaryToken` and `steamAccessToken` count; ids
+ * (`tokenSteamId`, `dealId`) end in none of the keys and stay readable.
+ */
+export const isCredentialName = (name: string): boolean => {
+  const n = squash(name);
+  return CREDENTIAL_NAMES.some((key) => n.endsWith(key));
+};
+
 /**
  * Field names whose value identifies the user or the install but is NOT a credential — knowing it grants
  * nothing. Redacted only in {@link redactText} (reports leave the machine); left readable in the dev

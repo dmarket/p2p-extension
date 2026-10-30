@@ -16,9 +16,11 @@
 //
 // The sink is injected rather than imported because `src/debug/` is stripped from production builds, so a
 // production module cannot depend on it — the same inversion `DebugDeps.setLifecycleSink` uses for the core's
-// lifecycle stream. With no sink installed (production) this is a console line and nothing else, which is
-// deliberate: this path had never produced a single proof until today, so the console line is not dev-only.
+// lifecycle stream. With no sink installed (production) each line goes to the console and to the local
+// activity log (src/infra/diag/), which is what a user exports for support; neither is dev-only, because every
+// failure this path has had was a silent one.
 
+import { recordNotary } from '@/infra/diag/record';
 import { redactSecrets } from '@/util/redact';
 
 /** Where a trace line goes when the dev console is present. Mirrors `logCommand`'s shape by design. */
@@ -50,6 +52,7 @@ export function setNotaryTraceSink(next: NotaryTraceSink): void {
 export function notaryTrace(note: string, level: 'info' | 'warn' | 'error' = 'info'): void {
   const safe = redactSecrets(note);
   console.info(`[notary/sw] ${safe}`);
+  recordNotary(safe, level);
   try {
     sink?.(NOTARY_TRACE_EVENT, safe, level);
   } catch {
