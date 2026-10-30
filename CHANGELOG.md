@@ -14,19 +14,37 @@ the README.
 
 ## [Unreleased]
 
+Built against `@dmarket/p2p-tracker-core` `1.1.0-beta`, which ships the TLSN prover from
+`steam-provenance` `v1.0.1` (`3fe3354`).
+
 ### Added
 
+- **Support logs (DMA-678).** The extension keeps the last 24 hours of its own activity on the device:
+  tracker events, trade-proof progress, sign-in and activation changes. Help → Troubleshooting saves it
+  as a file or copies it to the clipboard, so a seller can hand it to support. Before anything is saved,
+  the screen says what the file contains: Steam ID, DMarket account ID and deal ids. Credentials are
+  never written to it, and it leaves the device only if the seller sends the file. Switching error
+  reporting off clears it.
+- **Failed trade proofs are reported, with diagnostics (DMA-516).** When a proof cannot be produced or
+  delivered, the reason goes to the error collector (`core: notary proof failed …`). A proof that fails
+  or times out also reports where it stopped: the stage, how long it waited, the bytes exchanged with
+  the notary and with Steam, the thread count and the prover build, with no account or deal ids. Proofs
+  the backend rejected, suppressed proofs and reports held back for a proof are reported too. Proof
+  reports have their own daily budget (50) and never use up the budget for crash reports. A remote
+  setting, off by default, can end a proof whose notary connection went silent instead of waiting out
+  the deadline.
 - **Forced updates (paused, not active in this release).** The extension can read the oldest version
   allowed to keep working from the remote configuration, ask Chrome for the update and report where it
   stands to dmarket.com (`pong.update`). The published configuration sets no minimum and CI does not
   raise one, so no install is asked to update and `pong.update` reports `required: false`.
-- **Failed trade proofs are reported.** When a proof cannot be produced or delivered, the reason is
-  sent to the error collector (`core: notary proof failed …`), with its own daily budget, so the
-  failures a notary only sees as dropped sessions finally come with the client's side of the story.
-  Proof reports never use up the budget for crash reports.
 
 ### Fixed
 
+- **Error reports no longer carry the dmarket.com device id.** Each report's device id was the site's
+  analytics cookie (`dm_did`), which ties a report to the browser's web session. It is now a random
+  install id that switching reporting off erases, and the reporter reads no cookies. Reports also scrub
+  deal, offer and trade ids and the query values of bare request paths. The toggle now reads "Send
+  technical error reports", and its tooltip lists everything a report carries.
 - **Updates install without a browser restart.** Chrome installs an update only while the extension
   is idle, and the document that runs the trade-proof engine kept it from ever being idle, so updates
   waited until the seller restarted Chrome. The extension now reloads onto a downloaded update as soon
@@ -34,9 +52,11 @@ the README.
 
 ### Changed
 
-- **Remote configuration comes from the DMarket CDN** instead of Firebase Remote Config, revalidated
-  hourly by default and with a 15-minute back-off after a failed fetch. The Firebase host permission is
-  removed.
+- **Trade proofs run on the `steam-provenance` `1.0.1` prover**, shipped with core `1.1.0-beta`.
+  `1.0.5-beta` ran the `99e090a` build.
+- **Remote configuration comes from the DMarket CDN (DMA-484)** instead of Firebase Remote Config,
+  revalidated hourly by default and with a 15-minute back-off after a failed fetch. The Firebase host
+  permission is removed.
 - **Fewer remotely tunable settings.** Steam base URLs and query-parameter names, the notary protocol
   names, the Steam profile and game groups, the bridge's extra origins and the trigger debounces are no
   longer settable remotely; they could not do anything useful and some could widen what the extension
