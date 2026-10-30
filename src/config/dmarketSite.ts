@@ -5,7 +5,7 @@ import { getSettings } from '@/config/settings';
  * The DMarket site URL a user-facing CTA must open, resolved against the FE the tracker is ACTUALLY
  * running against.
  *
- * Why this exists: the popup's "Check DMarket" button (DM_SESSION_MISSING) opened
+ * Why this exists: the popup's "Open DMarket" button (DM_SESSION_MISSING) opened
  * `getSettings().web.dmarketUrl` — the prod origin, or whatever remote config published — while a debug
  * build's core reads the marketplace cookie from the FE the debug console last applied. Signing in on
  * dmarket.com therefore issued a cookie for an origin the core never looks at, so the block never

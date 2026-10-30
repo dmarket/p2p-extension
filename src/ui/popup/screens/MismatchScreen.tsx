@@ -29,12 +29,11 @@ export function MismatchScreen() {
       <div class="home__body">
         <h1 class="title">
           <img class="title__flag" src={icons.flag} alt="" />
-          <span>Tracking disabled</span>
+          <span>Wrong Steam account</span>
         </h1>
         <p class="body-text">
-          We noticed you're logged into a different Steam account. The extension needs to monitor
-          trade offers for the account you originally connected. Log back into that account to
-          continue using P2P trading.
+          Tracking is paused. This Steam account isn't the one linked to your DMarket account - sign
+          in with the linked one to resume.
         </p>
         {/* Naming the account turns an un-actionable prompt into a fixable one — and it is how a user can
             tell "my session is on the wrong account" from "my DMarket profile is linked to an account I do
@@ -47,7 +46,7 @@ export function MismatchScreen() {
       </div>
 
       <button type="button" class="button" onClick={openTradeOffers}>
-        <span>Turn on tracker</span>
+        <span>Switch Steam account</span>
         <img class="button__icon" src={icons.arrowForward} alt="" />
       </button>
     </div>

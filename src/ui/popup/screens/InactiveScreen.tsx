@@ -31,7 +31,7 @@ export function InactiveScreen() {
       </div>
 
       <button type="button" class="button" onClick={openTradeOffers}>
-        <span>Turn on tracker</span>
+        <span>Open Steam trade offers</span>
         <img class="button__icon" src={icons.arrowForward} alt="" />
       </button>
     </div>

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveDmarketUrl } from '@/config/dmarketSite';
 import { publishRemoteConfig } from '@/testing/stubs';
 
-// The "Check DMarket" CTA resolver. The bug it exists for: on DM_SESSION_MISSING the popup opened prod
+// The "Open DMarket" CTA resolver. The bug it exists for: on DM_SESSION_MISSING the popup opened prod
 // dmarket.com while a debug build's core read the marketplace cookie from the FE the debug console had
 // applied — so signing in fixed nothing and the button read as broken. Resolution order in a dev build:
 // debug.feUrl (console) > the default environment's FE (Stage, else Dev) > web.dmarketUrl (compiled/remote

@@ -79,7 +79,7 @@ export const BLOCKING_STATES: readonly BlockingStateInfo[] = [
     short: 'No DMarket',
     cause: 'No DMarket session cookie at the FE origin, so the cycle stops before the heartbeat.',
     clears: 'Any usable credential, no heartbeat needed. Not persisted.',
-    surfaces: 'Popup "Check DMarket". No Steam banner. Red icon.',
+    surfaces: 'Popup "You\'re signed out of DMarket". No Steam banner. Red icon.',
     keys: [],
     scenario: 'dm-session-missing',
   },

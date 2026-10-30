@@ -28,15 +28,15 @@ export function MissingConnectionScreen() {
 
       <div class="home__body">
         <h1 class="title">
-          <span>Looks like we lost connection with DMarket</span>
+          <span>You're signed out of DMarket</span>
         </h1>
         <p class="body-text">
-          You may have been logged out. Check that you're signed in to DMarket, then try again.
+          Trade tracking is paused. Sign in to your DMarket account to resume.
         </p>
       </div>
 
       <button type="button" class="button" onClick={openDmarket}>
-        <span>Check DMarket</span>
+        <span>Open DMarket</span>
         <img class="button__icon" src={icons.arrowForward} alt="" />
       </button>
     </div>

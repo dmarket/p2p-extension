@@ -16,7 +16,7 @@ function openSteam(): void {
  * (see state/surface.ts) — and shown before onboarding, since the Steam rules flow needs a Steam login.
  *
  * Distinct from {@link MismatchScreen} (signed into the *wrong* Steam account — that one keeps the
- * "Tracking disabled" title and the flag badge) and from the two DMarket screens. Auto-clears once the
+ * "Wrong Steam account" title and the flag badge) and from the two DMarket screens. Auto-clears once the
  * core acquires a credential again — the extension's session-cookie watch nudges that the moment the
  * user signs in, so nothing depends on this button being pressed.
  */
