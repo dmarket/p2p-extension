@@ -239,8 +239,8 @@ describe('the proof bucket', () => {
     for (const n of [1, 2, 3]) enqueue(report('fp-summary', { proof: true, diag: { notarySent: n } }));
     await settled();
     await settled();
-    const bodies = fetchMock.mock.calls.slice(1).map((c) => JSON.parse((c[1] as RequestInit).body as string) as { diag?: unknown });
-    expect(bodies.map((b) => b.diag)).toEqual([{ notarySent: 1 }, { notarySent: 2 }, { notarySent: 3 }]);
+    const bodies = fetchMock.mock.calls.slice(1).map((c) => JSON.parse((c[1] as RequestInit).body as string) as { metadata?: unknown });
+    expect(bodies.map((b) => b.metadata)).toEqual([{ notarySent: 1 }, { notarySent: 2 }, { notarySent: 3 }]);
     expect(await readQueue()).toEqual([]);
   });
 

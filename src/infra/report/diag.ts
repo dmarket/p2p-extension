@@ -1,4 +1,5 @@
-// Structured diagnostics for a crash report: the `diag` field. Core-free, like the rest of the report surface.
+// Structured diagnostics for a crash report, sent as the collector's `metadata` field. Core-free, like the rest
+// of the report surface.
 //
 // Built for the notary proof path: a failed proof's report used to be one `reason` line, which cannot tell a
 // stall in MPC preprocessing from a slow uplink from a dropped notary. The numbers that can live in the prover
@@ -87,9 +88,9 @@ export function serializeDiag(raw: unknown): Diag | undefined {
 }
 
 /**
- * R12 — PROVISIONAL. `field`: `diag` is its own payload field, numbers exact. `suffix`: the fallback if the
- * collector turns out to drop or reject fields outside the frontend's schema — `diag` is folded into the
- * message as ` [diag k=v …]`, numbers bucketed. Flipping this constant is the whole rollback.
+ * R12. `field`: `diag` goes out as the payload's `metadata`, numbers exact — the collector's owner confirmed
+ * that field is stored for errors. `suffix`: `diag` folded into the message as ` [diag k=v …]`, numbers
+ * bucketed. Flipping this constant is the whole rollback.
  */
 export const DIAG_PLACEMENT: 'field' | 'suffix' = 'field';
 

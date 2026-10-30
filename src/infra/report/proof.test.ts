@@ -199,7 +199,7 @@ describe('privacy, end to end through the outbox', () => {
 
     const bodies = fetchMock.mock.calls.map((c) => (c[1] as RequestInit).body as string);
     expect(bodies).toHaveLength(4);
-    const withDiag = bodies.map((b) => JSON.parse(b) as { diag?: unknown }).filter((b) => b.diag !== undefined);
+    const withDiag = bodies.map((b) => JSON.parse(b) as { metadata?: unknown }).filter((b) => b.metadata !== undefined);
     expect(withDiag).toHaveLength(1);
     for (const body of bodies) {
       expect(body).not.toMatch(/\d{17}/);

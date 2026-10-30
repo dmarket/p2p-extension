@@ -40,10 +40,11 @@ export interface ReportPayload {
   appVersion: string;
   /**
    * Allowlisted diagnostics of a failed notary proof (src/infra/report/diag.ts): stage, timings, byte counts,
-   * thread count, cross-origin isolation, CPU core count, prover build. Not in the frontend's schema — R12,
-   * provisional; `DIAG_PLACEMENT` folds it into `message` instead if the collector turns out to drop it.
+   * thread count, cross-origin isolation, CPU core count, prover build. `metadata` is the collector's one
+   * free-form JSON field, wired through to ClickHouse for errors as well as events; a field outside its
+   * schema would not be. `DIAG_PLACEMENT` folds it into `message` instead.
    */
-  diag?: Diag;
+  metadata?: Diag;
 }
 
 /**
@@ -84,6 +85,6 @@ export async function buildPayload(report: {
     source: REPORT_SOURCE,
     // `version_name` when present, so two betas of one numeric version stay distinguishable.
     appVersion: `${extensionVersion()}+${__BUILD_ID__}`,
-    ...(report.diag !== undefined ? { diag: report.diag } : {}),
+    ...(report.diag !== undefined ? { metadata: report.diag } : {}),
   };
 }
