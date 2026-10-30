@@ -16,6 +16,29 @@ describe('redactText — for text that leaves the machine', () => {
     );
   });
 
+  it('redacts the query values of a PATH-only URL too (no scheme, no host)', () => {
+    // The shape a core or prover error prints for the proven read: the path alone. The rule above keys on
+    // `https?://`, so this used to pass with the offer id intact — 10 digits, too short for the steamid rule.
+    expect(redactText('GET /IEconService/GetTradeOffer/v1/?tradeofferid=9311607911&access_token=abc failed')).toBe(
+      `GET /IEconService/GetTradeOffer/v1/?tradeofferid=${REDACTED}&access_token=${REDACTED} failed`,
+    );
+  });
+
+  it('redacts identifier assignments and long digit runs that sit outside a URL', () => {
+    // Prose a backend or core reason may carry. An id grants nothing, but it is a join key to an account.
+    expect(redactText('dealId=abc:def, offerId=9311607911, tradeId=744935517744884653')).toBe(
+      `dealId=${REDACTED}, offerId=${REDACTED}, tradeId=${REDACTED}`,
+    );
+    expect(redactText('{"steamOfferId":"9311607911","tradeid":744935517744884653}')).toBe(
+      `{"steamOfferId":"${REDACTED}","tradeid":${REDACTED}}`,
+    );
+    expect(redactText('offer 9311607911 not found in trade 744935517744884653')).toBe(
+      'offer <id> not found in trade <id>',
+    );
+    // …while numbers a diagnosis needs stay: a status, a byte count, a duration.
+    expect(redactText('status=403 after 180000ms, sent 63401977B')).toBe('status=403 after 180000ms, sent 63401977B');
+  });
+
   it('drops a fragment entirely', () => {
     // `#access_token=…` is a real shape and never diagnostic, so the whole fragment goes — the core's own
     // redactUrl leaves it alone.

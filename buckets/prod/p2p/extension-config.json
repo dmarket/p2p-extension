@@ -90,6 +90,7 @@
     ],
     "notaryProofTimeoutMs": 180000,
     "notaryStuckAfterMs": 25000,
+    "notaryStallAfterMs": 0,
     "notaryProofsPerInstance": 5,
     "remoteConfigFetchIntervalMs": 3600000,
     "dmarketUrl": "https://dmarket.com/",
@@ -97,7 +98,7 @@
       "enabled": true,
       "maxPerDay": 10,
       "maxPerDayFromPage": 3,
-      "maxPerDayProof": 10,
+      "maxPerDayProof": 50,
       "fpCooldownMs": 1800000,
       "suppressSubstrings": []
     }

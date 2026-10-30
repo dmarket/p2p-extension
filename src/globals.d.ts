@@ -22,3 +22,6 @@ interface ImportMetaEnv {
  * `0.1.0-SNAPSHOT`), so this is the only thing that tells one build's crash reports from another's.
  */
 declare const __BUILD_ID__: string;
+
+/** The TLSN prover build the core ships, `<DOCKER_VERSION>+<sha12>` — see proverBuild() in wxt.config.ts. */
+declare const __PROVER_BUILD__: string;

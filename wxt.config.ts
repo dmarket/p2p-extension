@@ -102,6 +102,26 @@ const buildId = (): string => {
   return `${sha}+core${core}`;
 };
 
+/**
+ * The TLSN prover build the core ships, for crash reports and the proof breadcrumbs: `<DOCKER_VERSION>+<sha12>`.
+ *
+ * Read from the core package's `VERSION` file (the client-wasm artifact's provenance, shell-sourceable). Not in
+ * {@link buildId}: a core bump can keep the prover, and a prover refresh can arrive without a core version
+ * change that says so. The file's own note says to correlate with a notary image by `GIT_SHA`, so the SHA rides
+ * along; twelve characters, because the report scrubber treats a 40-char run as an opaque credential.
+ */
+const proverBuild = (): string => {
+  try {
+    const file = readFileSync(resolve(root, 'node_modules/@dmarket/p2p-tracker-core/VERSION'), 'utf8');
+    const field = (name: string): string | undefined => new RegExp(`^${name}="([^"]*)"`, 'm').exec(file)?.[1];
+    const docker = field('DOCKER_VERSION');
+    const sha = field('GIT_SHA')?.slice(0, 12);
+    return [docker ?? 'unknown', sha].filter(Boolean).join('+');
+  } catch {
+    return 'unknown';
+  }
+};
+
 // WXT config — generates the MV3 manifest and drives the Vite build.
 // Non-entrypoint modules live under src/ (srcDir), so the `@/` alias resolves to src/.
 export default defineConfig({
@@ -404,6 +424,7 @@ export default defineConfig({
     define: {
       // Injected because neither half is knowable at runtime — see buildId() above.
       __BUILD_ID__: JSON.stringify(buildId()),
+      __PROVER_BUILD__: JSON.stringify(proverBuild()),
     },
     resolve: {
       // Runtime-only stubs for the core's lazy dynamic imports that are unused in the browser build.

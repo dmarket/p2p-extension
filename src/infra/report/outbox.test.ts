@@ -22,6 +22,7 @@ vi.mock('@/infra/report/consent', () => ({
 }));
 
 const { enqueue, flush } = await import('@/infra/report/outbox');
+const { PROOF_REPORTS_PER_DAY } = await import('@/config/settings');
 
 const report = (fingerprint: string, over: Partial<PendingReport> = {}): PendingReport => ({
   context: 'background',
@@ -211,23 +212,63 @@ describe('daily budgets', () => {
 
 describe('the proof bucket', () => {
   it('failed proofs exhaust their own cap with one notice and never spend the crash budget', async () => {
-    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
-    // maxPerDayProof is 10 (compiled default). Twelve distinct proof failures:
-    for (let i = 0; i < 12; i += 1) {
+    fetchMock.mockImplementation(() => Promise.resolve(new Response(null, { status: 204 })));
+    const cap = PROOF_REPORTS_PER_DAY;
+    // Two more distinct proof failures than the compiled cap:
+    for (let i = 0; i < cap + 2; i += 1) {
       enqueue(report(`fp-proof-${i}`, { proof: true }));
       await settled();
     }
-    // 10 sent + 1 budget notice; the 12th is silent.
-    expect(fetchMock.mock.calls).toHaveLength(11);
-    expect(sentMessage(fetchMock, 10)).toContain('proof report budget exhausted');
+    // `cap` sent + 1 budget notice; the last is silent.
+    expect(fetchMock.mock.calls).toHaveLength(cap + 1);
+    expect(sentMessage(fetchMock, cap)).toContain('proof report budget exhausted');
 
     // A crash on the same device still gets through: a bad notary day cannot blind the reporter.
     enqueue(report('fp-crash'));
     await settled();
-    expect(fetchMock.mock.calls).toHaveLength(12);
+    expect(fetchMock.mock.calls).toHaveLength(cap + 2);
     const policy = await readPolicy();
-    expect(policy.proof).toBe(11);
+    expect(policy.proof).toBe(cap + 1);
     expect(policy.internal).toBe(1);
+  });
+
+  it('session summaries skip the cooldown and the queue collapse; each one goes out with its own diag', async () => {
+    fetchMock.mockImplementation(() => Promise.resolve(new Response(null, { status: 204 })));
+    // Same fingerprint, held offline first so all three sit in the queue together.
+    fetchMock.mockRejectedValueOnce(new Error('offline'));
+    for (const n of [1, 2, 3]) enqueue(report('fp-summary', { proof: true, diag: { notarySent: n } }));
+    await settled();
+    await settled();
+    const bodies = fetchMock.mock.calls.slice(1).map((c) => JSON.parse((c[1] as RequestInit).body as string) as { diag?: unknown });
+    expect(bodies.map((b) => b.diag)).toEqual([{ notarySent: 1 }, { notarySent: 2 }, { notarySent: 3 }]);
+    expect(await readQueue()).toEqual([]);
+  });
+
+  it('a plain proof report keeps the cooldown: occurrence 3 is suppressed, like a crash', async () => {
+    fetchMock.mockImplementation(() => Promise.resolve(new Response(null, { status: 204 })));
+    for (let i = 0; i < 3; i += 1) {
+      enqueue(report('fp-plain-proof', { proof: true }));
+      await settled();
+    }
+    expect(fetchMock.mock.calls).toHaveLength(2); // 1st and 2nd are ladder steps, the 3rd is not
+  });
+
+  it('a steady state goes out on the ladder only, even after its cooldown expired', async () => {
+    fetchMock.mockImplementation(() => Promise.resolve(new Response(null, { status: 204 })));
+    vi.useFakeTimers({ toFake: ['Date'] });
+    // A fixed early-UTC start: four 2 h steps must not cross midnight, which would reset the ladder.
+    vi.setSystemTime(new Date('2026-10-30T01:00:00.000Z'));
+    try {
+      for (let i = 0; i < 4; i += 1) {
+        enqueue(report('fp-steady', { proof: true, steady: true }));
+        await settled();
+        vi.setSystemTime(Date.now() + 2 * 3_600_000); // well past the 30 min cooldown each time
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+    // Occurrences 1, 2 and 4 are ladder steps; 3 would have gone out on the expired cooldown.
+    expect(fetchMock.mock.calls).toHaveLength(3);
   });
 
   it('page-originated input is charged to the page bucket even when flagged as a proof', async () => {

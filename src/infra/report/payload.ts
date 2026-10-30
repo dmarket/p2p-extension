@@ -7,6 +7,7 @@
 // ClickHouse table as web rows with no schema change beyond one new `source` value.
 
 import { contextUrl, type ReportContext } from '@/infra/report/describe';
+import type { Diag } from '@/infra/report/diag';
 import { INSTALL_ID_KEY } from '@/infra/report/keys';
 import { extensionVersion } from '@/util/extensionVersion';
 
@@ -37,6 +38,12 @@ export interface ReportPayload {
   timestamp: string;
   source: typeof REPORT_SOURCE;
   appVersion: string;
+  /**
+   * Allowlisted diagnostics of a failed notary proof (src/infra/report/diag.ts): stage, timings, byte counts,
+   * thread count, cross-origin isolation, CPU core count, prover build. Not in the frontend's schema — R12,
+   * provisional; `DIAG_PLACEMENT` folds it into `message` instead if the collector turns out to drop it.
+   */
+  diag?: Diag;
 }
 
 /**
@@ -63,6 +70,7 @@ export async function buildPayload(report: {
   message: string;
   stack: string | null;
   timestamp: string;
+  diag?: Diag;
 }): Promise<ReportPayload> {
   return {
     type: 'error',
@@ -76,5 +84,6 @@ export async function buildPayload(report: {
     source: REPORT_SOURCE,
     // `version_name` when present, so two betas of one numeric version stay distinguishable.
     appVersion: `${extensionVersion()}+${__BUILD_ID__}`,
+    ...(report.diag !== undefined ? { diag: report.diag } : {}),
   };
 }

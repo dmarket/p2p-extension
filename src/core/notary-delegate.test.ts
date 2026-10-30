@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { createNotaryProofDelegate, supportsOffscreenProver } from '@/core/notary-delegate';
 import { proofsInFlight, setNotaryTraceSink } from '@/core/notary-trace';
-import type { NotaryProveMessage, NotaryProveReply } from '@/core/notary-messages';
+import { NOTARY_PHASE, type NotaryPhaseMessage, type NotaryProveMessage, type NotaryProveReply } from '@/core/notary-messages';
+import type { ProofSnapshot } from '@/core/notary-snapshot';
+import { reportProofEvent } from '@/infra/report/proof';
+import { setReportSink, type PendingReport } from '@/infra/report/reporter';
 
 // The proof deadline and the proving-context lifecycle — the port of the deleted timeout smoke (which was
 // proven sensitive: 15/18 failing with the two fixes reverted). The two regressions by name:
@@ -66,12 +69,31 @@ afterEach(() => {
   expect(proofsInFlight()).toEqual([]);
 });
 
-const prove = (): Promise<string> =>
+const prove = (requestJson = REQUEST_JSON): Promise<string> =>
   createNotaryProofDelegate({ notary: { notaryUrl: 'wss://notary.test/' } })(
-    REQUEST_JSON,
+    requestJson,
     'notary-token',
     'steam-token',
   );
+
+const requestFor = (dealId: string): string => JSON.stringify({ dealId, source: 'OFFER', steamOfferId: '9313246543' });
+
+/** The proofId the delegate minted for its n-th message (0-based). */
+const proofIdOf = (n: number): string => (stubs.sendMessage.mock.calls[n]![0] as NotaryProveMessage).proofId;
+
+const snapshot = (over: Partial<ProofSnapshot>): ProofSnapshot => ({
+  elapsedMs: 1_000,
+  concurrent: 1,
+  isolated: true,
+  freshWorker: true,
+  ...over,
+});
+
+/** What the offscreen document relays from the worker: a phase line with a snapshot of one proof. */
+const deliverSnapshot = (proofId: string, snap: ProofSnapshot): void => {
+  const message: NotaryPhaseMessage = { type: NOTARY_PHASE, note: `proof ${proofId}: tick`, proofId, snapshot: snap };
+  void fakeBrowser.runtime.onMessage.trigger(message, {}, () => {});
+};
 
 const ok = (presentation = 'cHJlc2VudGF0aW9u'): NotaryProveReply => ({ ok: true, presentation });
 
@@ -118,6 +140,10 @@ describe('the happy path', () => {
     expect(message.notaryToken).toBe('notary-token');
     expect(message.stuckAfterMs).toBe(25_000); // compiled defaults, via the live settings snapshot
     expect(message.proofsPerInstance).toBe(5);
+    expect(message.stallAfterMs).toBe(0); // off unless remote config turns it on
+    // Random per attempt, client-side: the request JSON — the part the prover does see — does not carry it.
+    expect(message.proofId).toMatch(/^[0-9a-f]{8}$/);
+    expect(message.requestJson).not.toContain(message.proofId);
   });
 });
 
@@ -203,5 +229,65 @@ describe('supportsOffscreenProver', () => {
     expect(supportsOffscreenProver()).toBe(true); // the stub is installed
     delete (fakeBrowser as unknown as Record<string, unknown>).offscreen;
     expect(supportsOffscreenProver()).toBe(false); // Firefox-shaped: no offscreen API
+  });
+});
+
+describe('failure diagnostics', () => {
+  let reports: PendingReport[];
+  beforeEach(() => {
+    reports = [];
+    setReportSink((r) => reports.push(r));
+  });
+
+  // Deal ids unique to each case below: the hand-off is module state, and the deadline cases above park
+  // diagnostics for `deal-1` that are never taken.
+  it('a timed-out ProofFailed carries the diag of ITS proof, not the concurrent neighbour', async () => {
+    stubs.sendMessage.mockReturnValue(new Promise(() => {}));
+    const one = prove(requestFor('deal-a'));
+    const two = prove(requestFor('deal-b'));
+    const failures = Promise.all([expect(one).rejects.toThrow('timed out'), expect(two).rejects.toThrow('timed out')]);
+    await vi.advanceTimersByTimeAsync(0);
+    deliverSnapshot(proofIdOf(0), snapshot({ stage: 'MPC_SETUP', notarySent: 111 }));
+    deliverSnapshot(proofIdOf(1), snapshot({ stage: 'REVEAL', notarySent: 222 }));
+    await vi.advanceTimersByTimeAsync(180_000);
+    await failures;
+
+    // The core emits the frames after the delegate rejected — in either order.
+    reportProofEvent({ event: 'ProofFailed', dealId: 'deal-b', source: 'offer', reason: 'E: timed out' });
+    reportProofEvent({ event: 'ProofFailed', dealId: 'deal-a', source: 'offer', reason: 'E: timed out' });
+    expect(reports.map((r) => [r.diag?.['proofId'], r.diag?.['notarySent'], r.diag?.['stage'], r.diag?.['outcome']])).toEqual([
+      [proofIdOf(1), 222, 'REVEAL', 'timeout'],
+      [proofIdOf(0), 111, 'MPC_SETUP', 'timeout'],
+    ]);
+    expect(reports[0]!.diag).toMatchObject({ durationMs: 180_000, proverBuild: 'test-prover' });
+    expect(traces.filter((t) => t.startsWith('warn: proof summary'))).toHaveLength(2);
+    expect(traces.some((t) => t.includes('timeout after 180000ms; stage REVEAL'))).toBe(true);
+  });
+
+  it('a failure reply\'s own snapshot wins over the last one from the stream', async () => {
+    const reply = Promise.withResolvers<NotaryProveReply>();
+    stubs.sendMessage.mockReturnValue(reply.promise);
+    const attempt = prove(requestFor('deal-3'));
+    const failure = expect(attempt).rejects.toThrow('prover stalled');
+    await vi.advanceTimersByTimeAsync(0);
+    deliverSnapshot(proofIdOf(0), snapshot({ notarySent: 1 }));
+    reply.resolve({
+      ok: false,
+      error: 'prover worker discarded: prover stalled: MPC_SETUP for 30s, 0 B notary traffic',
+      poisoned: true,
+      snapshot: snapshot({ notarySent: 2, notaryIdleMs: 30_000 }),
+    });
+    await failure;
+    reportProofEvent({ event: 'ProofFailed', dealId: 'deal-3', source: 'offer', reason: 'E: stalled' });
+    expect(reports[0]!.diag).toMatchObject({ outcome: 'failed', notarySent: 2, notaryIdleMs: 30_000 });
+  });
+
+  it('ignores snapshots for a proof nobody is waiting on', async () => {
+    stubs.sendMessage.mockResolvedValue({ ok: false, error: 'notary handshake failed' });
+    deliverSnapshot('ffffffff', snapshot({ notarySent: 999 }));
+    await expect(prove(requestFor('deal-4'))).rejects.toThrow('handshake');
+    reportProofEvent({ event: 'ProofFailed', dealId: 'deal-4', source: 'offer', reason: 'E: handshake' });
+    expect(reports[0]!.diag).not.toHaveProperty('notarySent');
+    expect(traces.some((t) => t.includes('no prover snapshot received'))).toBe(true);
   });
 });

@@ -10,6 +10,7 @@
 // dies, and the most valuable report is exactly the one that must not wait on three storage round-trips.
 
 import { describeError, type ReportContext, type Described } from '@/infra/report/describe';
+import { serializeDiag, type Diag } from '@/infra/report/diag';
 
 /** What a report looks like on its way to the sink. Serialisable — it crosses `runtime.sendMessage`. */
 export interface PendingReport {
@@ -26,7 +27,26 @@ export interface PendingReport {
   fromPage?: boolean;
   /** A failed notary proof rather than a crash — charged to its own budget, see `maxPerDayProof`. */
   proof?: boolean;
+  /**
+   * Allowlisted diagnostics (src/infra/report/diag.ts). On a proof report it marks a SESSION SUMMARY — one per
+   * notary session, each distinct — which {@link isSessionSummary} exempts from every repeat guard.
+   */
+  diag?: Diag;
+  /**
+   * A state the core re-announces every tick (a suppressed proof, a withheld report). Sent on the occurrence
+   * ladder only, never on a cooldown expiry — see `decide` in outbox.ts.
+   */
+  steady?: boolean;
 }
+
+/**
+ * A proof session's summary: a failed proof that carries the prover's own diagnostics. Each one is a different
+ * notary session, so the guards against a crash loop repeating itself — the per-spawn dedup and cap here, the
+ * fingerprint cooldown and the queue collapse in the outbox — would throw away exactly the sessions the summary
+ * exists to compare. Still charged to the daily proof budget.
+ */
+export const isSessionSummary = (report: Pick<PendingReport, 'proof' | 'diag'>): boolean =>
+  report.proof === true && report.diag !== undefined;
 
 type ReportSink = (report: PendingReport) => void;
 
@@ -126,21 +146,34 @@ export function setReportSink(fn: ReportSink): void {
  * @param options.fromCore the failure came out of the tracker core even if its stack does not say so.
  * @param options.coreSummary the message is a core-authored summary — see `MessageOrigin` in describe.ts.
  * @param options.proof a failed notary proof, charged to its own budget (see {@link PendingReport}).
+ * @param options.diag raw diagnostics, allowlisted here (see {@link PendingReport.diag}).
+ * @param options.steady a per-tick state rather than an event (see {@link PendingReport.steady}).
  */
 export function reportError(
   error: unknown,
-  options: { fromPage?: boolean; fromCore?: boolean; coreSummary?: boolean; proof?: boolean } = {},
+  options: {
+    fromPage?: boolean;
+    fromCore?: boolean;
+    coreSummary?: boolean;
+    proof?: boolean;
+    diag?: unknown;
+    steady?: boolean;
+  } = {},
 ): void {
   if (depth > 0) return; // a reporter-internal failure must not re-enter
   depth += 1;
   try {
-    if (sentThisSpawn >= MAX_PER_SPAWN) return;
+    const diag = serializeDiag(options.diag);
+    const summary = isSessionSummary({ proof: options.proof, diag });
+    if (!summary && sentThisSpawn >= MAX_PER_SPAWN) return;
     const origin = options.coreSummary === true ? 'core-summary' : options.fromCore === true ? 'core' : 'auto';
     const described: Described = describeError(error, context, origin);
     if (isSuppressed(described.message)) return;
-    if (seenThisSpawn.has(described.fingerprint)) return;
-    seenThisSpawn.set(described.fingerprint, Date.now());
-    sentThisSpawn += 1;
+    if (!summary) {
+      if (seenThisSpawn.has(described.fingerprint)) return;
+      seenThisSpawn.set(described.fingerprint, Date.now());
+      sentThisSpawn += 1;
+    }
     sink({
       context,
       message: described.message,
@@ -149,6 +182,8 @@ export function reportError(
       timestamp: new Date().toISOString(),
       ...(options.fromPage === true ? { fromPage: true } : {}),
       ...(options.proof === true ? { proof: true } : {}),
+      ...(diag !== undefined ? { diag } : {}),
+      ...(options.steady === true ? { steady: true } : {}),
     });
   } catch {
     /* reporting must never surface into the caller */

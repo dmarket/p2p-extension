@@ -26,6 +26,7 @@ export default defineConfig({
     // scope, so an undefined identifier is a ReferenceError on import. The value only has to be a string;
     // a test asserting on a real SHA would be asserting on the checkout.
     __BUILD_ID__: JSON.stringify('test'),
+    __PROVER_BUILD__: JSON.stringify('test-prover'),
   },
   resolve: {
     // THE SAME constant wxt.config.ts uses, not a second copy of the path: a test gets the exact module

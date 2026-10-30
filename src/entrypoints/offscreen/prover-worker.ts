@@ -24,6 +24,7 @@
 import { proveNotaryTransition } from '@dmarket/p2p-tracker-core';
 import { buildTrackerConfig } from '@/core/config';
 import { isProverWorkerPing, parseStageLine } from '@/core/notary-messages';
+import { ProofStats, type ProofSnapshot } from '@/core/notary-snapshot';
 import type {
   NotaryProveReply,
   ProofPayload,
@@ -33,10 +34,28 @@ import type {
   ProverWorkerTrace,
 } from '@/core/notary-messages';
 
-const trace = (line: string, level?: ProverWorkerTrace['level']): void => {
-  console.info(`[notary/worker] ${line}`);
-  self.postMessage({ trace: line, level } satisfies ProverWorkerTrace);
+/**
+ * One narration line out of this realm, prefixed with its proof when it has one. A snapshot rides along on the
+ * lines that change it (socket ticks and closes, stage boundaries), so the document and the service worker get
+ * structure without re-parsing prose.
+ */
+const trace = (
+  line: string,
+  level?: ProverWorkerTrace['level'],
+  proofId?: string,
+  snapshot?: ProofSnapshot,
+): void => {
+  const text = proofId === undefined ? line : `proof ${proofId}: ${line}`;
+  console.info(`[notary/worker] ${text}`);
+  self.postMessage({ trace: text, level, proofId, snapshot } satisfies ProverWorkerTrace);
 };
+
+/** Every proof's counters. Sockets are pinned to proofs here — see `ProofStats.socket` for the rule. */
+const stats = new ProofStats({
+  now: Date.now,
+  isolated: () => self.crossOriginIsolated,
+  cores: () => (typeof navigator.hardwareConcurrency === 'number' ? navigator.hardwareConcurrency : undefined),
+});
 
 /**
  * How often each open socket reports its byte counters. 5s over a 180s deadline is ~36 lines per socket for a
@@ -55,36 +74,10 @@ const PROGRESS_EVERY_MS = 5_000;
  */
 const IDLE_WARN_MS = 15_000;
 
-/**
- * The stage the prover last reported, and when it entered it.
- *
- * A `PROGRESS` line used to be byte counters and nothing else, which is the same shape whether the MPC is
- * pre-processing or the notary has stopped answering. Measured live on dev 2026-08-28: a healthy proof spends
- * 10.8 s of its 17.4 s inside `MPC_SETUP`, pushing ~38 MB, and the only thing naming that stage was a single
- * line 10 s further up the log. Naming it ON the tick is what makes the tick self-contained.
- *
- * Written by the core's progress callback in {@link run}, read by the socket ticks — see {@link stageNote}
- * for why it is only reported while exactly one proof is running.
- */
-let stage: { name: string; since: number } | undefined;
-
-function noteStage(line: string): void {
-  const step = parseStageLine(line);
-  if (step) stage = { name: step, since: Date.now() };
-}
-
-/**
- * ` · MPC_SETUP 10% for 7.2s`, or empty when no stage can be attributed to this socket.
- *
- * The guard is `pending.size`: the core runs up to `NotaryConfig.maxConcurrency` proofs at once, and neither
- * the stage lines nor the sockets carry a proof id — so with two in flight, pinning one stage to one socket
- * would be a guess printed on the line a wedge is diagnosed from. `runningProof` in src/debug/proofState.ts
- * applies the same rule to the console pill, against that realm's own count.
- */
-function stageNote(): string {
-  if (!stage || pending.size !== 1) return '';
-  return ` · ${stage.name} for ${((Date.now() - stage.since) / 1000).toFixed(1)}s`;
-}
+// The stage on a socket tick: since 2026-08-28 each `PROGRESS` line names the stage its proof is in. Measured
+// live on dev that day, a healthy proof spends 10.8 s of its 17.4 s inside `MPC_SETUP` pushing ~38 MB, and the
+// only thing naming that stage was a single line 10 s further up the log. Now read from `stats` (per proof, so
+// two concurrent proofs no longer have to share one global, and an unpinned socket simply shows none).
 
 /**
  * Narrate the prover's WebSockets.
@@ -119,19 +112,17 @@ function traceWebSockets(): void {
         return '(unparseable url)';
       }
     })();
-    let sent = 0;
-    let recv = 0;
-    let openedAt = 0;
-    // When bytes last moved in either direction, so a progress tick can tell "quiet for a moment" from
-    // "quiet for a worryingly long time". Seeded at open, not at 0, so the first window is measured from
-    // when the socket actually became usable.
-    let lastMovedAt = 0;
+    // Counters live in `stats`, which also pins the socket to its proof when that can be known.
+    const tracked = stats.socket(String(url), sock);
+    const owner = tracked.proofId;
+    const say = (line: string, level?: ProverWorkerTrace['level'], withSnapshot = false): void =>
+      trace(line, level, owner, withSnapshot && owner !== undefined ? stats.snapshot(owner) : undefined);
     // FIRST byte each way, with the delay since the socket opened. The totals on close were not enough: a
     // proxy socket that carried `sent 0B recv 0B` for 21 s before the upstream dropped it says the MPC never
     // wrote, but not whether the NOTARY leg was making progress meanwhile — which is the difference between
     // "preprocessing is too slow" and "the notary handshake stalled". One line per direction per socket.
     const firstByte = (dir: 'send' | 'recv', n: number): void => {
-      trace(`ws#${id} first ${dir} after ${openedAt ? Date.now() - openedAt : 0}ms (${n}B) ${where}`);
+      say(`ws#${id} first ${dir} after ${tracked.openedAt ? Date.now() - tracked.openedAt : 0}ms (${n}B) ${where}`);
     };
     // Progress WHILE the session runs, not only its totals once it ends. Between `first send` and a deadline
     // kill this path emitted NOTHING, so "the MPC is uploading 63 MB at 1 MB/s" and "the MPC is wedged"
@@ -141,6 +132,9 @@ function traceWebSockets(): void {
     // A GAP in these lines is signal of a third kind. The prover's driver blocks this thread on `Atomics.wait`
     // (see the file header), and a blocked thread does not run timers — so ticks that never fire say the
     // driver is stuck inside the wasm, not that the wire went quiet.
+    //
+    // `buffered` is `bufferedAmount`: bytes WE queued that the browser has not yet put on the wire. A climbing
+    // value with a flat `sent` delta says the uplink is the bottleneck, not the peer.
     let progress: ReturnType<typeof setInterval> | undefined;
     let tickSent = 0;
     let tickRecv = 0;
@@ -156,58 +150,59 @@ function traceWebSockets(): void {
     // forward, and the bump failed to compile on this one line.
     sock.send = (data: Parameters<typeof send>[0]): void => {
       const n = byteLength(data);
-      if (sent === 0) firstByte('send', n);
-      sent += n;
+      if (tracked.sent === 0) firstByte('send', n);
+      stats.moved(tracked, 'sent', n);
       send(data);
     };
     sock.addEventListener('message', (e) => {
       const n = byteLength(e.data as never);
-      if (recv === 0) firstByte('recv', n);
-      recv += n;
+      if (tracked.recv === 0) firstByte('recv', n);
+      stats.moved(tracked, 'recv', n);
     });
     sock.addEventListener('open', () => {
-      openedAt = Date.now();
-      lastMovedAt = openedAt;
-      trace(`ws#${id} OPEN ${where} (subprotocol ${sock.protocol || 'none'})`);
+      stats.opened(tracked);
+      say(`ws#${id} OPEN ${where} (subprotocol ${sock.protocol || 'none'})`);
       progress = setInterval(() => {
-        const dSent = sent - tickSent;
-        const dRecv = recv - tickRecv;
-        tickSent = sent;
-        tickRecv = recv;
-        const moved = dSent !== 0 || dRecv !== 0;
-        if (moved) lastMovedAt = Date.now();
-        const idleMs = Date.now() - lastMovedAt;
-        trace(
-          `ws#${id} PROGRESS ${((Date.now() - openedAt) / 1000).toFixed(1)}s ` +
-            `sent ${bytes(sent)} (+${bytes(dSent)}) recv ${bytes(recv)} (+${bytes(dRecv)}) ${where}` +
-            stageNote(),
+        const dSent = tracked.sent - tickSent;
+        const dRecv = tracked.recv - tickRecv;
+        tickSent = tracked.sent;
+        tickRecv = tracked.recv;
+        const idleMs = stats.idleMs(tracked) ?? 0;
+        say(
+          `ws#${id} PROGRESS ${((Date.now() - tracked.openedAt) / 1000).toFixed(1)}s ` +
+            `sent ${bytes(tracked.sent)} (+${bytes(dSent)}) recv ${bytes(tracked.recv)} (+${bytes(dRecv)}) ` +
+            `buffered ${sock.bufferedAmount} ${where}` +
+            stats.stageNote(tracked),
           // Only a SUSTAINED silence is worth flagging. This used to warn on the first quiet tick, which made
           // the normal case red: the target socket is opened before the MPC has finished preprocessing, so it
           // is legitimately silent for the first several seconds while the notary leg does the work. A
           // display hint, not a verdict — see IDLE_WARN_MS.
           idleMs >= IDLE_WARN_MS ? 'warn' : 'info',
+          true,
         );
       }, PROGRESS_EVERY_MS);
     });
     sock.addEventListener('error', () => {
       stopProgress();
-      trace(`ws#${id} ERROR ${where} — sent ${sent}B recv ${recv}B`, 'error');
+      say(`ws#${id} ERROR ${where} — sent ${tracked.sent}B recv ${tracked.recv}B`, 'error', true);
     });
     sock.addEventListener('close', (e) => {
       // Before the trace, not after: a socket the offscreen document outlives would otherwise keep ticking on
       // a dead session, and this worker is reused for every proof until the document is recycled.
       stopProgress();
       const { code, reason, wasClean } = e;
-      trace(
-        `ws#${id} CLOSE ${where} code=${code}${reason ? ` reason=${reason}` : ''} clean=${wasClean} — sent ${sent}B recv ${recv}B`,
+      stats.closed(tracked, code);
+      say(
+        `ws#${id} CLOSE ${where} code=${code}${reason ? ` reason=${reason}` : ''} clean=${wasClean} — sent ${tracked.sent}B recv ${tracked.recv}B`,
         // Keyed on `wasClean`, NOT on the code. This used to warn on anything but 1000, which made the
         // ordinary end of a healthy session red: **1005 is "No Status Received"**, i.e. the peer closed
         // without sending a status code, and the browser still reports `wasClean: true`. 1006 is the one that
         // means something went wrong, and it comes with `wasClean: false`.
         wasClean ? 'info' : 'warn',
+        true,
       );
     });
-    trace(`ws#${id} CONNECTING ${where}`);
+    say(`ws#${id} CONNECTING ${where}`);
     return sock;
   } as unknown as typeof WebSocket;
   // Statics the glue may read off the constructor (CONNECTING/OPEN/CLOSING/CLOSED).
@@ -252,8 +247,8 @@ function shimExtensionApi(): void {
 }
 shimExtensionApi();
 
-/** Requests still in flight, so a failure that escapes a single proof can still be attributed. */
-const pending = new Set<number>();
+/** Requests still in flight → their proof id, so a failure that escapes a single proof can still be attributed. */
+const pending = new Map<number, string>();
 
 const post = (message: ProverWorkerReply): void => {
   pending.delete(message.id);
@@ -269,7 +264,9 @@ const post = (message: ProverWorkerReply): void => {
  */
 const failAll = (reason: string): void => {
   // Realm-level: whatever broke did so outside any one proof, so the wasm instance cannot be trusted.
-  for (const id of [...pending]) post({ id, reply: { ok: false, error: reason, poisoned: true } });
+  for (const [id, proofId] of [...pending]) {
+    post({ id, reply: { ok: false, error: reason, poisoned: true, snapshot: stats.snapshot(proofId) } });
+  }
 };
 
 self.addEventListener('unhandledrejection', (e) => {
@@ -314,13 +311,16 @@ self.addEventListener('message', (event: MessageEvent<ProverWorkerInbound>) => {
     return;
   }
   const { id, proof } = event.data;
-  pending.add(id);
+  pending.set(id, proof.proofId);
   void run(proof).then((reply) => post({ id, reply }));
 });
 
 async function run(proof: ProofPayload): Promise<NotaryProveReply> {
-  // Cleared per proof, so a tick early in this one cannot carry the last one's final stage.
-  stage = undefined;
+  const { proofId } = proof;
+  const config = buildTrackerConfig(undefined, proof.config);
+  // Read back from the BUILT config, not the overrides: the core default applies when nothing was published.
+  const threadCount = (config as unknown as { notary?: { threadCount?: unknown } }).notary?.threadCount;
+  stats.begin(proofId, typeof threadCount === 'number' ? threadCount : undefined);
   try {
     // The Steam token's LENGTH, never its value — the same practice `describeSecret` follows for headers and
     // cookies in the session log.
@@ -332,8 +332,13 @@ async function run(proof: ProofPayload): Promise<NotaryProveReply> {
     // notary — one session was measured at 63 MB. Everything else in that request is fixed and countable from
     // the template: 196 bytes on the larger (history) axis, request line and four injected headers included.
     // This line closes the gap, because the log's URL scrubbing removes the query value AND its length.
-    trace(`steam token ${proof.steamAccessToken.length} chars → proven request ≈ ${196 + proof.steamAccessToken.length}B sent`);
-    const config = buildTrackerConfig(undefined, proof.config);
+    trace(
+      `steam token ${proof.steamAccessToken.length} chars → proven request ≈ ${196 + proof.steamAccessToken.length}B sent`,
+      undefined,
+      proofId,
+    );
+    // `proofId` is NOT an argument here and must never become one: it is a client-side correlation key, and
+    // anything handed to the prover can end up in the notary session.
     const presentation = await proveNotaryTransition(
       proof.requestJson,
       proof.notaryToken,
@@ -346,18 +351,26 @@ async function run(proof: ProofPayload): Promise<NotaryProveReply> {
       // left "died in the disclosure step", "died in the phase-2 attestation exchange" and "waiting on a
       // rayon thread" indistinguishable. Cheap: a handful of lines per proof.
       (line) => {
-        // Also the socket ticks' only source of "which stage is this" — see `stage` above.
-        noteStage(line);
-        trace(line);
+        // Also the socket ticks' only source of "which stage is this". Per proof: this callback is.
+        const step = parseStageLine(line);
+        if (step) stats.stage(proofId, step);
+        trace(line, undefined, proofId, step ? stats.snapshot(proofId) : undefined);
       },
     );
     return { ok: true, presentation };
   } catch (e) {
     // Logged whole (stack included) because this realm's console is the only place a full stack exists.
     // Safe: the request carries ids only, and neither token is part of it.
-    console.error('[notary/worker] proof failed', e);
+    console.error(`[notary/worker] proof ${proofId} failed`, e);
     const error = describeFailure(e);
     // A trap that was CAUGHT here is still a trap — the instance is just as dead as one that escaped.
-    return { ok: false, error, poisoned: e instanceof Error && WASM_TRAP.test(e.message) };
+    return {
+      ok: false,
+      error,
+      poisoned: e instanceof Error && WASM_TRAP.test(e.message),
+      snapshot: stats.snapshot(proofId),
+    };
+  } finally {
+    stats.end(proofId);
   }
 }

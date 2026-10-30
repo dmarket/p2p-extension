@@ -5,6 +5,7 @@
 
 // Type-only (erased at build), so this module stays free of any runtime dependency on the config layer.
 import type { TrackerOverrides } from '@/config/settings';
+import type { ProofSnapshot } from '@/core/notary-snapshot';
 
 /** `chrome.runtime` message type for a proof request. Namespaced so no other listener claims it. */
 export const NOTARY_PROVE = 'dmarket.notary.prove' as const;
@@ -48,6 +49,12 @@ export type ProverOverrides = Pick<TrackerOverrides, 'notary'>;
  */
 export interface NotaryProveMessage {
   type: typeof NOTARY_PROVE;
+  /**
+   * Random, per attempt, minted by the service worker. Prefixes every trace line of this proof and keys its
+   * snapshots, so two concurrent proofs never read as one. Client-side only: never handed to the prover and
+   * therefore never seen by the notary, where it could tie a report to an authenticated session.
+   */
+  proofId: string;
   requestJson: string;
   notaryToken: string;
   steamAccessToken: string;
@@ -67,6 +74,11 @@ export interface NotaryProveMessage {
    * The DOCUMENT's concern, like `stuckAfterMs` — dropped from {@link ProofPayload} below.
    */
   proofsPerInstance: number;
+  /**
+   * End a proof whose NOTARY socket has moved no byte, in either direction, for this long (ms); `0` disables
+   * the check. The document's concern, like {@link stuckAfterMs}. See `web.notaryStallAfterMs`.
+   */
+  stallAfterMs: number;
 }
 
 /**
@@ -79,7 +91,9 @@ export interface NotaryProveMessage {
  */
 export type NotaryProveReply =
   | { ok: true; presentation: string }
-  | { ok: false; error: string; poisoned?: boolean };
+  // `snapshot`: the proof's state when it failed. On the reply as well as on the trace stream because the two
+  // travel over different channels with no ordering between them, and the report needs the last one.
+  | { ok: false; error: string; poisoned?: boolean; snapshot?: ProofSnapshot };
 
 export const isNotaryProveMessage = (m: unknown): m is NotaryProveMessage =>
   typeof m === 'object' && m !== null && (m as { type?: unknown }).type === NOTARY_PROVE;
@@ -97,13 +111,18 @@ export const NOTARY_PHASE = 'dmarket.notary.phase' as const;
  * "isolation is off despite the manifest keys", "this one was cold" and "the worker realm died" all present
  * as the same single timeout string, and they call for four different fixes.
  *
- * Primitives only, so it cannot smuggle a payload. Nothing listens in production — `logCommand` lives in
- * `src/debug/`, which is stripped from prod — so the send is a no-op there by construction.
+ * Primitives only, so it cannot smuggle a payload. In production the only listener is the proof delegate,
+ * which reads `snapshot` and nothing else (it keeps the last one per proof for a failure report); the `note`
+ * is ingested by `logCommand` in `src/debug/`, which is stripped from prod.
  */
 export interface NotaryPhaseMessage {
   type: typeof NOTARY_PHASE;
   note: string;
   level?: 'info' | 'warn' | 'error';
+  /** The proof this line is about, when the worker could tell. */
+  proofId?: string;
+  /** That proof's state at this line. The service worker keeps the last one per proof for its report. */
+  snapshot?: ProofSnapshot;
 }
 
 export const isNotaryPhaseMessage = (m: unknown): m is NotaryPhaseMessage =>
@@ -111,6 +130,15 @@ export const isNotaryPhaseMessage = (m: unknown): m is NotaryPhaseMessage =>
   m !== null &&
   (m as { type?: unknown }).type === NOTARY_PHASE &&
   typeof (m as { note?: unknown }).note === 'string';
+
+/** A phase line that carries a snapshot of a named proof. */
+export const hasProofSnapshot = (
+  m: unknown,
+): m is NotaryPhaseMessage & { proofId: string; snapshot: ProofSnapshot } =>
+  isNotaryPhaseMessage(m) &&
+  typeof m.proofId === 'string' &&
+  typeof m.snapshot === 'object' &&
+  m.snapshot !== null;
 
 /**
  * The core's `progressLine` format: `stage <step>[ <pct>%][ — <message>]`, e.g.
@@ -120,7 +148,8 @@ export const isNotaryPhaseMessage = (m: unknown): m is NotaryPhaseMessage =>
  * label. `null` for anything else, because the same trace stream also carries the issuance parameters and the
  * socket lines.
  */
-const STAGE_LINE = /^stage (.+?)(?: — .*)?$/;
+// The optional `proof <id>: ` is the prefix the worker puts on a proof's own lines before they are relayed.
+const STAGE_LINE = /^(?:proof [0-9a-f]{8}: )?stage (.+?)(?: — .*)?$/;
 
 /**
  * Recover the prover's current stage from one narration line, or `null` when the line is not one.
@@ -147,11 +176,11 @@ export const parseStageLine = (line: string): string | null => STAGE_LINE.exec(l
 /**
  * What the worker needs to produce one proof: the message minus its envelope.
  *
- * `stuckAfterMs` and `proofsPerInstance` are dropped along with `type` — both configure the DOCUMENT, and the worker is
- * the thing being watched. Handing it its own supervision threshold would be both useless (a blocked thread
- * cannot act on it) and misleading.
+ * `stuckAfterMs`, `proofsPerInstance` and `stallAfterMs` are dropped along with `type` — all configure the
+ * DOCUMENT, and the worker is the thing being watched. Handing it its own supervision threshold would be both
+ * useless (a blocked thread cannot act on it) and misleading.
  */
-export type ProofPayload = Omit<NotaryProveMessage, 'type' | 'stuckAfterMs' | 'proofsPerInstance'>;
+export type ProofPayload = Omit<NotaryProveMessage, 'type' | 'stuckAfterMs' | 'proofsPerInstance' | 'stallAfterMs'>;
 
 /** One proof request, correlated so one worker can serve concurrent proofs. */
 export interface ProverWorkerRequest {
@@ -169,6 +198,8 @@ export interface ProverWorkerReply {
 export interface ProverWorkerTrace {
   trace: string;
   level?: 'info' | 'warn' | 'error';
+  proofId?: string;
+  snapshot?: ProofSnapshot;
 }
 
 /**

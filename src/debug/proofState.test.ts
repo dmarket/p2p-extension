@@ -55,6 +55,12 @@ describe('runningProof', () => {
     expect(runningProof()?.stage).toBeNull();
   });
 
+  it('reads a stage line the worker prefixed with its proof id', () => {
+    start(1_000);
+    recordProofStage('proof a1b2c3d4: stage MPC_SETUP 10% — Setting up MPC with the notary…', 1_500);
+    expect(runningProof()?.stage).toBe('MPC_SETUP 10%');
+  });
+
   it('keeps the step when the wasm sends no percentage and no message', () => {
     start(1_000);
     recordProofStage('stage reveal', 1_100);

@@ -28,6 +28,7 @@ import {
   type ProverWorkerPing,
   type ProverWorkerRequest,
 } from '@/core/notary-messages';
+import { stallReason, type ProofSnapshot } from '@/core/notary-snapshot';
 
 if (!self.crossOriginIsolated) {
   // Not thrown: the document must stay alive so the SW's message still gets a legible reply rather
@@ -61,13 +62,19 @@ browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
  * construction.
  *
  * Also relayed to the service worker, which is the only context that can put them in the EXPORTED session log
- * — a console line helps whoever is at the keyboard, and nobody else. The send is best-effort and no-ops in
- * production, where nothing is listening (the ingest lives in the dev-only debug router).
+ * — a console line helps whoever is at the keyboard, and nobody else. The send is best-effort. In production
+ * only the snapshots are read (the proof delegate keeps the last one per proof for a failure report); the
+ * line itself is ingested by the dev-only debug router.
  */
-const phase = (msg: string, level?: NotaryPhaseMessage['level']): void => {
+const phase = (
+  msg: string,
+  level?: NotaryPhaseMessage['level'],
+  proofId?: string,
+  snapshot?: ProofSnapshot,
+): void => {
   console.info(`[notary] ${msg}`);
   try {
-    const relay: NotaryPhaseMessage = { type: NOTARY_PHASE, note: msg, level };
+    const relay: NotaryPhaseMessage = { type: NOTARY_PHASE, note: msg, level, proofId, snapshot };
     void browser.runtime.sendMessage(relay).catch(() => {});
   } catch {
     /* no receiver */
@@ -100,18 +107,25 @@ async function runProof(message: NotaryProveMessage): Promise<NotaryProveReply> 
   //  - `dev`, because the PEM is injected under `import.meta.env.DEV` in background.ts. A substrate built with
   //    `npm run build` instead of `build:debug` has no fixture root at all, and every other clue looks fine.
   // The PEM's LENGTH, never its bytes — it is public, but it is multi-kilobyte and would bury the log.
+  // `prover` is the wasm build the core shipped (its VERSION file), the one fact no later line can supply.
   const notary = message.config.notary;
+  const { proofId } = message;
   phase(
-    `proof requested: notaryUrl=${notary?.notaryUrl ?? '(none)'} ` +
+    `proof ${proofId}: proof requested: notaryUrl=${notary?.notaryUrl ?? '(none)'} ` +
       `rootStorePem=${notary?.rootStorePem ? `${notary.rootStorePem.length} chars` : 'absent → mozilla roots'} ` +
-      `dev=${import.meta.env.DEV} isolated=${self.crossOriginIsolated} worker=${worker ? 'reused' : 'created'}`,
+      `dev=${import.meta.env.DEV} isolated=${self.crossOriginIsolated} worker=${worker ? 'reused' : 'created'} ` +
+      `prover=${__PROVER_BUILD__}`,
+    undefined,
+    proofId,
   );
   const reply = await runInWorker(message);
+  lastSnapshot.delete(proofId);
   phase(
     reply.ok
-      ? `proof produced in ${Date.now() - startedAt}ms (${reply.presentation.length} base64 chars)`
-      : `proof failed after ${Date.now() - startedAt}ms: ${reply.error}`,
+      ? `proof ${proofId}: proof produced in ${Date.now() - startedAt}ms (${reply.presentation.length} base64 chars)`
+      : `proof ${proofId}: proof failed after ${Date.now() - startedAt}ms: ${reply.error}`,
     reply.ok ? 'info' : 'error',
+    proofId,
   );
   // A trapped wasm instance cannot be re-entered, and the façade memoises instantiation — so a worker that
   // has trapped will answer every later proof with the same error in milliseconds. Discard it here rather
@@ -171,7 +185,22 @@ let nextId = 1;
  */
 let servedByWorker = 0;
 let proofsPerInstance = 1;
-const waiting = new Map<number, (reply: NotaryProveReply) => void>();
+/** In-flight requests by worker request id. */
+const waiting = new Map<number, { settle: (reply: NotaryProveReply) => void; proofId: string }>();
+
+/**
+ * The last snapshot the worker sent per proof. Attached to a reply this document has to SYNTHESISE (a discarded
+ * worker cannot answer for itself), so a killed proof still reports where it was.
+ */
+const lastSnapshot = new Map<string, ProofSnapshot>();
+
+/** Answer every waiting proof with one failure, each carrying its own last snapshot. */
+function failWaiting(error: string): void {
+  for (const [id, { settle, proofId }] of [...waiting]) {
+    waiting.delete(id);
+    settle({ ok: false, error, poisoned: true, snapshot: lastSnapshot.get(proofId) });
+  }
+}
 
 function proverWorker(): Worker {
   if (worker) return worker;
@@ -180,7 +209,10 @@ function proverWorker(): Worker {
     // Narration, not a result: the worker's WebSocket trace and its own breadcrumbs come this way, because
     // it is not an extension context and cannot reach the service worker itself.
     if (isProverWorkerTrace(e.data)) {
-      phase(e.data.trace, e.data.level);
+      const { trace, level, proofId, snapshot } = e.data;
+      if (proofId !== undefined && snapshot !== undefined) lastSnapshot.set(proofId, snapshot);
+      phase(trace, level, proofId, snapshot);
+      if (proofId !== undefined && snapshot !== undefined) checkStall(proofId, snapshot);
       return;
     }
     // The liveness answer. Only its ARRIVAL carries information — see `startLivenessWatch`.
@@ -188,10 +220,10 @@ function proverWorker(): Worker {
       lastPongAt = Date.now();
       return;
     }
-    const settle = waiting.get(e.data.id);
-    if (!settle) return;
+    const entry = waiting.get(e.data.id);
+    if (!entry) return;
     waiting.delete(e.data.id);
-    settle(e.data.reply);
+    entry.settle(e.data.reply);
   });
   // A worker that dies takes every in-flight proof with it; answer them rather than leaving the caller waiting
   // — the failure mode this whole seam has been fighting.
@@ -200,10 +232,7 @@ function proverWorker(): Worker {
     worker = undefined;
     servedByWorker = 0;
     stopLivenessWatch();
-    for (const [id, settle] of [...waiting]) {
-      waiting.delete(id);
-      settle({ ok: false, error: `prover worker errored: ${e.message}`, poisoned: true });
-    }
+    failWaiting(`prover worker errored: ${e.message}`);
   });
   worker = w;
   return w;
@@ -228,10 +257,7 @@ function discardWorker(why: string, level: NotaryPhaseMessage['level'] = 'warn')
   worker = undefined;
   servedByWorker = 0;
   stopLivenessWatch();
-  for (const [id, settle] of [...waiting]) {
-    waiting.delete(id);
-    settle({ ok: false, error: `prover worker discarded: ${why}`, poisoned: true });
-  }
+  failWaiting(`prover worker discarded: ${why}`);
 }
 
 /**
@@ -292,16 +318,43 @@ function stopLivenessWatch(): void {
   liveness = undefined;
 }
 
+/** The live stall threshold, from the most recent proof's message; `0` means the check is off. */
+let stallAfterMs = 0;
+
+/**
+ * End a proof whose NOTARY socket has been silent in both directions for `web.notaryStallAfterMs`.
+ *
+ * The case the liveness watch cannot see: the driver is NOT blocked — it answers every ping, its timers fire,
+ * its socket ticks keep arriving — but the notary leg has stopped moving bytes, so the proof sits in MPC
+ * preprocessing until the 180 s deadline. Observed on 5-12 accounts at once. The proxy socket is excluded on
+ * purpose: it is dialled before preprocessing ends and is legitimately silent for most of it.
+ *
+ * Checked when a snapshot arrives rather than on a timer: the notary socket ticks every 5 s while it is open,
+ * so a stall is seen within one tick of crossing the threshold, and a realm that sends no ticks at all is the
+ * liveness watch's case. A closed socket is not a stall — the proof fails on its own.
+ *
+ * Kills the whole worker, i.e. any concurrent proof too: one realm, one wasm instance, no way to stop one
+ * proof inside it. The liveness watch has the same blast radius. Off by default for exactly that reason.
+ */
+function checkStall(proofId: string, snap: ProofSnapshot): void {
+  const why = stallReason(snap, stallAfterMs);
+  if (why !== null && [...waiting.values()].some((w) => w.proofId === proofId)) discardWorker(why);
+}
+
 function runInWorker(message: NotaryProveMessage): Promise<NotaryProveReply> {
   const id = nextId++;
-  const { requestJson, notaryToken, steamAccessToken, config } = message;
-  const request: ProverWorkerRequest = { id, proof: { requestJson, notaryToken, steamAccessToken, config } };
+  const { proofId, requestJson, notaryToken, steamAccessToken, config } = message;
+  const request: ProverWorkerRequest = {
+    id,
+    proof: { proofId, requestJson, notaryToken, steamAccessToken, config },
+  };
   return new Promise<NotaryProveReply>((resolve) => {
-    waiting.set(id, resolve);
+    waiting.set(id, { settle: resolve, proofId });
     proverWorker().postMessage(request);
     // After the post, not before: the watch only means anything once there is a proof to be wedged on, and
     // `proverWorker()` is what creates the realm being watched.
     proofsPerInstance = message.proofsPerInstance;
+    stallAfterMs = message.stallAfterMs;
     startLivenessWatch(message.stuckAfterMs);
   });
 }

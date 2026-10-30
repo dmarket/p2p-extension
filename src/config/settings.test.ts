@@ -3,6 +3,7 @@ import {
   getMarketplaceCookieName,
   getSteamSessionCookieName,
   parseSettings,
+  PROOF_REPORTS_PER_DAY,
   subscribeSettings,
   type TrackerOverrides,
 } from '@/config/settings';
@@ -335,6 +336,16 @@ describe('web overrides', () => {
     expect(parse({ web: { notaryStuckAfterMs: 30_000 } }).web.notaryStuckAfterMs).toBe(30_000);
   });
 
+  it('notaryStallAfterMs: off by default, 0 stays off, anything else is held to 30 s..180 s', () => {
+    const stall = (v: unknown) => parse({ web: { notaryStallAfterMs: v } }).web.notaryStallAfterMs;
+    expect(parse({}).web.notaryStallAfterMs).toBe(0);
+    expect(stall(0)).toBe(0);
+    expect(stall(1_000)).toBe(30_000);
+    expect(stall(45_000)).toBe(45_000);
+    expect(stall(600_000)).toBe(180_000);
+    expect(stall(-5)).toBe(0); // rejected → the default
+  });
+
   it('remoteConfigFetchIntervalMs defaults to 1h and accepts only 15 min..7 days', () => {
     const interval = (v: unknown) =>
       parse({ web: { remoteConfigFetchIntervalMs: v } }).web.remoteConfigFetchIntervalMs;
@@ -386,7 +397,8 @@ describe('errorReporting — remote config can only ever NARROW the reporter', (
     // …widening does not: a hostile publish cannot raise volume or shorten the cooldown.
     expect(er({ maxPerDay: 1000 }).maxPerDay).toBe(10);
     expect(er({ maxPerDayFromPage: 1000 }).maxPerDayFromPage).toBe(3);
-    expect(er({ maxPerDayProof: 1000 }).maxPerDayProof).toBe(10);
+    expect(er({}).maxPerDayProof).toBe(PROOF_REPORTS_PER_DAY);
+    expect(er({ maxPerDayProof: PROOF_REPORTS_PER_DAY + 1000 }).maxPerDayProof).toBe(PROOF_REPORTS_PER_DAY);
     expect(er({ maxPerDayProof: 2 }).maxPerDayProof).toBe(2);
     expect(er({ fpCooldownMs: 1 }).fpCooldownMs).toBe(1_800_000);
   });

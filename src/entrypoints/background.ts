@@ -19,7 +19,7 @@ import { initIcon } from '@/background/icon';
 import { isActivated, subscribeActivation } from '@/state/activation';
 import { setBlockingReason, setLinkedSteamId } from '@/state/blocking';
 import { setActiveTrackingCount } from '@/state/activeCount';
-import { reportIfProofFailed, type ProofFailedFrame } from '@/infra/report/proof';
+import { reportProofEvent, type ProofFrame } from '@/infra/report/proof';
 import { registerReportRelay, reportError, setReportSink } from '@/infra/report/reporter';
 import { enqueue, flush } from '@/infra/report/outbox';
 import { fetchRemoteConfig, hasFetchedRemoteConfig, type ConfigEntries } from '@/infra/remoteConfig';
@@ -294,7 +294,7 @@ export default defineBackground(() => {
     } catch {
       /* never break the core's cycle */
     }
-    let parsed: { event?: unknown; tokenSteamId?: unknown; linkedSteamId?: unknown } & ProofFailedFrame;
+    let parsed: { event?: unknown; tokenSteamId?: unknown; linkedSteamId?: unknown } & ProofFrame;
     try {
       parsed = JSON.parse(json) as typeof parsed;
     } catch {
@@ -316,9 +316,9 @@ export default defineBackground(() => {
       // linked id; the other account's id (`tokenSteamId`) is pushed to the FE but never stored or shown.
       if (typeof parsed.linkedSteamId === 'string') void setLinkedSteamId(parsed.linkedSteamId);
     }
-    // The only production record of WHY a proof failed — see src/infra/report/proof.ts.
+    // The only production record of the proof path's outcomes — see src/infra/report/proof.ts.
     try {
-      reportIfProofFailed(parsed);
+      reportProofEvent(parsed);
     } catch {
       /* never break the core's cycle */
     }

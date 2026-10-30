@@ -94,6 +94,21 @@ const URL_WITH_QUERY = /(https?:\/\/[^\s"'<>)]*?)\?([^\s"')#]*)(?:#[^\s"')]*)?/g
 /** A URL with only a fragment. Dropped whole: `#access_token=…` is a real shape and never diagnostic. */
 const URL_WITH_FRAGMENT_ONLY = /(https?:\/\/[^\s"'<>)?]*?)#[^\s"')]*/gi;
 
+/**
+ * A root-relative path with a query — the shape a core or prover error prints for the proven read
+ * (`/IEconService/GetTradeOffer/v1/?tradeofferid=…&access_token=…`). {@link URL_WITH_QUERY} keys on a scheme,
+ * so without this the query values of a bare path survived, including a 10-digit offer id. The path must
+ * start a token (start, whitespace, a quote or a paren) so the tail of a full URL is not matched twice.
+ */
+const PATH_WITH_QUERY = /(^|[\s"'(])(\/[^\s"'<>)?#]*)\?([^\s"')#]*)(?:#[^\s"')]*)?/g;
+
+/**
+ * A run of 10+ digits standing on its own: a Steam offer or trade id, an epoch-ms timestamp. Bounded by
+ * word boundaries so a run inside a hex hash is left alone; the 17-digit steamid64 keeps its own marker.
+ * Shorter numbers (a status, a byte count, a duration) are what a diagnosis is read from and stay.
+ */
+const LONG_DIGITS = /\b\d{10,}\b/g;
+
 /** A 17-digit run — a steamid64. Public-ish, but it identifies a person, so it does not travel. */
 const STEAM_ID = /\d{17}/g;
 
@@ -154,37 +169,55 @@ interface Rule {
  * capture layout, so they are applied in sequence rather than combined.
  */
 function assignmentRules(keys: readonly string[]): readonly Rule[] {
-  return keys.flatMap((key) => {
-    const k = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return [
-      // form / query: key=value  (value runs to & or whitespace or a quote)
-      { pattern: new RegExp(`(${k})=([^&\\s"']+)`, 'gi'), replacement: `$1=${REDACTED}` },
-      // JSON, including the ESCAPED form Steam's `strError` carries: "key":"value" / \"key\":\"value\"
-      {
-        pattern: new RegExp(`(\\\\?"${k}\\\\?"\\s*:\\s*\\\\?")[^"\\\\]*(\\\\?")`, 'gi'),
-        replacement: `$1${REDACTED}$2`,
-      },
-      // single-quoted pseudo-JSON: 'key': 'value'
-      { pattern: new RegExp(`('${k}'\\s*:\\s*')[^']*(')`, 'gi'), replacement: `$1${REDACTED}$2` },
-      // percent-encoded JSON: %22key%22%3A%22value%22
-      { pattern: new RegExp(`(%22${k}%22%3A%22)[^%]*(%22)`, 'gi'), replacement: `$1${REDACTED}$2` },
-      // Quoted literal with an UNQUOTED key, in either separator: key = "value" / key: 'value'.
-      //
-      // The shape a captured HTML/JS page uses, and the one the other four all missed: the `key=value` rule
-      // requires no spaces and excludes the opening quote from its value class, and the JSON rules require
-      // the key itself to be quoted. So Steam's own `g_sessionID = "…";` survived every rule and shipped a
-      // live session id verbatim into exported session logs — under a name that IS in CREDENTIAL_KEYS and
-      // was correctly redacted everywhere else. Last in the list so the more specific shapes match first.
-      {
-        pattern: new RegExp(`(${k}\\s*[=:]\\s*["'])[^"']*(["'])`, 'gi'),
-        replacement: `$1${REDACTED}$2`,
-      },
-    ];
-  });
+  return keys.flatMap((key) => keyRules(key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+}
+
+/**
+ * The assignment shapes for one key, given as a regex source with no capture groups of its own.
+ * `formValue` is the value class of the `key=value` shape.
+ */
+function keyRules(k: string, formValue = `[^&\\s"']+`): Rule[] {
+  return [
+    // form / query: key=value  (value runs to & or whitespace or a quote)
+    { pattern: new RegExp(`(${k})=(${formValue})`, 'gi'), replacement: `$1=${REDACTED}` },
+    // JSON, including the ESCAPED form Steam's `strError` carries: "key":"value" / \"key\":\"value\"
+    {
+      pattern: new RegExp(`(\\\\?"${k}\\\\?"\\s*:\\s*\\\\?")[^"\\\\]*(\\\\?")`, 'gi'),
+      replacement: `$1${REDACTED}$2`,
+    },
+    // single-quoted pseudo-JSON: 'key': 'value'
+    { pattern: new RegExp(`('${k}'\\s*:\\s*')[^']*(')`, 'gi'), replacement: `$1${REDACTED}$2` },
+    // percent-encoded JSON: %22key%22%3A%22value%22
+    { pattern: new RegExp(`(%22${k}%22%3A%22)[^%]*(%22)`, 'gi'), replacement: `$1${REDACTED}$2` },
+    // Quoted literal with an UNQUOTED key, in either separator: key = "value" / key: 'value'.
+    //
+    // The shape a captured HTML/JS page uses, and the one the other four all missed: the `key=value` rule
+    // requires no spaces and excludes the opening quote from its value class, and the JSON rules require
+    // the key itself to be quoted. So Steam's own `g_sessionID = "…";` survived every rule and shipped a
+    // live session id verbatim into exported session logs — under a name that IS in CREDENTIAL_KEYS and
+    // was correctly redacted everywhere else. Last in the list so the more specific shapes match first.
+    {
+      pattern: new RegExp(`(${k}\\s*[=:]\\s*["'])[^"']*(["'])`, 'gi'),
+      replacement: `$1${REDACTED}$2`,
+    },
+  ];
 }
 
 const CREDENTIAL_RULES = assignmentRules(CREDENTIAL_KEYS);
 const IDENTITY_RULES = assignmentRules(IDENTITY_KEYS);
+
+/**
+ * Report mode only: the value of every `…id`/`…ids` field ({@link IDENTIFIER_NAME}), in every assignment
+ * shape plus a bare JSON number. An id grants nothing, but a deal, offer or trade id is a join key to an
+ * account, and reports promise none. Over-reaches on purpose (`valid=true` goes too): a lost word in a
+ * crash report is cheap, a leaked id is not. The dev log keeps them — see {@link redactSecrets}.
+ */
+const IDENTIFIER_RULES: readonly Rule[] = [
+  // Prose separates with `,`/`;`/`)`, so the form value stops there too (a credential value keeps them).
+  ...keyRules(IDENTIFIER_KEY, `[^&\\s"',;)]+`),
+  // Before the string-only JSON rule above could see it: `"tradeid":744935517744884653`.
+  { pattern: new RegExp(String.raw`(\\?"${IDENTIFIER_KEY}\\?"\s*:\s*)\d+`, 'gi'), replacement: `$1${REDACTED}` },
+];
 
 function applyRules(text: string, rules: readonly Rule[]): string {
   let out = text;
@@ -208,17 +241,20 @@ export function stripExtensionId(text: string): string {
  */
 function redactUrlValues(text: string): string {
   return text
-    .replace(URL_WITH_QUERY, (_m, base: string, query: string) => {
-      const names = query
-        .split('&')
-        .filter((pair) => pair.length > 0)
-        .map((pair) => {
-          const eq = pair.indexOf('=');
-          return eq < 0 ? pair : `${pair.slice(0, eq)}=${REDACTED}`;
-        });
-      return names.length > 0 ? `${base}?${names.join('&')}` : base;
-    })
-    .replace(URL_WITH_FRAGMENT_ONLY, '$1');
+    .replace(URL_WITH_QUERY, (_m, base: string, query: string) => withRedactedQuery(base, query))
+    .replace(URL_WITH_FRAGMENT_ONLY, '$1')
+    .replace(PATH_WITH_QUERY, (_m, lead: string, base: string, query: string) => lead + withRedactedQuery(base, query));
+}
+
+function withRedactedQuery(base: string, query: string): string {
+  const names = query
+    .split('&')
+    .filter((pair) => pair.length > 0)
+    .map((pair) => {
+      const eq = pair.indexOf('=');
+      return eq < 0 ? pair : `${pair.slice(0, eq)}=${REDACTED}`;
+    });
+  return names.length > 0 ? `${base}?${names.join('&')}` : base;
 }
 
 /**
@@ -234,11 +270,14 @@ function redactUrlValues(text: string): string {
  * Callers must scrub **before** truncating: a cap landing mid-token leaves a fragment that matches nothing.
  */
 export function redactText(text: string): string {
-  const out = applyRules(applyRules(redactUrlValues(stripExtensionId(text)), CREDENTIAL_RULES), IDENTITY_RULES);
-  return out
+  const named = applyRules(applyRules(redactUrlValues(stripExtensionId(text)), CREDENTIAL_RULES), IDENTITY_RULES);
+  return applyRules(named, IDENTIFIER_RULES)
     .replace(JWT_SHAPE, REDACTED)
-    .replace(STEAM_ID, '<steamid>')
+    // UUID before the digit rules: a UUID's last group can be twelve digits.
     .replace(UUID, '<uuid>')
+    .replace(LONG_DIGITS, (m) => (m.length === 17 ? '<steamid>' : '<id>'))
+    // Unbounded, after the bounded rule: a steamid glued to letters still goes.
+    .replace(STEAM_ID, '<steamid>')
     .replace(LONG_OPAQUE, (m) => `<redacted ${m.length} chars>`);
 }
 

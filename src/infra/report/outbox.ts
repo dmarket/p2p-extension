@@ -17,8 +17,9 @@ import { getSettings } from '@/config/settings';
 import { hasDataCollectionGrant, isReportingEnabledByUser } from '@/infra/report/consent';
 import { isCollectorEnabled, collectorConfig } from '@/infra/config';
 import { POLICY_KEY, QUEUE_KEY } from '@/infra/report/keys';
+import { placeDiag, serializeDiag } from '@/infra/report/diag';
 import { buildPayload, type ReportPayload } from '@/infra/report/payload';
-import type { PendingReport } from '@/infra/report/reporter';
+import { isSessionSummary, type PendingReport } from '@/infra/report/reporter';
 import { redactAndCap } from '@/util/redact';
 import { MESSAGE_MAX, STACK_MAX } from '@/infra/report/describe';
 
@@ -175,15 +176,21 @@ function rollDay(policy: Policy): Policy {
  */
 export function enqueue(report: PendingReport): void {
   void serial(async () => {
+    const { diag: rawDiag, ...rest } = report;
+    const diag = serializeDiag(rawDiag);
     const scrubbed: PendingReport = {
-      ...report,
+      ...rest,
       message: redactAndCap(report.message, MESSAGE_MAX),
       stack: report.stack === null ? null : redactAndCap(report.stack, STACK_MAX),
+      ...(diag !== undefined ? { diag } : {}),
     };
     const queue = await readQueue();
 
-    // Collapse a repeat into the item already queued rather than spending a slot on it.
-    const existing = queue.find((q) => q.fingerprint === scrubbed.fingerprint);
+    // Collapse a repeat into the item already queued rather than spending a slot on it — except a session
+    // summary, whose diagnostics are its whole value and differ every time.
+    const existing = isSessionSummary(scrubbed)
+      ? undefined
+      : queue.find((q) => q.fingerprint === scrubbed.fingerprint);
     if (existing) {
       existing.count += 1;
       await writeQueue(queue);
@@ -237,7 +244,7 @@ export async function flush(): Promise<void> {
           const policy = rollDay(await readPolicy());
           policy.occurrences[item.fingerprint] = verdict.occurrences;
           await writePolicy(prunePolicy(policy));
-          await writeQueue((await readQueue()).filter((q) => q.fingerprint !== item.fingerprint));
+          await writeQueue(withoutHead(await readQueue(), item.fingerprint));
         });
         continue;
       }
@@ -255,7 +262,7 @@ export async function flush(): Promise<void> {
         // The dropped count has now been surfaced in the message we just sent, so it starts again.
         policy.dropped = Math.max(0, policy.dropped - verdict.droppedReported);
         await writePolicy(prunePolicy(policy));
-        await writeQueue((await readQueue()).filter((q) => q.fingerprint !== item.fingerprint));
+        await writeQueue(withoutHead(await readQueue(), item.fingerprint));
       });
     }
   } catch {
@@ -263,6 +270,16 @@ export async function flush(): Promise<void> {
   } finally {
     flushing = false;
   }
+}
+
+/**
+ * The queue minus the item just handled: the first one with its fingerprint. Only the first, because session
+ * summaries are not collapsed and may share one; every other fingerprint occurs once anyway. The item is still
+ * at the head — enqueue only appends or bumps a count, and only one flush runs at a time.
+ */
+function withoutHead(queue: QueueItem[], fingerprint: string): QueueItem[] {
+  const i = queue.findIndex((q) => q.fingerprint === fingerprint);
+  return i < 0 ? queue : [...queue.slice(0, i), ...queue.slice(i + 1)];
 }
 
 interface Verdict {
@@ -310,7 +327,17 @@ async function decide(item: QueueItem): Promise<Verdict> {
   // so a persistent failure still reports periodically while a hot loop degrades logarithmically.
   const occurrences = (policy.occurrences[item.fingerprint] ?? 0) + item.count;
   const last = policy.lastSent[item.fingerprint];
-  if (last !== undefined && Date.now() - last < settings.fpCooldownMs && !isLadderStep(occurrences)) {
+  // A per-tick state goes out on the ladder alone: on a cooldown expiry it would send ~48 times a day per
+  // fingerprint and eat the proof budget the session summaries need.
+  if (item.steady === true && !isLadderStep(occurrences)) {
+    return { send: false, suffix: '', bucket, droppedReported: 0, occurrences };
+  }
+  if (
+    !isSessionSummary(item) &&
+    last !== undefined &&
+    Date.now() - last < settings.fpCooldownMs &&
+    !isLadderStep(occurrences)
+  ) {
     return { send: false, suffix: '', bucket, droppedReported: 0, occurrences };
   }
 
@@ -374,12 +401,15 @@ async function send(item: QueueItem, suffix: string): Promise<boolean> {
   const url = collectorConfig.url;
   if (url === undefined) return true; // not configured: drop rather than accumulate
   let payload: ReportPayload;
+  // R12: `diag` as its own field, or folded into the message — decided in one place (diag.ts).
+  const placed = placeDiag(item.diag);
   try {
     payload = await buildPayload({
       context: item.context,
-      message: redactAndCap(item.message, MESSAGE_MAX, suffix),
+      message: redactAndCap(item.message, MESSAGE_MAX, suffix + placed.suffix),
       stack: item.stack,
       timestamp: item.timestamp,
+      diag: placed.field,
     });
   } catch {
     return true; // cannot even build it — do not retry forever

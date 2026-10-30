@@ -5,12 +5,16 @@
 
 import { getSettings } from '@/config/settings';
 import {
+  hasProofSnapshot,
+  isNotaryPhaseMessage,
   NOTARY_PROVE,
   type NotaryProveMessage,
   type NotaryProveReply,
   type ProverOverrides,
 } from '@/core/notary-messages';
+import { describeSnapshot, type ProofSnapshot } from '@/core/notary-snapshot';
 import { beginProof, describeProofRequest, notaryTrace } from '@/core/notary-trace';
+import { parkProofDiag } from '@/infra/report/proofDiag';
 
 const OFFSCREEN_PATH = 'offscreen.html';
 
@@ -38,6 +42,40 @@ const ZOMBIE_FAILURE_MS = 1_000;
 export const supportsOffscreenProver = (): boolean =>
   typeof (browser as unknown as { offscreen?: unknown }).offscreen !== 'undefined';
 
+/** The last snapshot the proving realm sent for each proof this service worker is waiting on. */
+const snapshots = new Map<string, ProofSnapshot>();
+
+/**
+ * The production consumer of the proving realm's phase lines: the last snapshot per in-flight proof is kept for
+ * its failure report. A snapshot for a proof nobody is waiting on any more (it timed out, the worker kept
+ * narrating) is not kept, so the map holds only live proofs.
+ *
+ * A plain listener returning `undefined`: it never answers, and the phase relay expects no answer.
+ */
+const onPhase = (message: unknown): undefined => {
+  if (!isNotaryPhaseMessage(message)) return undefined;
+  if (hasProofSnapshot(message) && live.has(message.proofId)) snapshots.set(message.proofId, message.snapshot);
+  return undefined;
+};
+
+/** Proof ids the delegate is waiting on right now. */
+const live = new Set<string>();
+
+/** `hasListener` rather than a module flag, so a listener torn down underneath us is put back. */
+function listenForPhases(): void {
+  if (!browser.runtime.onMessage.hasListener(onPhase)) browser.runtime.onMessage.addListener(onPhase);
+}
+
+/** The request's deal and axis, for the report hand-off key only. */
+function requestKey(requestJson: string): { dealId?: unknown; source?: unknown } {
+  try {
+    const r = JSON.parse(requestJson) as Record<string, unknown>;
+    return { dealId: r['dealId'], source: r['source'] };
+  } catch {
+    return {};
+  }
+}
+
 /**
  * Build the delegate handed to `startTrackerWithEvents`. The delegate's signature is fixed by the core —
  * `(requestJson, notaryToken, steamAccessToken) => Promise<base64Presentation>` — so the prover's config
@@ -63,9 +101,24 @@ export const createNotaryProofDelegate = (config: ProverOverrides) => async (
   // lifecycle stream only learns the outcome, and the offscreen document cannot report a document that was
   // never created — the state `chrome://extensions` showed while a proof was hanging ("Inspect views: service
   // worker" and no `offscreen.html`). Every line names the deal, because proofs run concurrently.
-  const who = describeProofRequest(requestJson);
+  listenForPhases();
+  // Random per attempt: it keys the snapshots and prefixes every line of THIS attempt in every realm. Never
+  // handed to the prover (see `NotaryProveMessage.proofId`).
+  const proofId = crypto.randomUUID().slice(0, 8);
+  live.add(proofId);
+  const who = `proofId=${proofId}, ${describeProofRequest(requestJson)}`;
   const startedAt = Date.now();
   notaryTrace(`proof requested — ${who}, notary ${config.notary?.notaryUrl ?? '(none)'}`);
+  // The failure's one summary line, and its diagnostics parked for the `ProofFailed` report the core emits
+  // next (src/infra/report/proof.ts takes them by deal and axis). From the reply's own snapshot when the
+  // proving realm sent one, else from the last that arrived on the trace stream.
+  const summarise = (outcome: 'timeout' | 'failed', snapshot?: ProofSnapshot): void => {
+    const snap = snapshot ?? snapshots.get(proofId);
+    const durationMs = Date.now() - startedAt;
+    notaryTrace(`proof summary — ${who} — ${outcome} after ${durationMs}ms; ${describeSnapshot(snap)}`, 'warn');
+    const { dealId, source } = requestKey(requestJson);
+    parkProofDiag(dealId, source, { outcome, proofId, durationMs, proverBuild: __PROVER_BUILD__, ...snap });
+  };
   // The console's only present-tense "a proof is running" signal — see `proofsInFlight` for what it fixes.
   // Released in a `finally` rather than on each exit path: there are three of those below, and a latch that
   // outlives its proof reports a permanent hang, which is worse than reporting nothing.
@@ -73,6 +126,7 @@ export const createNotaryProofDelegate = (config: ProverOverrides) => async (
   try {
     const message: NotaryProveMessage = {
       type: NOTARY_PROVE,
+      proofId,
       requestJson,
       notaryToken,
       steamAccessToken,
@@ -81,6 +135,7 @@ export const createNotaryProofDelegate = (config: ProverOverrides) => async (
       // remote publish must not need a tracker restart to take effect.
       stuckAfterMs: getSettings().web.notaryStuckAfterMs,
       proofsPerInstance: getSettings().web.notaryProofsPerInstance,
+      stallAfterMs: getSettings().web.notaryStallAfterMs,
     };
     // Both steps under ONE deadline. Getting the document ready used to be awaited OUTSIDE it, and that is the
     // one hang the bound did not cover: neither `runtime.getContexts` nor `offscreen.createDocument` rejects if
@@ -94,7 +149,7 @@ export const createNotaryProofDelegate = (config: ProverOverrides) => async (
       // note in src/ui/debug/messaging.ts for why the assertion form is fragile.
       return await browser.runtime.sendMessage<NotaryProveMessage, NotaryProveReply | undefined>(message);
     })();
-    const reply = await withProofTimeout(work, who);
+    const reply = await withProofTimeout(work, who, () => summarise('timeout'));
 
     // An absent reply means the document died mid-proof (MV3 can reclaim it). Surface that as itself
     // rather than as an undefined-property crash three frames away.
@@ -125,12 +180,15 @@ export const createNotaryProofDelegate = (config: ProverOverrides) => async (
         creating = null;
       }
       notaryTrace(`proof FAILED after ${spentMs}ms — ${who} — ${detail}`, 'error');
+      summarise('failed', reply && !reply.ok ? reply.snapshot : undefined);
       throw new Error(`notary: ${detail}`);
     }
     notaryTrace(`proof produced in ${Date.now() - startedAt}ms (${reply.presentation.length} chars) — ${who}`);
     return reply.presentation;
   } finally {
     proofDone();
+    live.delete(proofId);
+    snapshots.delete(proofId);
   }
 };
 
@@ -156,6 +214,7 @@ export const createNotaryProofDelegate = (config: ProverOverrides) => async (
 async function withProofTimeout(
   reply: Promise<NotaryProveReply | undefined>,
   who: string,
+  onTimeout: () => void,
 ): Promise<NotaryProveReply | undefined> {
   const ms = getSettings().web.notaryProofTimeoutMs;
   // An explicit flag, not `timer !== undefined`: the executor runs synchronously, so the handle is set on
@@ -176,6 +235,7 @@ async function withProofTimeout(
       // Named explicitly rather than left to the generic failure line: "the proof overran and we recycled the
       // proving context" and "the prover reported an error" are different problems with the same symptom.
       notaryTrace(`proof TIMED OUT after ${ms}ms — ${who} — recycling the proving context`, 'error');
+      onTimeout();
       // The abandoned proof still holds the prover's concurrency permit, its two WebSockets and the wasm
       // instance, so the document has to go — otherwise later proofs queue behind a proof nobody is waiting
       // for. A settled proof leaves it warm, which is the point of memoising the wasm.

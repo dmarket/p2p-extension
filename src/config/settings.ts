@@ -114,6 +114,24 @@ const NOTARY_STUCK_AFTER_MS = 25_000;
 const NOTARY_STUCK_FLOOR_MS = 5_000;
 
 /**
+ * End a proof whose NOTARY socket has moved no byte in either direction for this long (ms). `0` disables it.
+ * Remote-overridable as `web.notaryStallAfterMs`.
+ *
+ * The other half of {@link NOTARY_STUCK_AFTER_MS}. That one catches a driver blocked inside the wasm; this one
+ * catches the stall it cannot see — the worker answers every ping, its socket ticks keep coming, and the notary
+ * leg sits at `+0 B` until the 180 s deadline. Observed on 5-12 accounts at once (DMA-516).
+ *
+ * OFF by default and meant to be switched on from remote config after a stage run: it ends live proofs, the
+ * notary leg's normal quiet stretches have not been measured on slow machines yet, and a kill costs a fresh wasm
+ * load and a fresh preprocessing round. The bounds keep one publish from killing healthy proofs (a 30 s floor,
+ * an order of magnitude over the quiet gaps seen in healthy logs) or from outliving the deadline it exists to
+ * beat.
+ */
+const NOTARY_STALL_AFTER_MS = 0;
+const NOTARY_STALL_MIN_MS = 30_000;
+const NOTARY_STALL_MAX_MS = NOTARY_PROOF_TIMEOUT_MS;
+
+/**
  * How many proofs one wasm instance serves before the offscreen document recycles it. `0` never recycles.
  * Remote-overridable as `web.notaryProofsPerInstance`.
  *
@@ -153,6 +171,14 @@ const REMOTE_CONFIG_FETCH_INTERVAL_MAX_MS = 7 * 24 * 60 * 60 * 1000;
  * compiled default instead (`Math.min` on the budgets, `Math.max` on the cooldown, `false` always winning
  * on `enabled`), so a publish can tighten the reporter but never loosen it.
  */
+/**
+ * R11 — PROVISIONAL: 50 proof reports per install per UTC day, up from 10. Sized from the worst account seen,
+ * ~82 failed proofs in 21 h (~100/day), on 5-12 affected accounts with the rest near zero: one day's worth of a
+ * bad account's failures, not all of them. Remote config can only lower it. Pending the collector's own limits
+ * and the R&D thread; a change is this one line.
+ */
+export const PROOF_REPORTS_PER_DAY = 50;
+
 const ERROR_REPORTING_DEFAULTS = {
   enabled: true,
   /** Reports per UTC day from the extension's own code. */
@@ -164,12 +190,12 @@ const ERROR_REPORTING_DEFAULTS = {
    */
   maxPerDayFromPage: 3,
   /**
-   * Reports per UTC day that narrate a failed notary proof (`ProofFailed`). Its own bucket because a proof
-   * failure is an operational outcome, not a crash, and on a device whose proofs keep failing it recurs on
-   * every tick — sharing {@link maxPerDay} would let a bad notary day blind the crash reporter on exactly the
-   * installs that most need it.
+   * Reports per UTC day that narrate the notary proof path (`ProofFailed`, a rejected proof, a suppressed one,
+   * a deferred report). Its own bucket because a proof failure is an operational outcome, not a crash, and on a
+   * device whose proofs keep failing it recurs on every tick — sharing {@link maxPerDay} would let a bad notary
+   * day blind the crash reporter on exactly the installs that most need it. See {@link PROOF_REPORTS_PER_DAY}.
    */
-  maxPerDayProof: 10,
+  maxPerDayProof: PROOF_REPORTS_PER_DAY,
   /** Per-fingerprint cooldown; the occurrence ladder still lets 1/2/4/8… through. */
   fpCooldownMs: 1_800_000,
   /** Extra suppression substrings, MERGED with the compiled list — never replacing it. */
@@ -330,6 +356,8 @@ interface WebSettings {
   notaryProofTimeoutMs: number;
   /** Treat the prover's driver as wedged after this long without a pong (ms); `0` disables the watch. */
   notaryStuckAfterMs: number;
+  /** End a proof whose notary socket carried 0 B for this long (ms); `0` disables — see NOTARY_STALL_AFTER_MS. */
+  notaryStallAfterMs: number;
   /** Proofs one wasm instance serves before recycling; `0` never recycles — see NOTARY_PROOFS_PER_INSTANCE. */
   notaryProofsPerInstance: number;
   /** Client-side remote-config refetch interval (ms) — see REMOTE_CONFIG_FETCH_INTERVAL_MS. */
@@ -374,6 +402,7 @@ function defaultWeb(): WebSettings {
     antiCsrf: STEAM_INTEGRATION.antiCsrf.map((e) => ({ ...e })),
     notaryProofTimeoutMs: NOTARY_PROOF_TIMEOUT_MS,
     notaryStuckAfterMs: NOTARY_STUCK_AFTER_MS,
+    notaryStallAfterMs: NOTARY_STALL_AFTER_MS,
     notaryProofsPerInstance: NOTARY_PROOFS_PER_INSTANCE,
     remoteConfigFetchIntervalMs: REMOTE_CONFIG_FETCH_INTERVAL_MS,
     minExtensionVersion: undefined,
@@ -699,6 +728,8 @@ function buildWeb(raw: Record<string, unknown>): WebSettings {
   // `0` is a deliberate kill switch (watch off), so the validator floor is 0 — but any other value is raised
   // to NOTARY_STUCK_FLOOR_MS, because a threshold under the probe interval declares every proof wedged.
   const stuckAfter = int(0)(raw.notaryStuckAfterMs) as number | undefined;
+  // Same shape: `0` switches it off, anything else is clamped into the window where it can only help.
+  const stallAfter = int(0)(raw.notaryStallAfterMs) as number | undefined;
   // `0` means "never recycle", so the validator floor is 0 and no clamp follows: unlike the silence threshold,
   // every value here is serviceable — 1 is the old per-proof behaviour, and a large one is a long-lived realm.
   const proofsPerInstance = int(0)(raw.notaryProofsPerInstance) as number | undefined;
@@ -719,6 +750,10 @@ function buildWeb(raw: Record<string, unknown>): WebSettings {
   if (proofTimeout !== undefined) web.notaryProofTimeoutMs = proofTimeout;
   if (stuckAfter !== undefined) {
     web.notaryStuckAfterMs = stuckAfter === 0 ? 0 : Math.max(stuckAfter, NOTARY_STUCK_FLOOR_MS);
+  }
+  if (stallAfter !== undefined) {
+    web.notaryStallAfterMs =
+      stallAfter === 0 ? 0 : Math.min(Math.max(stallAfter, NOTARY_STALL_MIN_MS), NOTARY_STALL_MAX_MS);
   }
   if (proofsPerInstance !== undefined) web.notaryProofsPerInstance = proofsPerInstance;
   if (fetchInterval !== undefined) web.remoteConfigFetchIntervalMs = fetchInterval;

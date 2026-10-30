@@ -14,8 +14,9 @@ import {
  * pseudonymous rather than anonymous: stable for one install until reporting is switched off.
  */
 const REPORTING_HINT =
-  'Diagnostics only: the error message, where in the extension it happened, the extension and browser ' +
-  'version, and a random install ID that resets when you turn this off. ' +
+  'Diagnostics only: the error message, where in the extension it happened, the extension version, ' +
+  'browser and device details (browser version, number of CPU cores), timings of trade verification, ' +
+  'and a random install ID that resets when you turn this off. ' +
   'Never your Steam or DMarket account, IDs or credentials, and never the pages you visit.';
 
 /** Ties the visually-hidden copy of {@link REPORTING_HINT} to the checkbox as its description. */
