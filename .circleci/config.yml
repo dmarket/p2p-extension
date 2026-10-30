@@ -91,7 +91,16 @@ version: 2.1
 #   `upload_to_store`'s preflight refuses a non-increasing version (exit 3) before uploading anything,
 #   and says this in its output.
 #
-# STORE WATCH + FORCED UPDATE (scripts/ci/force-update.sh).
+# STORE WATCH + FORCED UPDATE (scripts/ci/force-update.sh) — PAUSED.
+#   None of it runs today: the three `ci` entries that start it (`watch_store_release`, `hold_force_update`,
+#   `approve_force_update`) are removed, so no release creates a schedule or parks "On Hold". The job
+#   definitions, the pipeline parameters and the `store_watch` / `store_release` / `store_release_forced`
+#   workflows stay; without the watch job nothing starts them. To turn it back on, re-add those three entries
+#   after `upload_to_store` in `ci` (all `filters: *release_branches`; `hold_force_update` is
+#   `type: approval`; `approve_force_update` requires it and takes contexts `org-global` + `dm-release-notify`),
+#   set CIRCLE_API_TOKEN, and publish `web.minExtensionVersion` again (buckets/*, src/config/bucketConfig.test.ts).
+#   The description below is how it works once re-enabled.
+#
 #   Every release that reaches `upload_to_store` gets `watch_store_release`, which creates a CircleCI schedule
 #   `store-release-<version>` through API v2 — every 30 min on `main`, the version, a 45-day deadline and this
 #   release's workflow id as pipeline parameters — and nothing else, because store review takes anywhere from
@@ -657,26 +666,8 @@ workflows:
           context:
             - org-global
           filters: *release_branches
-      # Every release that reached the store is watched until Chrome serves it; see STORE WATCH in the header.
-      - watch_store_release:
-          requires:
-            - upload_to_store
-          filters: *release_branches
-      # Optional: approve only for a release every seller must move to. The ONLY place a release is forced — the
-      # deferred pipelines read this approval's state. After `upload_to_store`, because forcing a version that was
-      # never submitted means nothing.
-      - hold_force_update:
-          type: approval
-          requires:
-            - upload_to_store
-          filters: *release_branches
-      - approve_force_update:
-          requires:
-            - hold_force_update
-          context:
-            - org-global
-            - dm-release-notify
-          filters: *release_branches
+      # STORE WATCH + FORCED UPDATE are paused: `watch_store_release`, `hold_force_update` and
+      # `approve_force_update` are not wired in. See the header for what to restore.
 
   store_watch:
     when:

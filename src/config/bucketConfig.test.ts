@@ -45,7 +45,8 @@ const FIRST_UPDATE_AWARE_VERSION = '1.0.6';
 /**
  * Not a tuning deviation: the minimum is an operational value the force-update pipeline raises on every
  * forced release (scripts/ci/force-update.sh), so pinning it next to the deviations would fail every such
- * commit. Checked on its own below instead.
+ * commit. It is also optional — forced updates are paused, and no minimum means none is enforced — so it is
+ * exempt from the completeness check too. Checked on its own below instead.
  */
 const OPERATIONAL = new Set(['web.minExtensionVersion']);
 
@@ -87,7 +88,7 @@ describe.each(['prod', 'stage'] as const)('buckets/%s/p2p/extension-config.json'
   });
 
   it('lists every publishable field', () => {
-    const missing = [...defaults().keys()].filter((path) => !fields.has(path));
+    const missing = [...defaults().keys()].filter((path) => !fields.has(path) && !OPERATIONAL.has(path));
     expect(missing.sort()).toEqual([...OMITTED[env]].sort());
   });
 
@@ -101,7 +102,8 @@ describe.each(['prod', 'stage'] as const)('buckets/%s/p2p/extension-config.json'
     expect(deviations).toEqual(DEVIATIONS[env]);
   });
 
-  it('always names a minimum extension version, never one below the first build that acts on it', () => {
+  it('names no minimum extension version, or one no lower than the first build that acts on it', () => {
+    if (!fields.has('web.minExtensionVersion')) return;
     const min = fields.get('web.minExtensionVersion');
     expect(isChromeVersion(min), `web.minExtensionVersion is ${JSON.stringify(min)}`).toBe(true);
     expect(compareVersions(min as string, FIRST_UPDATE_AWARE_VERSION)).toBeGreaterThanOrEqual(0);

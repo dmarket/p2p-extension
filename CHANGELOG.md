@@ -16,9 +16,10 @@ the README.
 
 ### Added
 
-- **Forced updates.** The remote configuration carries the oldest extension version allowed to keep
-  working. An older install asks Chrome for the update, reloads onto it as soon as no proof is running,
-  and tells dmarket.com where it stands (`pong.update`), so the site can ask the seller to update.
+- **Forced updates (paused, not active in this release).** The extension can read the oldest version
+  allowed to keep working from the remote configuration, ask Chrome for the update and report where it
+  stands to dmarket.com (`pong.update`). The published configuration sets no minimum and CI does not
+  raise one, so no install is asked to update and `pong.update` reports `required: false`.
 - **Failed trade proofs are reported.** When a proof cannot be produced or delivered, the reason is
   sent to the error collector (`core: notary proof failed …`), with its own daily budget, so the
   failures a notary only sees as dropped sessions finally come with the client's side of the story.

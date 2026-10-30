@@ -111,8 +111,8 @@ a generation precondition, so a change someone else published after the diff is 
 `web.minExtensionVersion` is the oldest version allowed to keep working (numeric, e.g. `1.0.6`). An
 install below it asks Chrome for the update once, reloads onto it when Chrome has it, and reports its
 progress to dmarket.com in the presence `pong` as `update: { required, minVersion, state }` — the page
-renders that and compares nothing itself. CI raises it after a forced release (see below); it can also
-be raised by hand like any other field.
+renders that and compares nothing itself. **Paused:** the published documents carry no minimum, so no
+install is asked to update, and CI does not raise one (see below).
 
 Two things are compiled in rather than configured, because their absence is silent and expensive: the
 DMarket API and FE origins, and the production notary URL. So a production build arms the real TLSN
@@ -241,6 +241,11 @@ the last green `main` pipeline, and its metadata (`gsutil stat`) names the versi
 The target is the project env var `DEBUG_BUILD_GCS_URI` (`gs://<bucket>/<object>`).
 
 ### Watching the store, and forcing an update
+
+> **Paused.** None of this runs today: the `ci` workflow does not include `watch_store_release`,
+> `hold_force_update` or `approve_force_update`, so a release creates no schedule and never parks "On
+> Hold". The `.circleci/config.yml` header says what to restore to turn it back on. The rest of this
+> section describes how it works once re-enabled.
 
 Every release that reaches `upload_to_store` gets a CircleCI schedule, `store-release-<version>`, created
 through the API and polling Chrome's update server every 30 min on `main`. Once the store actually serves
