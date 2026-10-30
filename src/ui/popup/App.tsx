@@ -56,7 +56,7 @@ export function App() {
     <div class="app">
       <Header tab={tab} onSelect={setTab} />
       <div class="screen">
-        {tab === 'help' ? <InfoScreen onClose={() => setTab('home')} /> : homeScreen}
+        {tab === 'help' ? <InfoScreen /> : homeScreen}
       </div>
     </div>
   );

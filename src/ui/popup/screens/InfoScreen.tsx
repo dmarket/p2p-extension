@@ -4,12 +4,8 @@ import { ErrorReportingToggle } from '../ErrorReportingToggle';
 import { ExportLogView } from '../ExportLogView';
 import { icons } from '../icons';
 
-interface InfoScreenProps {
-  onClose: () => void;
-}
-
 /** Help tab: what to do if the user's Steam account may be compromised, and the support log export. */
-export function InfoScreen({ onClose }: InfoScreenProps) {
+export function InfoScreen() {
   const [exporting, setExporting] = useState(false);
   const troubleshootingRef = useRef<HTMLButtonElement>(null);
   const returnedRef = useRef(false);
@@ -74,10 +70,6 @@ export function InfoScreen({ onClose }: InfoScreenProps) {
           Troubleshooting
         </button>
       </div>
-
-      <button type="button" class="button" onClick={onClose}>
-        Close
-      </button>
     </div>
   );
 }
