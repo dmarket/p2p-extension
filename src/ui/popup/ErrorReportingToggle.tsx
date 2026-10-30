@@ -10,14 +10,14 @@ import {
  * The full disclosure, shown as the row's tooltip rather than inline so the control stays one quiet line.
  *
  * It lists every field `buildPayload` sends (src/infra/report/payload.ts), so a field added there must be
- * added here, and the store listing and the privacy policy make the same claim. The install id is
- * pseudonymous rather than anonymous: stable for one install until reporting is switched off.
+ * added here, and the store listing and the privacy policy make the same claim. The device ID is
+ * pseudonymous rather than anonymous: dmarket.com's own analytics ID when the browser has one.
  */
 const REPORTING_HINT =
   'Diagnostics only: the error message, where in the extension it happened, the extension version, ' +
   'browser and device details (browser version, number of CPU cores), timings of trade verification, ' +
-  'and a random install ID that resets when you turn this off. ' +
-  'Never your Steam or DMarket account, IDs or credentials, and never the pages you visit.';
+  "and this browser's DMarket device ID (a random ID dmarket.com already uses for its own analytics). " +
+  'Never your Steam or DMarket account, deal IDs or credentials, and never the pages you visit.';
 
 /** Ties the visually-hidden copy of {@link REPORTING_HINT} to the checkbox as its description. */
 const HINT_ID = 'report-hint';

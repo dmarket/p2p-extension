@@ -1,4 +1,4 @@
-// The wire payload. **Service-worker only** — it mints the install id and stamps the build id, and keeping
+// The wire payload. **Service-worker only** — it reads cookies and stamps the build id, and keeping
 // it out of the page bundles is also what stops `@/core/tracker` (and with it the ~1.2 MB core) from being
 // pulled into the popup and the content scripts.
 //
@@ -14,13 +14,28 @@ import { extensionVersion } from '@/util/extensionVersion';
 /** The `source` value the collector's worker gained for us. One value for all extension traffic. */
 const REPORT_SOURCE = 'p2p-extension';
 
+/** The frontend's first-party analytics device id, on dmarket.com. Not HttpOnly — set by their own JS. */
+const DEVICE_ID_COOKIE = 'dm_did';
+const DEVICE_ID_COOKIE_URL = 'https://dmarket.com/';
+
+async function resolveDeviceId(): Promise<string> {
+  try {
+    const cookie = await browser.cookies.get({ url: DEVICE_ID_COOKIE_URL, name: DEVICE_ID_COOKIE });
+    if (cookie?.value) return cookie.value;
+  } catch {
+    /* no host permission, or the cookie store is unavailable — fall through to the install id */
+  }
+  return getInstallId();
+}
+
 /**
  * Exactly the frontend's error payload, every field listed in the popup's disclosure
  * (src/ui/popup/ErrorReportingToggle.tsx) — a field added here must be added there too.
  *
- * `deviceId` is our own random install id ({@link getInstallId}), never a dmarket.com cookie: the store
- * listing promises reports that cannot be tied to an account or a web session. It answers "how many
- * installs are affected" and nothing more, and switching reporting off erases it.
+ * `deviceId` is the frontend's `dm_did` cookie when the browser has one, so extension rows collate with the
+ * same browser's web rows — the collector's owner requires it, as with the Snowplow pipeline it replaced.
+ * Without the cookie it is our own random install id ({@link getInstallId}), which switching reporting
+ * off erases.
  *
  * Deliberately NOT sent, and not to be added without revisiting the store disclosures:
  * - `userId` (`dm-trade-userId`): an account identifier makes every report personally identifying, which
@@ -78,7 +93,7 @@ export async function buildPayload(report: {
     message: report.message,
     // The frontend's fallback string, so a missing stack reads identically in both pipelines.
     stack: report.stack ?? 'Stacktrace not available',
-    deviceId: await getInstallId(),
+    deviceId: await resolveDeviceId(),
     userAgent: navigator.userAgent,
     url: contextUrl(report.context),
     timestamp: report.timestamp,

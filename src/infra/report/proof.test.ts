@@ -166,7 +166,7 @@ describe('reportProofEvent — the other proof outcomes', () => {
 });
 
 describe('privacy, end to end through the outbox', () => {
-  it('no POSTed body carries a steamid, deal/offer/trade id, dm_did or a token', async () => {
+  it('no POSTed body carries a steamid, deal/offer/trade id, a dm_did written into the message, or a token', async () => {
     stubManifest([]);
     const fetchMock = stubFetch();
     fetchMock.mockImplementation(() => Promise.resolve(new Response(null, { status: 204 })));

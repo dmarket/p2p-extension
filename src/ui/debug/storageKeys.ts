@@ -52,7 +52,7 @@ export const KNOWN_KEYS: Record<string, KeyInfo> = {
   },
   'report.install_id': {
     desc:
-      'Random per-install UUID, sent as the crash report `deviceId`. Deleted when reporting is switched ' +
+      'Random per-install UUID, the crash report `deviceId` when the dmarket `dm_did` cookie is absent. Deleted when reporting is switched ' +
       'off, so switching it back on starts a new one.',
   },
   'debug.simulation': {

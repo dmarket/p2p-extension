@@ -16,7 +16,7 @@ export const QUEUE_KEY = 'report.queue';
 /** Rate-limiting state (day, per-bucket counts, cooldowns) — see src/infra/report/outbox.ts. */
 export const POLICY_KEY = 'report.policy';
 
-/** Random per-install UUID sent as the report `deviceId` — see payload.ts. */
+/** Per-install UUID used as the report `deviceId` when the dmarket `dm_did` cookie is absent — see payload.ts. */
 export const INSTALL_ID_KEY = 'report.install_id';
 
 /**
