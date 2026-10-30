@@ -1,0 +1,34 @@
+/* export.html reuses popup.css for the tokens and controls; these undo its fixed 500x547 popup body. */
+body {
+  width: auto;
+  height: auto;
+  min-height: 100vh;
+  overflow: auto;
+}
+
+.export-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 64px 24px;
+}
+
+.export-page h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.export-page__status {
+  min-height: 46px; /* two lines reserved, so the buttons below do not move when the text changes */
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--dm-ext-text-secondary);
+}
+
+.export-page__name {
+  color: var(--dm-ext-text);
+}

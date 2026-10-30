@@ -260,6 +260,9 @@ if (!manifestOnly) {
     for (const f of ['debug.html']) {
       if (files.includes(f)) fail(`${f} is present in a production build`);
     }
+    // The Help tab's "Save file" opens it; without it the button lands on an error page. Only `debug` may be
+    // dropped by the entrypoints:found hook.
+    if (!files.includes('export.html')) fail('export.html is missing from a production build');
     const debugChunks = scripts.filter((f) => basename(f).startsWith('debug-'));
     if (debugChunks.length > 0) {
       fail(`debug chunk(s) in a production build: ${debugChunks.join(', ')}`);
