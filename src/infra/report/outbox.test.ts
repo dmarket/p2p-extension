@@ -287,8 +287,8 @@ describe('the reporting gates', () => {
     enqueue(report('fp-shape'));
     await settled();
     const init = fetchMock.mock.calls[0]![1] as RequestInit;
-    // `credentials: 'omit'` is mandatory: a collector on a dmarket subdomain is inside the scope of
-    // `dm_did` AND `dm-trade-token`; the device id travels as a payload field, never as the jar.
+    // `credentials: 'omit'` is mandatory: a collector on a dmarket subdomain is inside the `.dmarket.com`
+    // cookie scope (the session token and the site's analytics id); a report carries none of that jar.
     expect(init.credentials).toBe('omit');
     expect(init.headers).toBeUndefined();
     expect(init.method).toBe('POST');

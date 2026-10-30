@@ -364,9 +364,9 @@ async function isReportingAllowed(): Promise<boolean> {
  *   CORS-safelisted, so the request needs no preflight — and it is byte-for-byte the shape the collector
  *   already receives from the frontend's `navigator.sendBeacon`. (`sendBeacon` itself does not exist in a
  *   service worker: the Beacon API is defined on `Navigator`, and a worker has a `WorkerNavigator`.)
- * - **`credentials: 'omit'` is mandatory, not cosmetic.** `dm_did` is written for `.dmarket.com`, so a
- *   collector hosted on a dmarket subdomain is inside its cookie scope — as is `dm-trade-token`. We send
- *   the device id as a payload field on purpose; we must not also hand over the cookie jar.
+ * - **`credentials: 'omit'` is mandatory, not cosmetic.** A collector hosted on a dmarket subdomain is
+ *   inside the `.dmarket.com` cookie scope, which holds `dm-trade-token` and the site's analytics device
+ *   id. A report must carry none of that jar.
  *
  * @returns true when the request settled (so the item is done), false when it should be retried later.
  */

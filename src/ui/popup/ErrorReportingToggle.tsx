@@ -9,12 +9,14 @@ import {
 /**
  * The full disclosure, shown as the row's tooltip rather than inline so the control stays one quiet line.
  *
- * It stays specific on purpose — naming what IS sent is what makes the "anonymous" in the label checkable,
- * and it is the same claim the store listings and the privacy policy have to make.
+ * It lists every field `buildPayload` sends (src/infra/report/payload.ts), so a field added there must be
+ * added here, and the store listing and the privacy policy make the same claim. The install id is
+ * pseudonymous rather than anonymous: stable for one install until reporting is switched off.
  */
 const REPORTING_HINT =
-  'Diagnostics only — an error message, where in the extension it happened, and the version. ' +
-  'Never your Steam or DMarket credentials, and never the pages you visit.';
+  'Diagnostics only: the error message, where in the extension it happened, the extension and browser ' +
+  'version, and a random install ID that resets when you turn this off. ' +
+  'Never your Steam or DMarket account, IDs or credentials, and never the pages you visit.';
 
 /** Ties the visually-hidden copy of {@link REPORTING_HINT} to the checkbox as its description. */
 const HINT_ID = 'report-hint';
@@ -84,7 +86,7 @@ export function ErrorReportingToggle() {
           }}
         />
         <span class="info__toggle-label">
-          Send anonymous error reports
+          Send technical error reports
           {/* `data-tip`, not `title`: a native tooltip waits about a second before appearing and that delay
               is the browser's, not something CSS or JS can shorten. The bubble is rendered from this
               attribute by `.info__toggle-more::after` and shows instantly on hover.
