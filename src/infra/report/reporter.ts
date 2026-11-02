@@ -231,8 +231,10 @@ export function setReportContext(ctx: ReportContext): void {
  * make dmarket.com conclude no extension is installed.
  */
 export function registerReportRelay(): void {
-  browser.runtime.onMessage.addListener((message) => {
+  browser.runtime.onMessage.addListener((message, sender) => {
     if (!isReportRelayMessage(message)) return undefined;
+    // Only this extension's own contexts relay reports: another extension must not write into our queue.
+    if (sender.id !== browser.runtime.id) return undefined;
     // Called straight, not wrapped in a detached async IIFE: `ReportSink` returns void by type (the SW's
     // is `enqueue`, which is itself fire-and-forget internally), so there was never a promise here to
     // detach — only a microtask hop and a comment claiming otherwise. What the listener must not do is

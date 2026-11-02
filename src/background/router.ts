@@ -3,6 +3,7 @@ import { reportError } from '@/infra/report/reporter';
 import { Tracker, type TrackerHandle } from '@/core/tracker';
 import { isBridgeRequest, type BridgeRequest, type BridgeResponse } from '@/messaging/protocol';
 import { isActivated } from '@/state/activation';
+import { DMARKET_ORIGINS } from '@/config/settings';
 import { extensionVersion } from '@/util/extensionVersion';
 
 // A warm spawn boots in one storage read, so only a first install or a failed boot ever reaches this
@@ -170,6 +171,37 @@ async function answer(
   return handle(request, getHandle);
 }
 
+/** Debug builds also inject the bridge on the dev/stage FE (the `build:manifestGenerated` hook in wxt.config.ts). */
+function devFeOrigins(): string[] {
+  if (!import.meta.env.DEV) return [];
+  const out: string[] = [];
+  for (const url of [import.meta.env.WXT_DEV_FE_URL, import.meta.env.WXT_STAGE_FE_URL]) {
+    try {
+      if (url?.trim()) out.push(new URL(url.trim()).origin);
+    } catch {
+      /* an unparseable .env value adds nothing, as in the manifest hook */
+    }
+  }
+  return out;
+}
+
+/**
+ * Only this extension's own contexts may reach the bridge, and the page-facing kinds only from a tab on a
+ * DMarket origin — the same origins the bridge content script is injected into. Without it any extension
+ * context (the Steam content script included) could ask for `create-trade`. `request-cycle` carries no page
+ * data and only nudges a cycle, so it needs the id check alone.
+ */
+function senderAllowed(request: BridgeRequest, sender: Browser.runtime.MessageSender): boolean {
+  if (sender.id !== browser.runtime.id) return false;
+  if (request.kind === 'request-cycle') return true;
+  try {
+    const origin = new URL(sender.tab?.url ?? sender.url ?? '').origin;
+    return [...DMARKET_ORIGINS, ...devFeOrigins()].includes(origin);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Register the service-worker message router for the dmarket.com bridge. Must be called synchronously
  * on every worker spawn. `getHandle` returns the current tracker handle (undefined if boot failed);
@@ -181,8 +213,12 @@ export function registerBridgeRouter(
   bootSettled: Promise<void>,
   onPresence?: () => void,
 ): void {
-  browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!isBridgeRequest(message)) return undefined;
+    if (!senderAllowed(message, sender)) {
+      sendResponse({ ok: false, error: 'sender not allowed', reason: 'OTHER' } satisfies BridgeResponse);
+      return undefined;
+    }
     if (message.kind === 'presence') onPresence?.();
     answer(message, getHandle, bootSettled)
       .then(sendResponse)

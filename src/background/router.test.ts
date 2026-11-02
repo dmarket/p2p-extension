@@ -7,24 +7,32 @@ import type { BridgeResponse } from '@/messaging/protocol';
 // activated, nothing blocked, but not tracking. Chrome evicts an idle worker after ~30s, so a quiet page
 // usually got that. These tests pin that presence waits for the boot, and that writes do not.
 
-const { blockingReason, isTrackingActive, version, forceHeartbeat, createTrade, isActivated } = vi.hoisted(() => ({
+const { blockingReason, isTrackingActive, version, forceHeartbeat, createTrade, isActivated, deliverPush } =
+  vi.hoisted(() => ({
   blockingReason: vi.fn(() => 'NONE'),
   isTrackingActive: vi.fn(() => true),
   version: vi.fn(() => '1.0.0'),
   forceHeartbeat: vi.fn(() => Promise.resolve()),
   createTrade: vi.fn(() => Promise.resolve({ ok: true, status: 'created' })),
   isActivated: vi.fn(() => Promise.resolve(true)),
+  deliverPush: vi.fn(() => Promise.resolve()),
 }));
 vi.mock('@/core/tracker', () => ({
-  Tracker: { blockingReason, isTrackingActive, version, forceHeartbeat, createTrade },
+  Tracker: { blockingReason, isTrackingActive, version, forceHeartbeat, createTrade, deliverPush },
 }));
 vi.mock('@/state/activation', () => ({ isActivated }));
 
 /** Fire the fake's onMessage listeners the way the page's `runtime.sendMessage` would. Typed
  *  `Promise<unknown>` (as in messaging/bridge.test.ts): the fake resolves with each listener's return
  *  value, and this router's is the `true` that keeps the channel open for its async answer. */
-const fire = (request: unknown, sendResponse: (response: BridgeResponse) => void): Promise<unknown> =>
-  fakeBrowser.runtime.onMessage.trigger(request, {}, sendResponse);
+const fire = (
+  request: unknown,
+  sendResponse: (response: BridgeResponse) => void,
+  sender: object = DMARKET_TAB,
+): Promise<unknown> => fakeBrowser.runtime.onMessage.trigger(request, sender, sendResponse);
+
+/** The bridge content script on a dmarket.com tab — the only sender the page-facing kinds accept. */
+const DMARKET_TAB = { id: fakeBrowser.runtime.id, tab: { url: 'https://dmarket.com/ingame-items' } };
 
 /** A stand-in for the opaque core handle: the router only ever passes it back to the mocked Tracker. */
 const HANDLE = { core: true } as never;
@@ -274,5 +282,43 @@ describe('a core replaced mid-request', () => {
 
     expect(await pending).toMatchObject({ ok: true, kind: 'create-trade' });
     expect(createTrade).toHaveBeenCalledWith(REPLACEMENT, expect.anything());
+  });
+});
+
+describe('the bridge refuses senders that are not a dmarket tab of this extension', () => {
+  const answerFor = (request: unknown, sender: object): Promise<BridgeResponse> =>
+    new Promise((resolve) => {
+      registerBridgeRouter(() => HANDLE, Promise.resolve());
+      void fire(request, resolve, sender);
+    });
+  const REFUSED = { ok: false, error: 'sender not allowed', reason: 'OTHER' };
+
+  it.each([
+    ['another extension', { id: 'other-extension-id', tab: { url: 'https://dmarket.com/' } }],
+    ['a foreign origin', { id: fakeBrowser.runtime.id, tab: { url: 'https://evil.example/' } }],
+    ['the Steam content script', { id: fakeBrowser.runtime.id, tab: { url: 'https://steamcommunity.com/id/x/tradeoffers/' } }],
+    ['no url at all', { id: fakeBrowser.runtime.id }],
+  ])('create-trade from %s', async (_name, sender) => {
+    createTrade.mockClear();
+    expect(await answerFor(CREATE, sender)).toEqual(REFUSED);
+    expect(createTrade).not.toHaveBeenCalled();
+  });
+
+  it('presence from a foreign origin', async () => {
+    expect(await answerFor({ kind: 'presence' }, { id: fakeBrowser.runtime.id, url: 'https://evil.example/' })).toEqual(
+      REFUSED,
+    );
+  });
+
+  it('request-cycle needs only our extension id', async () => {
+    expect(await answerFor({ kind: 'request-cycle' }, { id: 'other-extension-id' })).toEqual(REFUSED);
+    expect(await answerFor({ kind: 'request-cycle' }, { id: fakeBrowser.runtime.id })).toMatchObject({ ok: true });
+  });
+
+  it('create-trade from www.dmarket.com still reaches the core', async () => {
+    createTrade.mockClear();
+    const sender = { id: fakeBrowser.runtime.id, tab: { url: 'https://www.dmarket.com/x' } };
+    expect(await answerFor(CREATE, sender)).toMatchObject({ ok: true, kind: 'create-trade' });
+    expect(createTrade).toHaveBeenCalledTimes(1);
   });
 });

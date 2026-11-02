@@ -39,8 +39,10 @@ if (!self.crossOriginIsolated) {
   );
 }
 
-browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!isNotaryProveMessage(message)) return undefined;
+  // Proofs are requested by our own service worker only; no content script or other extension may start one.
+  if (!sender.url?.startsWith(browser.runtime.getURL(''))) return undefined;
 
   void runProof(message).then(sendResponse);
   // `true` keeps the message channel open for the async reply. A proof takes seconds (MPC), so this is
