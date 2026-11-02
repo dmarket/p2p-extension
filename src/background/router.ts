@@ -6,6 +6,11 @@ import { isActivated } from '@/state/activation';
 import { DMARKET_ORIGINS } from '@/config/settings';
 import { extensionVersion } from '@/util/extensionVersion';
 
+// How long a create-trade request waits for its deal's directive: one forced heartbeat round trip plus the
+// Steam POST. Past it the page is answered `create_in_flight` while the cycle carries on, and its retry is
+// answered from the deal's claim, so a slow cycle cannot become a second offer.
+const CREATE_TRADE_WAIT_MS = 30_000;
+
 // A warm spawn boots in one storage read, so only a first install or a failed boot ever reaches this
 // cap. The wait ends as soon as the handle exists.
 const PRESENCE_BOOT_WAIT_MS = 1_000;
@@ -126,16 +131,9 @@ async function handle(request: BridgeRequest, getHandle: () => TrackerHandle | u
       // Coded: the page distinguishes "the tracker is not running" (retry once it is) from a Steam
       // refusal, and a caller must never have to pattern-match this string to find that out.
       if (tracker === undefined) return { ok: false, error: 'tracker not started', reason: 'EXT_NOT_READY' };
-      // The wrong-account guard runs INSIDE the core before any Steam write; on a mismatch nothing is
-      // written and the result is account_mismatch. No create is attempted on the TS side.
-      const result = await Tracker.createTrade(tracker, {
-        directiveId: request.directiveId,
-        dealId: request.dealId,
-        partnerSteamId: request.partnerSteamId,
-        assetIds: request.assetIds,
-        tradeToken: request.tradeToken,
-        linkedSteamId: request.linkedSteamId,
-      });
+      // A trigger only: the core forces a heartbeat and runs the backend's own create_offer directive for this
+      // deal, with the account binding from that heartbeat. The page's message carried nothing else in.
+      const result = await Tracker.awaitDirectiveOutcome(tracker, request.dealId, CREATE_TRADE_WAIT_MS);
       return { ok: true, kind: 'create-trade', result };
     }
 
@@ -226,8 +224,8 @@ export function registerBridgeRouter(
         // Reported as an exception CLASS plus the request kind — never `String(error)`.
         //
         // Every argument on this path is page-controlled: `isFrontendMessage` only checks `typeof ===
-        // 'string'`, so a rogue script or an XSS on dmarket.com can put chosen values into `deal_id`,
-        // `asset_ids`, `trade_token` and the rest, and they can resurface inside a failure message. Echoing
+        // 'string'`, so a rogue script or an XSS on dmarket.com can put a chosen value into `deal_id`, and it
+        // can resurface inside a failure message. Echoing
         // that would hand the page a persisted, retried channel into the analytics warehouse, sent from the
         // extension's own context and invisible to the page itself. It is also charged to a separate, much
         // smaller daily budget (`fromPage`) so it cannot exhaust the internal one and blind the reporter.

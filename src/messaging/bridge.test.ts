@@ -193,6 +193,13 @@ describe('CreateTrade acks', () => {
     return win.posted.at(-1)?.data; // .at(-1): two ackFor calls in one test accumulate in `posted`
   };
 
+  it('relays only the deal id: a forged counterparty in the frame never reaches the service worker', async () => {
+    uninstall = installDmarketBridge([PAGE_ORIGIN]);
+    sendMessage.mockResolvedValue({ ok: true, kind: 'create-trade', result: { ok: true, status: 'created' } });
+    await deliver({ ...createTrade, partner_steam_id: '76561198999999999', trade_token: 'forged' });
+    expect(sendMessage).toHaveBeenCalledExactlyOnceWith({ kind: 'create-trade', dealId: 'deal' });
+  });
+
   it('success statuses ride through without a reason field', async () => {
     expect(await ackFor({ ok: true, status: 'created' })).toEqual({
       source: 'dmarket-ext',

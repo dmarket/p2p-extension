@@ -27,15 +27,9 @@ function toBridgeRequest(message: FrontendMessage): BridgeRequest {
     case 'RequestPresence':
       return { kind: 'presence' };
     case 'CreateTrade':
-      return {
-        kind: 'create-trade',
-        directiveId: message.directive_id,
-        dealId: message.deal_id,
-        partnerSteamId: message.partner_steam_id,
-        assetIds: message.asset_ids,
-        tradeToken: message.trade_token,
-        linkedSteamId: message.linked_steam_id,
-      };
+      // Only the deal id crosses: whatever else the frame carries is the page's, and nothing of the page's
+      // may reach Steam.
+      return { kind: 'create-trade', dealId: message.deal_id };
     case 'RequestCycle':
       return { kind: 'request-cycle', dealId: message.deal_id };
   }

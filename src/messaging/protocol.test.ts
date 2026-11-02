@@ -24,18 +24,11 @@ describe('isFrontendMessage', () => {
     expect(
       isFrontendMessage({ source: FE_SOURCE, type: 'RequestCycle', correlation_id: 'c2', deal_id: 'd1' }),
     ).toBe(true);
+    expect(isFrontendMessage({ source: FE_SOURCE, type: 'CreateTrade', correlation_id: 'c3', deal_id: 'deal' })).toBe(
+      true,
+    );
     expect(
-      isFrontendMessage({
-        source: FE_SOURCE,
-        type: 'CreateTrade',
-        correlation_id: 'c3',
-        directive_id: 'dir',
-        deal_id: 'deal',
-        partner_steam_id: '76561198338780302',
-        asset_ids: ['1', '2'],
-        trade_token: 'tok',
-        linked_steam_id: '76561198338780301',
-      }),
+      isFrontendMessage({ source: FE_SOURCE, type: 'CreateTrade', correlation_id: 'c3', deal_id: 'deal', directive_id: 'dir' }),
     ).toBe(true);
   });
 
@@ -53,20 +46,29 @@ describe('isFrontendMessage', () => {
     expect(isFrontendMessage({ ...presence, correlation_id: 1 })).toBe(false);
   });
 
-  it('rejects a CreateTrade whose asset_ids is not an array of strings', () => {
-    const base = {
+  it('still accepts a CreateTrade from the previous contract, whatever shape its ignored offer fields have', () => {
+    // The page keeps sending these for extensions up to 1.0.5, which require them; here they go nowhere.
+    const legacy = {
       source: FE_SOURCE,
       type: 'CreateTrade',
       correlation_id: 'c3',
       directive_id: 'dir',
       deal_id: 'deal',
-      partner_steam_id: '765',
+      partner_steam_id: '76561198338780302',
+      asset_ids: ['1', '2'],
       trade_token: 'tok',
-      linked_steam_id: '766',
+      linked_steam_id: '76561198338780301',
     };
-    expect(isFrontendMessage({ ...base, asset_ids: '1' })).toBe(false);
-    expect(isFrontendMessage({ ...base, asset_ids: [1] })).toBe(false);
-    expect(isFrontendMessage({ ...base, asset_ids: [null] })).toBe(false);
+    expect(isFrontendMessage(legacy)).toBe(true);
+    expect(isFrontendMessage({ ...legacy, asset_ids: 'not-an-array', partner_steam_id: 42 })).toBe(true);
+  });
+
+  it('rejects a CreateTrade with no deal to trigger, or a non-string directive_id', () => {
+    const base = { source: FE_SOURCE, type: 'CreateTrade', correlation_id: 'c3' };
+    expect(isFrontendMessage(base)).toBe(false);
+    expect(isFrontendMessage({ ...base, deal_id: '' })).toBe(false);
+    expect(isFrontendMessage({ ...base, deal_id: 7 })).toBe(false);
+    expect(isFrontendMessage({ ...base, deal_id: 'deal', directive_id: 7 })).toBe(false);
   });
 
   it('rejects non-objects', () => {

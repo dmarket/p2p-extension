@@ -59,6 +59,15 @@ Built against `@dmarket/p2p-tracker-core` `1.1.0-beta`, which ships the TLSN pro
 
 ### Changed
 
+- **`CreateTrade` from dmarket.com is a trigger, not an order (DMA-814).** The extension takes only
+  `deal_id` from the frame; the core fetches the deal's `create_offer` directive from the backend
+  (`POST /p2p/deals/{id}/create-trade`) and builds the Steam offer from it, so a script on the page
+  can no longer choose the counterparty. `directive_id`, `partner_steam_id`, `asset_ids`,
+  `trade_token` and `linked_steam_id` are accepted and ignored; the page must keep sending them
+  while 1.0.5 and older are installed, since those drop a frame missing any of them. Reply frames
+  and `reason` codes are unchanged. The `ack` arrives after the directive call plus the Steam POST;
+  waiting stops at 30 s with `ack` `failed`/`OTHER` while the create carries on. A deal with no
+  directive gets `failed`/`OTHER` and no Steam write.
 - **Trade proofs run on the `steam-provenance` `1.0.1` prover**, shipped with core `1.1.0-beta`.
   `1.0.5-beta` ran the `99e090a` build.
 - **Remote configuration comes from the DMarket CDN (DMA-484)** instead of Firebase Remote Config,

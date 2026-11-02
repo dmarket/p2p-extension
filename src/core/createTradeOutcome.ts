@@ -169,7 +169,7 @@ export function resolveCreateTradeOutcome(json: string): CreateTradeResult {
       return { ok: false, status: 'failed', error: error ?? '', reason: mapCoreCause(raw.cause) };
 
     default:
-      // No status (the core's own blank directive_id / deal_id checks, which carry neither status nor cause)
+      // No status (the core's own blank deal_id check, which carries neither status nor cause)
       // or one this build does not know. Mapped all the same, so a future core status that does carry a
       // `cause` gets a real code rather than `OTHER`.
       return { ok: false, error: error ?? '', reason: mapCoreCause(raw.cause) };

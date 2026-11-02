@@ -106,7 +106,7 @@ export type CreateTradeResult =
   // in-flight attempt will produce the real outcome.
   | { ok: false; status: 'create_in_flight'; duplicate: true; reason: CreateTradeFailureReason }
   | { ok: false; status: 'account_mismatch'; linkedSteamId: string; tokenSteamId: string }
-  // No `status` at all: the core's own argument validation (blank directive_id / deal_id), plus the
+  // No `status` at all: the core's own argument validation (blank deal_id), plus the
   // seam's fail-closed shape for an outcome it could not parse.
   | { ok: false; error: string; reason: CreateTradeFailureReason };
 
@@ -114,16 +114,17 @@ export type CreateTradeResult =
 
 export type FrontendMessage =
   | { source: typeof FE_SOURCE; type: 'RequestPresence'; correlation_id: string; linked_steam_id: string }
+  // A trigger, not an order: the extension fetches and runs the backend's own `create_offer` directive for
+  // `deal_id`. The counterparty, items, trade token and linked account all come from that directive and the
+  // last heartbeat, never from the page. `directive_id` is optional and unused. The page keeps sending
+  // `partner_steam_id` / `asset_ids` / `trade_token` / `linked_steam_id` because extensions up to 1.0.5 drop a
+  // frame without them and there is no forced update, so these fields must stay accepted (and ignored) here.
   | {
       source: typeof FE_SOURCE;
       type: 'CreateTrade';
       correlation_id: string;
-      directive_id: string;
       deal_id: string;
-      partner_steam_id: string;
-      asset_ids: string[];
-      trade_token: string;
-      linked_steam_id: string;
+      directive_id?: string;
     }
   | { source: typeof FE_SOURCE; type: 'RequestCycle'; correlation_id: string; deal_id?: string };
 
@@ -180,15 +181,8 @@ export type ExtensionMessage =
 
 export type BridgeRequest =
   | { kind: 'presence' }
-  | {
-      kind: 'create-trade';
-      directiveId: string;
-      dealId: string;
-      partnerSteamId: string;
-      assetIds: string[];
-      tradeToken?: string;
-      linkedSteamId?: string;
-    }
+  // The deal id is the only thing the page's create trigger carries into the service worker.
+  | { kind: 'create-trade'; dealId: string }
   | { kind: 'request-cycle'; dealId?: string };
 
 export type BridgeResponse =
@@ -231,14 +225,11 @@ export function isFrontendMessage(data: unknown): data is FrontendMessage {
     case 'RequestCycle':
       return d.deal_id === undefined || typeof d.deal_id === 'string';
     case 'CreateTrade':
+      // The legacy offer fields are not inspected: they are ignored, so their shape cannot matter.
       return (
-        typeof d.directive_id === 'string' &&
         typeof d.deal_id === 'string' &&
-        typeof d.partner_steam_id === 'string' &&
-        Array.isArray(d.asset_ids) &&
-        d.asset_ids.every((a) => typeof a === 'string') &&
-        typeof d.trade_token === 'string' &&
-        typeof d.linked_steam_id === 'string'
+        d.deal_id !== '' &&
+        (d.directive_id === undefined || typeof d.directive_id === 'string')
       );
     default:
       return false;

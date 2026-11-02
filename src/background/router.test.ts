@@ -7,18 +7,20 @@ import type { BridgeResponse } from '@/messaging/protocol';
 // activated, nothing blocked, but not tracking. Chrome evicts an idle worker after ~30s, so a quiet page
 // usually got that. These tests pin that presence waits for the boot, and that writes do not.
 
-const { blockingReason, isTrackingActive, version, forceHeartbeat, createTrade, isActivated, deliverPush } =
+const { blockingReason, isTrackingActive, version, forceHeartbeat, awaitDirectiveOutcome, isActivated, deliverPush } =
   vi.hoisted(() => ({
   blockingReason: vi.fn(() => 'NONE'),
   isTrackingActive: vi.fn(() => true),
   version: vi.fn(() => '1.0.0'),
   forceHeartbeat: vi.fn(() => Promise.resolve()),
-  createTrade: vi.fn(() => Promise.resolve({ ok: true, status: 'created' })),
+  awaitDirectiveOutcome: vi.fn<(handle: unknown, dealId: string, timeoutMs: number) => Promise<unknown>>(() =>
+    Promise.resolve({ ok: true, status: 'created' }),
+  ),
   isActivated: vi.fn(() => Promise.resolve(true)),
   deliverPush: vi.fn(() => Promise.resolve()),
 }));
 vi.mock('@/core/tracker', () => ({
-  Tracker: { blockingReason, isTrackingActive, version, forceHeartbeat, createTrade, deliverPush },
+  Tracker: { blockingReason, isTrackingActive, version, forceHeartbeat, awaitDirectiveOutcome, deliverPush },
 }));
 vi.mock('@/state/activation', () => ({ isActivated }));
 
@@ -75,7 +77,7 @@ beforeEach(() => {
   blockingReason.mockReturnValue('NONE');
   // Activated is the default; the gate tests opt out for one call each.
   isActivated.mockResolvedValue(true);
-  createTrade.mockClear();
+  awaitDirectiveOutcome.mockClear();
   // The pong's `version` is read from the manifest, which the fake browser throws on until stubbed.
   vi.spyOn(fakeBrowser.runtime, 'getManifest').mockReturnValue({
     manifest_version: 3,
@@ -175,15 +177,7 @@ describe('the bridge router waits for the core boot before answering presence', 
     const bridge = registerBooting();
 
     expect(
-      await bridge.reply({
-        kind: 'create-trade',
-        directiveId: 'd1',
-        dealId: 'deal1',
-        partnerSteamId: '7656119',
-        assetIds: ['a1'],
-        tradeToken: 't',
-        linkedSteamId: '7656119',
-      }),
+      await bridge.reply({ kind: 'create-trade', dealId: 'deal1' }),
     ).toEqual({ ok: false, error: 'tracker not started', reason: 'EXT_NOT_READY' });
     vi.useRealTimers();
   });
@@ -201,15 +195,7 @@ describe('the bridge router waits for the core boot before answering presence', 
 // (src/background/coreLifecycle.ts), so this is belt and braces — but it is the leg that holds if a core
 // is ever running for another reason, and it is what gives the page a code it can act on.
 
-const CREATE = {
-  kind: 'create-trade',
-  directiveId: 'd1',
-  dealId: 'deal1',
-  partnerSteamId: '7656119',
-  assetIds: ['a1'],
-  tradeToken: 't',
-  linkedSteamId: '7656119',
-} as const;
+const CREATE = { kind: 'create-trade', dealId: 'deal1' } as const;
 
 describe('a not-activated extension refuses to create a trade', () => {
   it('refuses with EXT_NOT_ACTIVATED and attempts no Steam write, even with a live core', async () => {
@@ -223,7 +209,7 @@ describe('a not-activated extension refuses to create a trade', () => {
       reason: 'EXT_NOT_ACTIVATED',
     });
     // The defect this closes: a not-activated client used to create the real Steam offer.
-    expect(createTrade).not.toHaveBeenCalled();
+    expect(awaitDirectiveOutcome).not.toHaveBeenCalled();
   });
 
   it('names the activation, not the missing core, when neither is there', async () => {
@@ -235,12 +221,13 @@ describe('a not-activated extension refuses to create a trade', () => {
     expect(await bridge.reply(CREATE)).toMatchObject({ reason: 'EXT_NOT_ACTIVATED' });
   });
 
-  it('still creates for an activated one', async () => {
+  it('still creates for an activated one, asking the core for the deal and nothing else', async () => {
     const bridge = registerBooting();
     bridge.settle();
 
     expect(await bridge.reply(CREATE)).toMatchObject({ ok: true, kind: 'create-trade' });
-    expect(createTrade).toHaveBeenCalledTimes(1);
+    // The core builds the offer from the backend's directive for this deal; the deal id is all it is given.
+    expect(awaitDirectiveOutcome).toHaveBeenCalledExactlyOnceWith(HANDLE, 'deal1', 30_000);
   });
 
   it('reports itself as not tracking, with no blocked check to name', async () => {
@@ -281,7 +268,7 @@ describe('a core replaced mid-request', () => {
     release(true);
 
     expect(await pending).toMatchObject({ ok: true, kind: 'create-trade' });
-    expect(createTrade).toHaveBeenCalledWith(REPLACEMENT, expect.anything());
+    expect(awaitDirectiveOutcome).toHaveBeenCalledWith(REPLACEMENT, 'deal1', 30_000);
   });
 });
 
@@ -299,9 +286,9 @@ describe('the bridge refuses senders that are not a dmarket tab of this extensio
     ['the Steam content script', { id: fakeBrowser.runtime.id, tab: { url: 'https://steamcommunity.com/id/x/tradeoffers/' } }],
     ['no url at all', { id: fakeBrowser.runtime.id }],
   ])('create-trade from %s', async (_name, sender) => {
-    createTrade.mockClear();
+    awaitDirectiveOutcome.mockClear();
     expect(await answerFor(CREATE, sender)).toEqual(REFUSED);
-    expect(createTrade).not.toHaveBeenCalled();
+    expect(awaitDirectiveOutcome).not.toHaveBeenCalled();
   });
 
   it('presence from a foreign origin', async () => {
@@ -316,9 +303,9 @@ describe('the bridge refuses senders that are not a dmarket tab of this extensio
   });
 
   it('create-trade from www.dmarket.com still reaches the core', async () => {
-    createTrade.mockClear();
+    awaitDirectiveOutcome.mockClear();
     const sender = { id: fakeBrowser.runtime.id, tab: { url: 'https://www.dmarket.com/x' } };
     expect(await answerFor(CREATE, sender)).toMatchObject({ ok: true, kind: 'create-trade' });
-    expect(createTrade).toHaveBeenCalledTimes(1);
+    expect(awaitDirectiveOutcome).toHaveBeenCalledTimes(1);
   });
 });

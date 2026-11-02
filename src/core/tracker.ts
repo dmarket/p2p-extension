@@ -5,7 +5,7 @@
 // seam means a future source swap never touches call sites.
 import {
   blockingReason as coreBlockingReason,
-  createTrade as coreCreateTrade,
+  awaitDirectiveOutcome as coreAwaitDirectiveOutcome,
   deliverPush,
   enabledGameCount,
   forceHeartbeat as coreForceHeartbeat,
@@ -56,17 +56,6 @@ export type TrackerHandle = { readonly [trackerHandleBrand]: never };
 
 /** A lifecycle-event JSON string emitted by the core (see the core's `LifecycleEvent.toWireJson`). */
 type LifecycleEventCallback = (eventJson: string) => void;
-
-/** Arguments for the FE fast-path create (all ids/tokens are public — no secrets cross this seam). */
-interface CreateTradeArgs {
-  directiveId: string;
-  dealId: string;
-  partnerSteamId: string;
-  assetIds: string[];
-  tradeToken?: string;
-  /** The Steam id the DMarket account is linked to; the core guard blocks the write on a mismatch. */
-  linkedSteamId?: string;
-}
 
 // The type `startTracker` expects for its `config` argument (TrackerConfig from the package's own
 // .d.mts | undefined). We build the config from the domain module, so cast to this at the call site.
@@ -127,19 +116,13 @@ export const Tracker = {
   },
 
   /**
-   * FE fast-path "create trade": create the Steam offer for a committed deal. The core runs the
-   * wrong-account guard before any Steam write; the device-only credential never crosses this seam.
+   * The page's "create trade" trigger: fetch the `create_offer` directive the backend leases for `dealId` and
+   * wait, at most `timeoutMs`, for its outcome. The offer is built from that directive inside the
+   * core, so nothing the page sent reaches Steam; every guard of the directive path applies. A timeout answers
+   * `create_in_flight` and the core's cycle carries on.
    */
-  async createTrade(handle: TrackerHandle, args: CreateTradeArgs): Promise<CreateTradeResult> {
-    const json = await coreCreateTrade(
-      handle,
-      args.directiveId,
-      args.dealId,
-      args.partnerSteamId,
-      args.assetIds,
-      args.tradeToken,
-      args.linkedSteamId,
-    );
+  async awaitDirectiveOutcome(handle: TrackerHandle, dealId: string, timeoutMs: number): Promise<CreateTradeResult> {
+    const json = await coreAwaitDirectiveOutcome(handle, dealId, timeoutMs);
     // Not a cast: the outcome is parsed, narrowed, and its failure arms given the closed reason code the
     // page branches on — mapped from the core's own coded `cause`. The core's free-form `error` text is
     // read by nothing downstream (see src/core/createTradeOutcome.ts).
