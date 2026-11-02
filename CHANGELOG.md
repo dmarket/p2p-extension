@@ -29,6 +29,9 @@ Built against `@dmarket/p2p-tracker-core` `1.1.0-beta`, which ships the TLSN pro
   an older core leaves only the known-account check. Remote config: `web.offerSelectors`,
   `web.offerPageAnchorSelector`, `web.knownScamPartners`. Debug builds get "Simulate suspicious
   offer" in the console.
+  - The popup line is a centred card in a band reserved above the icon on every home screen: it opens
+    together with the screen, never moves it, keeps the Steam Mobile advice, and hides the activity pill
+    while shown.
 - **Support logs (DMA-678).** The extension keeps the last 24 hours of its own activity on the device:
   tracker events, trade-proof progress, sign-in and activation changes. Help → Troubleshooting saves it
   as a file or copies it to the clipboard, so a seller can hand it to support. Before anything is saved,
