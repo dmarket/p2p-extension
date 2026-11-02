@@ -18,6 +18,8 @@ import type { AccountMismatchPush } from '@/messaging/protocol';
 import { initIcon } from '@/background/icon';
 import { isActivated, subscribeActivation } from '@/state/activation';
 import { setBlockingReason, setLinkedSteamId, subscribeBlockingReason } from '@/state/blocking';
+import { purgeCredentialOnLongDmSignOut } from '@/background/credentialHygiene';
+import { withdrawCoreState } from '@/background/withdraw';
 import { setActiveTrackingCount } from '@/state/activeCount';
 import { reportProofEvent, type ProofFrame } from '@/infra/report/proof';
 import { recordLifecycle, recordState } from '@/infra/diag/record';
@@ -257,6 +259,7 @@ export default defineBackground(() => {
       // master switch is off, so the truthful path is the default.
       const reason = blockingReasonOverride?.() ?? Tracker.blockingReason(h);
       void setBlockingReason(reason);
+      void purgeCredentialOnLongDmSignOut(reason).catch(() => {});
       // The linked id is only meaningful while the wrong-account prompt is the one being shown, so it is
       // dropped with the prompt. A mismatch that is merely outranked (e.g. the DMarket connection went
       // down first) drops it too and re-learns it from the next mismatched heartbeat — the alternative,
@@ -447,14 +450,8 @@ export default defineBackground(() => {
   // together, and three unhandled rejections would bury the one error `onError` already reported. Losing
   // them costs nothing that is not already recovered: a withdrawal that fails leaves the mirrors stale,
   // and the next spawn's inactive pass withdraws again.
-  const withdrawCoreState = (): void => {
-    const bestEffort = (write: Promise<void>): void => {
-      void write.catch(() => {});
-    };
-    bestEffort(setBlockingReason('NONE'));
-    bestEffort(setLinkedSteamId(undefined));
-    bestEffort(setActiveTrackingCount(0));
-  };
+  // The implementation lives in src/background/withdraw.ts so it can be tested; it also removes the
+  // Steam token the core left in storage.
 
   // Heartbeat NOW rather than at whatever the persisted schedule says is due. Used by an explicit restart
   // and by activation: a fresh instance restores that schedule, so without this an endpoint switch looks
