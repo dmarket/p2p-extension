@@ -8,9 +8,9 @@
 #
 # WHY A SEPARATE JOB FROM THE UPLOAD. The signed package is attached to the Release on its own, so
 # what the store receives can be inspected there whether or not the upload that follows succeeds.
-# The split is also meant to separate the secrets (this job the signing key, the other the store
-# credentials), but that half is NOT in effect today: both live as project env vars because nobody has
-# CircleCI org rights to create contexts. See the env note in .circleci/config.yml.
+# The split also separates the secrets: this job holds the signing key (context
+# `p2p-extension-crx-signing`) and the store jobs hold the store credentials (`p2p-extension-store`).
+# See the CONTEXTS note in .circleci/config.yml.
 #
 # Nothing is re-zipped: the CRX payload is the exact archive whose checksum the release job recorded, so
 # what the store receives is byte-for-byte what was built, verified and published on the Release.

@@ -18,9 +18,8 @@
 # a click, which is what made the variable unnecessary in the first place.
 #
 # It uploads the CRX that `pack_crx` signed, handed over through the workspace (artifacts/store/). It
-# needs no GITHUB_TOKEN of its own, and it is meant to hold only the store credentials — but that
-# isolation is NOT in effect today: the secrets are project env vars, visible to every job, because
-# nobody has CircleCI org rights to create contexts. See the env note in .circleci/config.yml.
+# needs no GITHUB_TOKEN of its own and holds only the store credentials (context
+# `p2p-extension-store`), never the signing key. See the CONTEXTS note in .circleci/config.yml.
 #
 # Shell lives in a file rather than inline in the YAML: CircleCI caps a config expression at 2048
 # characters, and `bash scripts/ci/upload-to-store.sh preflight` can be run and reviewed as shell.
@@ -28,8 +27,7 @@
 # Environment (see scripts/ci/cws-upload.mjs for the full contract):
 #   CHROME_EXTENSION_ID, CHROME_PUBLISHER_ID,
 #   CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL, CHROME_SERVICE_ACCOUNT_PRIVATE_KEY
-#     — CircleCI PROJECT env vars today; they belong in a project-scoped context
-#       (`p2p-extension-store`) once someone has the org rights. See .circleci/config.yml.
+#     — from the CircleCI context `p2p-extension-store`. See .circleci/config.yml.
 #
 # Betas are ordinary public releases here — a `-beta` suffix is a LABEL for users' expectations, not a
 # channel, and the store has no beta channel anyway (API v2's DistributionChannel carries only

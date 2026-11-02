@@ -14,6 +14,8 @@ version: 2.1
 #     The tests download it with their own credentials and install it into Chrome. Always overwrites;
 #     the last build to finish is `latest`. The target is the project env var DEBUG_BUILD_GCS_URI
 #     (gs://<bucket>/<object>), kept out of this public repo like the other stage bucket names.
+#   - verify_store (never automatic): compares what the Chrome Web Store serves with a rebuild of the release
+#     tag. Run it through the API once a release is live; see the `verify_store` workflow.
 #
 # RELEASE MODEL — releases come from a `release/vX.Y.Z` BRANCH; a human approves them.
 #   Land the `version` bump in package.json and the matching `## [x.y.z]` section of CHANGELOG.md on
@@ -124,12 +126,13 @@ version: 2.1
 #   `approve_force_update` checks the release branch out — `delete_release_branch` may already have removed
 #   it — they clone `main` instead.
 #
-#   Project env vars: CIRCLE_API_TOKEN (a CircleCI PERSONAL token — API v2 accepts no project token; it
-#   expires within a year and dies with its owner's access; the pipelines it starts run as its owner) and
-#   P2P_EXTENSION_DEPLOY_SA_KEY (set by devops: base64 of a service-account JSON key scoped to
-#   p2p/extension-config.json and to the debug-build prefix `publish_debug_build` writes; scripts/ci/gcs.mjs
-#   signs with it, no gcloud needed). Pushing to `main` uses org-global's GITHUB_TOKEN, whose owner is an admin and bypasses the
-#   rulesets. Slack goes through the `circleci/slack` orb with the org context `dm-release-notify`
+#   Secrets it needs once re-enabled, each in a context of its own and not in project settings:
+#   CIRCLE_API_TOKEN (a CircleCI PERSONAL token — API v2 accepts no project token; it expires within a year
+#   and dies with its owner's access; the pipelines it starts run as its owner) and the key that writes
+#   p2p/extension-config.json (P2P_EXTENSION_DEPLOY_SA_KEY today sits in `p2p-extension-qa-bucket`, which
+#   must not simply be reused: that context is for the debug-build upload). scripts/ci/gcs.mjs signs with
+#   the key, no gcloud needed. Pushing to `main` uses org-global's GITHUB_TOKEN, whose owner is an admin and
+#   bypasses the rulesets. Slack goes through the `circleci/slack` orb with the org context `dm-release-notify`
 #   (SLACK_ACCESS_TOKEN + SLACK_DEFAULT_CHANNEL) — the same bot, channel and message shape as every backend
 #   "deployed to prod" notice (see `release_notice`).
 #
@@ -138,63 +141,47 @@ version: 2.1
 #   files, and wxt.config.ts's manifest hooks read `process.env.WXT_*` directly. So plain context
 #   variables are enough.
 #
-#   context `p2p-extension-ci`      -> build jobs only. WXT_COLLECTOR_URL (production build: it derives
-#     a host permission that MUST be in the first published build), plus WXT_DEV_*/WXT_STAGE_* so the debug
-#     artifact points at the internal endpoints. `check` deliberately gets NO context — the suite is
-#     env-independent (every env-sensitive test pins its own value with vi.stubEnv), and the job that
-#     runs the most code should hold the fewest secrets.
-#   context `org-global`            -> release + deploy only. Supplies GITHUB_TOKEN. This is the
-#     org-wide context the dmarket org already maintains for every repo (per @dmytro.tkachuk,
-#     2026-09-02), which is why there is no project-scoped release context: a second GITHUB_TOKEN
-#     would be a second thing to rotate. Two consequences worth knowing.
-#     - It is SHARED and BROAD: any job in any project of the org can read it, and the token is not
-#       scoped to this repository the way a fine-grained PAT would be. Nothing here can narrow that;
-#       it is the org's credential, not ours.
-#     - It is NOT verified to carry `contents: write` on dmarket/p2p-extension. If it does not, the
-#       first `release` run fails at the tag push and `scripts/ci/release.sh` prints which of the
-#       four causes it is (see `diagnose_push_denied` there) — read that output before asking anyone
-#       for a new token.
-#   PROJECT-LEVEL env vars (Project Settings -> Environment Variables) -> the store-deploy secrets:
-#     CRX_SIGNING_KEY_B64 (base64 of the RSA private key registered under Verified CRX Uploads) and
-#     CHROME_EXTENSION_ID / CHROME_PUBLISHER_ID / CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL /
-#     CHROME_SERVICE_ACCOUNT_PRIVATE_KEY. Five variables, and deliberately no CWS_* switches: the
-#     upload's behaviour switches are CLI flags on the job's own command, not project state.
+# CONTEXTS — every secret lives in a context that only the jobs that need it list. No secret is a
+#   project-level environment variable: CircleCI hands those to EVERY job, `check` and both builds
+#   included, and those jobs run dependency code on every push (dependabot branches live in this repo, not
+#   in a fork). Incident 2026-10-30 (DMA-823) is why this is now strict.
 #
-#     ACCEPTED TRADE-OFF (decided 2026-09-07), not the intended design. Two project-scoped CONTEXTS
-#     belong here — `pack_crx` holding only the signing key, `upload_to_store` only the store
-#     credentials — so that neither job can do the other's damage. Creating a context needs CircleCI
-#     ORGANIZATION rights, which nobody on this project has, so the five variables sit at project
-#     level, where CircleCI exposes them to EVERY job in the project, `check` and both builds included.
+#   context `p2p-extension-ci`          -> the build jobs and `verify_store`. WXT_COLLECTOR_URL (production
+#     build: it derives a host permission that MUST be in the first published build), plus WXT_DEV_*/
+#     WXT_STAGE_* so the debug artifact points at the internal endpoints. `check` deliberately gets NO
+#     context — the suite is env-independent (every env-sensitive test pins its own value with
+#     vi.stubEnv), and the job that runs the most code should hold the fewest secrets.
+#   context `org-global`                -> `release`, `pack_crx`, `delete_release_branch`. Supplies
+#     GITHUB_TOKEN. This is the org-wide context the dmarket org already maintains for every repo (per
+#     @dmytro.tkachuk, 2026-09-02), so there is no project-scoped GitHub context: a second GITHUB_TOKEN
+#     would be a second thing to rotate. It is SHARED and BROAD (any job in any project of the org can
+#     read it) and NOT verified to carry `contents: write` on dmarket/p2p-extension; if it does not, the
+#     first `release` run fails at the tag push and `scripts/ci/release.sh` says which of four causes it
+#     is (`diagnose_push_denied`) — read that before asking anyone for a new token.
+#   context `p2p-extension-crx-signing` -> `pack_crx` only. CRX_SIGNING_KEY_B64, base64 of the RSA private
+#     key registered under Verified CRX Uploads. Nothing else can sign a package.
+#   context `p2p-extension-store`       -> `store_preflight` and `upload_to_store` only. CHROME_EXTENSION_ID,
+#     CHROME_PUBLISHER_ID, CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL, CHROME_SERVICE_ACCOUNT_PRIVATE_KEY. No
+#     CWS_* switches: the upload's behaviour switches are CLI flags on the job's own command, not state.
+#   context `p2p-extension-qa-bucket`   -> `publish_debug_build` only. P2P_EXTENSION_DEPLOY_SA_KEY and
+#     DEBUG_BUILD_GCS_URI.
+#   context `dm-release-notify`         -> the Slack notice jobs (paused, see above).
 #
-#     Why that was judged acceptable here: the CircleCI project is private and stays private (an
-#     anonymous request for the badge or the v1.1/v2 API gets 404), so nobody outside can read a build.
-#     What keeps an OUTSIDER from running one is a different control, and it is the one to check in the
-#     dashboard rather than assume: Project Settings -> Advanced, "Build forked pull requests" and
-#     "Pass secrets to builds from forked pull requests". Both default off; both must stay off while
-#     these variables are project-level. The repo is public and forkable, so that is not academic.
+#   The signing key and the store credentials are never in the same job, so neither can do the other's
+#   damage alone: a job that can sign cannot upload, and a job that can upload cannot sign.
 #
-#     What privacy does NOT cover, i.e. the residual risk — and it is not the postinstall story this
-#     comment used to tell. `check` and both builds carry NO branch filter (only the six release jobs
-#     do), so every push runs them with all five secrets in scope. Dependabot branches live in this
-#     repo, not in a fork, so its weekly PRs get the same environment: third-party code executes here
-#     BEFORE review and BEFORE any merge. `allowScripts` in package.json narrows `npm ci` to esbuild +
-#     fsevents, but that is the smaller half — vitest, eslint, vite and wxt all IMPORT dependency code
-#     and run it.
+#   BELT AND BRACES: `check` and both builds start with `drop_store_secrets`, which `unset`s the
+#   store, signing and bucket variables for every later step of the job (through $BASH_ENV, the same
+#   mechanism scripts/ci/release.sh uses to export across steps). They should not be set there at all once
+#   the contexts hold them; this covers the time while a variable is still left at project level, and a
+#   variable someone adds there later by habit. It is a mitigation, not a boundary: it removes the
+#   variables from the shells and processes the steps start, but not from the container's own process
+#   environment, so the contexts are the control that counts.
 #
-#     Weigh it honestly in the other direction too: a dependency that runs in `build-prod` can poison
-#     the artifact itself, and that artifact is signed and shipped regardless of who holds the key. So
-#     splitting these secrets does not prevent the worst outcome; it denies out-of-band publishing
-#     (signing an arbitrary CRX, uploading past the pipeline and past the human approval) and denies
-#     persistence once the bad dependency is gone.
-#
-#     Cheapest real mitigation short of contexts, needing nobody's permission: `unset` the store and
-#     signing variables into $BASH_ENV as the first step of `check` and both builds — the same
-#     mechanism `scripts/ci/release.sh` already uses to export across steps.
-#
-#     If it ever happens, or as soon as someone has the org rights: rotate the service-account key
-#     (minutes, in Google Cloud) and the signing key (Chrome Web Store support, up to a week), create
-#     `p2p-extension-crx-signing` + `p2p-extension-store`, move the variables, and put the `context:`
-#     lines back on the store jobs (`pack_crx` … `upload_to_store`).
+#   FORKS: Project Settings -> Advanced must keep "Build forked pull requests" and "Pass secrets to builds
+#   from forked pull requests" OFF, "Only build pull requests" as chosen, and — since this config is the
+#   only thing between a push and the secrets — "Enable dynamic config using setup workflows" /
+#   unversioned config OFF and "Write settings requires admin" ON. The repo is public and forkable.
 #
 # WHERE THE SHELL LIVES — `scripts/ci/*.sh`, not inline here, and that is not a style preference:
 #   - CircleCI caps a single config expression at **2048 characters** and REJECTS the whole config
@@ -245,6 +232,10 @@ parameters:
   force_update:
     type: boolean
     default: false
+  # `verify_store` only: the release tag to compare the store with, e.g. v1.0.6-beta.
+  verify_store_tag:
+    type: string
+    default: ''
 
 orbs:
   # The same orb and version the backend repos use for their release-channel notices (dmarket/p2p,
@@ -280,6 +271,18 @@ commands:
           key: npm-v1-{{ checksum "package-lock.json" }}
           paths:
             - ~/.npm
+
+  # First step of every job that runs dependency code (`check`, the builds, `verify_store`): removes the store,
+  # signing and bucket variables from every later step's environment. See "BELT AND BRACES" in the header.
+  drop_store_secrets:
+    steps:
+      - run:
+          name: Drop store and signing secrets from this job
+          command: |
+            for v in CHROME_EXTENSION_ID CHROME_PUBLISHER_ID CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL \
+                     CHROME_SERVICE_ACCOUNT_PRIVATE_KEY CRX_SIGNING_KEY_B64 P2P_EXTENSION_DEPLOY_SA_KEY; do
+              echo "unset $v" >> "$BASH_ENV"
+            done
 
   # A release-channel notice in the backend's shape (dmarket/p2p `notify`): headline, quoted commit, one context
   # line, a View Job button. `force-update.sh notice-env` writes the text (JSON-escaped) to $BASH_ENV, like the
@@ -331,6 +334,7 @@ jobs:
   check:
     executor: node
     steps:
+      - drop_store_secrets
       - checkout
       - install_deps
       # `when: always` on the later steps so one red run reports every failure, not just the first.
@@ -369,6 +373,7 @@ jobs:
           (a development directory checked as production fails six ways), so this cannot drift silently.
         type: string
     steps:
+      - drop_store_secrets
       - checkout
       - install_deps
       - run:
@@ -413,7 +418,8 @@ jobs:
   # Signs the released zip into a CRX3. No approval: this is the artifact step. Runs `npm ci`-free like
   # `release` — scripts/ci/pack-crx.mjs and verify-build.mjs have no dependencies precisely so these
   # jobs stay node + curl + coreutils, which also means no third-party code runs next to the signing
-  # key HERE (the exposure is in `check`/`build-*`, which do install — see the env note in the header).
+  # key HERE. `check`/`build-*` do install, which is why they drop the signing key (`drop_store_secrets`) and
+  # never receive its context.
   pack_crx:
     executor: node
     steps:
@@ -464,8 +470,8 @@ jobs:
           command: bash scripts/ci/upload-to-store.sh upload
 
   # After a green `build-debug` on `main`: the debug zip from the workspace, uploaded over the QA autotests'
-  # `latest.zip`. Node only — no `npm ci`, no context (DEBUG_BUILD_GCS_URI and P2P_EXTENSION_DEPLOY_SA_KEY are
-  # project env vars). Replacing the object needs storage.objects.delete as well as create; a 403 says so.
+  # `latest.zip`. Node only — no `npm ci`; DEBUG_BUILD_GCS_URI and P2P_EXTENSION_DEPLOY_SA_KEY come from the
+  # context `p2p-extension-qa-bucket`. Replacing the object needs storage.objects.delete as well as create; a 403 says so.
   publish_debug_build:
     executor: node
     steps:
@@ -543,6 +549,21 @@ jobs:
       - release_notice:
           kind: raised
 
+  # Is the package in the store the one we built? Rebuilds the tag and compares it with what Chrome gets from the
+  # public update server (scripts/ci/verify-store.sh). Holds no store or signing credential — only the build
+  # context, so the rebuild carries the same WXT_* values as `build-prod`. Started by hand, see `verify_store`.
+  verify_store:
+    executor: node
+    environment:
+      VERIFY_STORE_TAG: << pipeline.parameters.verify_store_tag >>
+    steps:
+      - drop_store_secrets
+      - checkout
+      - install_deps
+      - run:
+          name: Compare the store package with a rebuild of the tag
+          command: bash scripts/ci/verify-store.sh "$VERIFY_STORE_TAG"
+
   # The last job of a release: deletes the `release/vX.Y.Z` branch. Last rather than right after the
   # tag, because every job above checks the branch out — and a failed store step is retried by
   # re-running this workflow, which needs the branch to still exist.
@@ -563,6 +584,7 @@ workflows:
         - not:
             equal: [scheduled_pipeline, << pipeline.trigger_source >>]
         - equal: ['', << pipeline.parameters.store_release_outcome >>]
+        - equal: ['', << pipeline.parameters.verify_store_tag >>]
     jobs:
       - check
       # The two builds run in parallel with EACH OTHER, but both wait for `check`.
@@ -598,6 +620,8 @@ workflows:
       - publish_debug_build:
           requires:
             - build-debug
+          context:
+            - p2p-extension-qa-bucket
           filters:
             branches:
               only: main
@@ -651,14 +675,19 @@ workflows:
             - release
           context:
             - org-global
+            - p2p-extension-crx-signing
           filters: *release_branches
       - store_preflight:
           requires:
             - pack_crx
+          context:
+            - p2p-extension-store
           filters: *release_branches
       - upload_to_store:
           requires:
             - store_preflight
+          context:
+            - p2p-extension-store
           filters: *release_branches
       - delete_release_branch:
           requires:
@@ -700,3 +729,19 @@ workflows:
           context:
             - org-global
             - dm-release-notify
+
+  # Manual: is the package the store serves the one we built from the release tag? Not part of `ci` — store review
+  # takes hours to weeks, so a job after `upload_to_store` would only ever report "not live yet", and an approval
+  # there would park every release "On Hold" (this config's one approval is `hold_release`). Start it once the
+  # release is live (the pipeline must run on `main`):
+  #   circleci pipeline run --project gh/dmarket/p2p-extension --branch main --param verify_store_tag=v1.0.6-beta
+  # (`--definition-id` is prompted for, or pass the project's pipeline definition UUID).
+  # Exit 3 means the store does not serve that version yet; run it again later.
+  verify_store:
+    when:
+      not:
+        equal: ['', << pipeline.parameters.verify_store_tag >>]
+    jobs:
+      - verify_store:
+          context:
+            - p2p-extension-ci

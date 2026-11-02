@@ -183,6 +183,7 @@ CircleCI (`.circleci/config.yml`). Every push runs:
 | `build-prod` | `check` | production zip → the job's **Artifacts** tab |
 | `build-debug` | `check` | development zip (debug console, internal endpoints) → **Artifacts** |
 | `publish_debug_build` | `build-debug` | `main` only: uploads that zip over the QA autotests' `latest.zip` in a stage Cloud Storage bucket |
+| `verify_store` | — | never automatic; started by hand once a release is live (see below) |
 
 The two builds run in parallel with each other, but neither starts until the checks pass — an
 installable artifact should never come from a pipeline whose own checks are red.
@@ -191,6 +192,26 @@ A push to `release/vX.Y.Z` adds the release chain to that same pipeline, so one 
 pipeline: `hold_release` (approval) → `release` (tag + GitHub Release with the zip) → `pack_crx` →
 `store_preflight` → `upload_to_store` → `delete_release_branch`. Those six exist only on a release
 branch, and `hold_release` is the only approval among them; a push anywhere else runs the three jobs above and nothing more.
+
+### Secrets
+
+Every secret lives in a CircleCI context that only the jobs needing it list; none is a project-level
+environment variable, because CircleCI hands those to every job and `check` and the builds run
+dependency code on every push.
+
+| Context | Jobs | Holds |
+|---|---|---|
+| `p2p-extension-ci` | `build-prod`, `build-debug`, `verify_store` | `WXT_*` build configuration |
+| `org-global` | `release`, `pack_crx`, `delete_release_branch` | `GITHUB_TOKEN` (org-wide) |
+| `p2p-extension-crx-signing` | `pack_crx` | the CRX signing key |
+| `p2p-extension-store` | `store_preflight`, `upload_to_store` | Chrome Web Store credentials |
+| `p2p-extension-qa-bucket` | `publish_debug_build` | the stage-bucket service-account key and target |
+
+The signing key and the store credentials are never in the same job. `check` has no context, and `check`
+and the builds also `unset` the store, signing and bucket variables in their first step, so a variable left
+at project level by mistake still does not reach the code they run. That is a mitigation, not a boundary;
+the contexts are the control. Keep the project's "Build forked pull requests" and "Pass secrets to builds
+from forked pull requests" settings off.
 
 Both zips are meant to be installed by hand: download, unzip, then `chrome://extensions` →
 Developer mode → **Load unpacked**. Each build is verified by `scripts/verify-build.mjs`, which
@@ -238,7 +259,23 @@ The debug build is deliberately **not** published — it is not what ships, and 
 CircleCI, on any push. From `main` it also goes to a private stage bucket, where the UI autotests pick
 it up (`scripts/ci/publish-debug-build.mjs`): the object is always overwritten, so it is the build of
 the last green `main` pipeline, and its metadata (`gsutil stat`) names the version, commit and build.
-The target is the project env var `DEBUG_BUILD_GCS_URI` (`gs://<bucket>/<object>`).
+The target is `DEBUG_BUILD_GCS_URI` (`gs://<bucket>/<object>`), set in the `p2p-extension-qa-bucket` context.
+
+### Checking what the store serves
+
+`verify_store` answers "is the package in the Chrome Web Store the one we built from this tag?". It asks the
+public update server what it serves (`scripts/ci/cws-served-version.sh`), downloads that CRX, rebuilds the
+tag and compares the two (`scripts/ci/verify-crx.sh`): file hashes (ignoring the store's `_metadata/`,
+sourcemaps and the `update_url` it adds to the manifest), the manifest's privilege surface and the hosts
+named in the bundle. It exits non-zero on any difference, and with code 3 when the store does not serve the
+tag's version yet.
+
+It is not part of the release pipeline: store review takes hours to weeks, and a second approval would
+leave every release "On Hold". Start it once the release is live, from `main`:
+
+```
+circleci pipeline run --project gh/dmarket/p2p-extension --branch main --param verify_store_tag=v1.0.6-beta
+```
 
 ### Watching the store, and forcing an update
 
@@ -318,7 +355,7 @@ src/
 buckets/             # the remote-config documents per environment, and the scripts that publish them
 ```
 
-`scripts/` holds four guards that mechanise invariants a unit test cannot reach. Three run as part of
+`scripts/ci/` holds the shell and Node behind the CircleCI jobs. `scripts/` itself holds four guards that mechanise invariants a unit test cannot reach. Three run as part of
 `npm run compile`: the core's positional configuration order against the installed package
 (`check-core-params`), the blocking-state priority table against the core's own resolver
 (`check-surface-priority`), and the create-trade cause mapping (`check-create-trade-cause`). The
