@@ -36,6 +36,7 @@ import {
   REMOTE_CONFIG_PARAM,
   type ConfigEntries,
 } from '@/infra/remoteConfig';
+import { STATE_AREA } from '@/state/stateArea';
 import { onStorageChanged } from '@/util/storageEvents';
 import { isChromeVersion } from '@/util/version';
 
@@ -865,7 +866,7 @@ export async function loadSettings(): Promise<Settings> {
  */
 export function subscribeSettings(onChange?: (s: Settings) => void): () => void {
   return onStorageChanged((changes, area) => {
-    if (area !== 'local' || !(REMOTE_CONFIG_CACHE_KEY in changes)) return;
+    if (area !== STATE_AREA || !(REMOTE_CONFIG_CACHE_KEY in changes)) return;
     void loadSettings().then((s) => onChange?.(s));
   });
 }

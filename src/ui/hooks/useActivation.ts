@@ -1,4 +1,4 @@
-import { isActivated, subscribeActivation } from '@/state/activation';
+import { readActivation, subscribeActivation } from '@/state/activation';
 import { useStoredValue } from '@/ui/hooks/useStoredValue';
 
 /**
@@ -8,5 +8,5 @@ import { useStoredValue } from '@/ui/hooks/useStoredValue';
  * neutral/loading state for `undefined` to avoid flashing the wrong screen.
  */
 export function useActivation(): boolean | undefined {
-  return useStoredValue<boolean | undefined>(isActivated, subscribeActivation, undefined);
+  return useStoredValue<boolean | undefined>(readActivation, subscribeActivation, undefined);
 }

@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { setActivated } from '@/state/activation';
+import { requestActivation } from '@/state/activation';
 import { resolveSurface } from '@/state/surface';
 import { useActivation } from '@/ui/hooks/useActivation';
 import { useBlockingReason } from '@/ui/hooks/useBlockingReason';
@@ -30,7 +30,7 @@ export function SteamApp() {
   const [step, setStep] = useState<Step>('idle');
 
   const confirm = async (): Promise<void> => {
-    await setActivated(true);
+    await requestActivation();
     setStep('success');
   };
 

@@ -1,4 +1,5 @@
 import { remoteConfigConfig } from './config';
+import { stateStorage } from '@/state/stateArea';
 
 // Remote config: one static JSON document on our CDN (buckets/<env>/p2p/extension-config.json, published with
 // buckets/upload.sh). Data only, no remote code, so it is MV3-safe and works from the service worker.
@@ -51,7 +52,8 @@ export { FETCHED_AT_KEY as REMOTE_CONFIG_FETCHED_AT_KEY };
 /** Read the last cached entries (or `{}` when absent/malformed). Never throws. */
 export async function readCachedEntries(): Promise<ConfigEntries> {
   try {
-    const stored = await browser.storage.local.get(CACHE_KEY);
+    // A content script reads the worker's copy (src/state/stateArea.ts).
+    const stored = await stateStorage().get(CACHE_KEY);
     const cache = stored[CACHE_KEY];
     return cache && typeof cache === 'object' ? (cache as ConfigEntries) : {};
   } catch {

@@ -7,6 +7,7 @@ import { Tracker, type BlockingReason, type TrackerHandle } from '@/core/tracker
 import { installSteamAntiCsrf } from '@/background/anti-csrf';
 import { installDevSteamRedirect } from '@/background/dev-steam-redirect';
 import { registerBridgeRouter } from '@/background/router';
+import { registerStateMirror } from '@/background/stateMirror';
 import { injectContentScriptsOnSessionStart, registerContentScriptInjection } from '@/background/inject-content-scripts';
 import { reconcileSteamSession, registerRefreshTriggers } from '@/background/refresh';
 import { createCoreLifecycle } from '@/background/coreLifecycle';
@@ -137,6 +138,7 @@ export default defineBackground(() => {
 
   // Register the dmarket.com bridge router synchronously (reads the handle lazily).
   registerBridgeRouter(() => handle, bootSettled, refreshRemoteConfigOnPresence);
+  void registerStateMirror();
 
   // Apply a downloaded update as soon as no proof is running, instead of when the browser next restarts.
   // Chrome parks an MV3 update until the extension is idle, and the warm offscreen prover document means it

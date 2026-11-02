@@ -11,6 +11,7 @@
 // heartbeat reports `NONE`.
 
 import { normalizeBlockingReason, type BlockingReason } from '@/core/blockingReason';
+import { STATE_AREA, stateStorage } from '@/state/stateArea';
 import { subscribeKey } from '@/state/subscribeKey';
 
 export type { BlockingReason } from '@/core/blockingReason';
@@ -28,7 +29,7 @@ export const BLOCKING_KEY = 'tracker.blockingReason';
  * one (a profile genuinely linked to a different account) without a debug console. The id of whoever else
  * is signed into the browser is deliberately never stored or shown.
  */
-const LINKED_STEAM_ID_KEY = 'tracker.linkedSteamId';
+export const LINKED_STEAM_ID_KEY = 'tracker.linkedSteamId';
 
 /**
  * Recognise a stored value through the seam's single allow-list — deliberately NOT a second copy of it.
@@ -40,7 +41,7 @@ const parse = normalizeBlockingReason;
 
 /** Read the current blocking reason. Absent counts as `NONE`, unrecognised as `UNKNOWN`. */
 export async function getBlockingReason(): Promise<BlockingReason> {
-  const stored = await browser.storage.local.get(BLOCKING_KEY);
+  const stored = await stateStorage().get(BLOCKING_KEY);
   return parse(stored[BLOCKING_KEY]);
 }
 
@@ -59,7 +60,7 @@ export async function setBlockingReason(reason: BlockingReason): Promise<void> {
  * unsubscribe function.
  */
 export function subscribeBlockingReason(onChange: (reason: BlockingReason) => void): () => void {
-  return subscribeKey('local', BLOCKING_KEY, parse, onChange);
+  return subscribeKey(STATE_AREA, BLOCKING_KEY, parse, onChange);
 }
 
 /** Absent, blank or non-string reads as "no id known" — the surfaces fall back to generic copy. */
@@ -68,7 +69,7 @@ const parseSteamId = (value: unknown): string | undefined =>
 
 /** Read the DMarket-linked Steam id from the last wrong-account report, or `undefined` if none is known. */
 export async function getLinkedSteamId(): Promise<string | undefined> {
-  const stored = await browser.storage.local.get(LINKED_STEAM_ID_KEY);
+  const stored = await stateStorage().get(LINKED_STEAM_ID_KEY);
   return parseSteamId(stored[LINKED_STEAM_ID_KEY]);
 }
 
@@ -88,5 +89,5 @@ export async function setLinkedSteamId(steamId: string | undefined): Promise<voi
 
 /** Subscribe to linked-Steam-id changes across contexts. Returns an unsubscribe function. */
 export function subscribeLinkedSteamId(onChange: (steamId: string | undefined) => void): () => void {
-  return subscribeKey('local', LINKED_STEAM_ID_KEY, parseSteamId, onChange);
+  return subscribeKey(STATE_AREA, LINKED_STEAM_ID_KEY, parseSteamId, onChange);
 }
