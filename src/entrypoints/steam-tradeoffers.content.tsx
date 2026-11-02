@@ -8,12 +8,13 @@ import { reportError, setReportContext } from '@/infra/report/reporter';
 import { SteamApp } from '@/ui/steam/SteamApp';
 
 // Steam redirects /my/tradeoffers to the logged-in user's canonical profile URL, so both /profiles/
-// and /id/ forms must be matched. NOTE: WXT statically analyses these patterns at build time, so they
+// and /id/ forms must be matched. /tradeoffer/<id>/ is one offer's page, where a scammer's direct link lands. NOTE: WXT statically analyses these patterns at build time, so they
 // must stay inline literals — keep them in sync with STEAM_INTEGRATION.tradeOffersMatchPatterns.
 export default defineContentScript({
   matches: [
     'https://steamcommunity.com/profiles/*/tradeoffers*',
     'https://steamcommunity.com/id/*/tradeoffers*',
+    'https://steamcommunity.com/tradeoffer/*',
   ],
   cssInjectionMode: 'ui',
   runAt: 'document_idle',
@@ -97,7 +98,9 @@ async function mount(ctx: InstanceType<typeof ContentScriptContext>): Promise<vo
     // remote-config-tunable; guard against an invalid selector string throwing (fall back to body).
     anchor: () => {
       try {
-        return document.querySelector(getSettings().web.bannerAnchorSelector) ?? 'body';
+        const { bannerAnchorSelector, offerPageAnchorSelector } = getSettings().web;
+        const selector = location.pathname.startsWith('/tradeoffer/') ? offerPageAnchorSelector : bannerAnchorSelector;
+        return document.querySelector(selector) ?? 'body';
       } catch {
         return 'body';
       }

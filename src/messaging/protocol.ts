@@ -183,7 +183,9 @@ export type BridgeRequest =
   | { kind: 'presence' }
   // The deal id is the only thing the page's create trigger carries into the service worker.
   | { kind: 'create-trade'; dealId: string }
-  | { kind: 'request-cycle'; dealId?: string };
+  // `reason: 'offers_page'` comes from the Steam content script: the user opened the trade-offers page, so the
+  // core checks this account's sent offers now even with no deal tracked (core DMA-818).
+  | { kind: 'request-cycle'; dealId?: string; reason?: 'offers_page' };
 
 export type BridgeResponse =
   | {

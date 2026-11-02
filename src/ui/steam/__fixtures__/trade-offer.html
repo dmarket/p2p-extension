@@ -1,0 +1,169 @@
+<!-- Steam's trade window for an already-sent offer, /tradeoffer/<id>/, as the RECEIVING side sees it: the partner
+     gives one item, this account gives none. Captured from a live Russian-language page and cut down to the frame:
+     the escrow header, the partner header, the trade area and the accept/decline controls. Every name, steamid,
+     miniprofile id, asset id, date and image URL is replaced; the inventory, the trade log, the item hover, all
+     scripts and the extension's own banner host are dropped. The page text follows the account's language, so
+     nothing may key on it. There is no `.maincontent`.
+
+     The page's inline script (dropped here) also carries the trade's data, readable as script text from an
+     isolated world: g_ulTradePartnerSteamID, g_strTradePartnerPersonaName, and g_rgCurrentTradeStatus =
+     {version, newversion, me: {assets: [], currency: []}, them: {assets: [{appid, contextid, amount, assetid}]}}. -->
+<div class="responsive_page_template_content" id="responsive_page_template_content">
+
+<div class="pagecontent" id="mainContent">
+
+<div>
+	<div id="trade_escrow_header" class="trade_escrow_header responsive_trade_offersection" style="display: none">
+		<div class="trade_hold_time">Обмен будет удержан на <span id="trade_escrow_hours"></span></div>
+		<div id="trade_escrow_for_me" style="display: none">- you использует мобильный аутентификатор менее 7 дней</div>
+		<div id="trade_escrow_for_them" style="display: none">- trade_partner использует мобильный аутентификатор менее 7 дней</div>
+		<div><a href="javascript:void(0)">Как избавиться от удержания предметов</a></div>
+	</div>
+</div>
+
+<div>
+	<div class="trade_partner_header responsive_trade_offersection top">
+		<div class="trade_partner_headline">
+			Этот обмен:&nbsp;
+			<span class="trade_partner_headline_sub">Вы обмениваетесь с <a href="https://steamcommunity.com/profiles/76561198000000003" data-miniprofile="39734275">trade_partner</a></span>&nbsp;
+		</div>
+		<div class="trade_partner_info_block">
+			<div class="trade_partner_icon"><img src="https://images.example.invalid/placeholder.png" alt=""></div>
+			Вы дружите
+			<div class="trade_partner_info_text trade_partner_not_friends_for_long">1 день</div>
+			<div style="clear: left"></div>
+		</div>
+		<div class="trade_partner_info_block">
+			<div class="trade_partner_steam_level">
+				<div class="friendPlayerLevel lvl_0"><span class="friendPlayerLevelNum">5</span></div>
+			</div>
+			<div class="trade_partner_inline_hack">
+				<div class="trade_partner_steam_level_desc trade_partner_info_text">
+					<a href="https://steamcommunity.com/profiles/76561198000000003" data-miniprofile="39734275">trade_partner</a>
+				</div>
+				<div class="trade_partner_info_text">имеет 5-й уровень Steam</div>
+			</div>
+		</div>
+		<div class="trade_partner_info_block limited">
+			<div class="trade_partner_icon years_of_service"><img src="https://images.example.invalid/placeholder.png" alt=""></div>
+			<div class="trade_partner_member trade_partner_info_text"><a href="https://steamcommunity.com/profiles/76561198000000003" data-miniprofile="39734275">trade_partner</a> в Steam с</div>
+			<div class="trade_partner_member_since trade_partner_info_text">1 января 2020 г.</div>
+			<div style="clear: left"></div>
+		</div>
+		<div style="clear: left"></div>
+	</div>
+</div>
+
+<div class="trade_area">
+	<div class="trade_left">
+		<div class="trade_box" id="inventory_box"></div>
+		<div></div>
+		<div></div>
+		<div id="tradeoffer_includedmessage">
+			<h2 class="included_trade_offer_note_header">Прикреплённое сообщение:</h2>
+			<div class="included_trade_offer_note"><i>&lt; нет &gt;</i></div>
+		</div>
+	</div>
+	<div class="trade_right selectableNone">
+		<div id="trade_area" class="your_items trade_box trade_box_withbg">
+			<div class="trade_box_bgheader active"></div>
+			<div class="trade_box_contents">
+				<div class="trade_offer ready" id="trade_yours" style="position: relative">
+					<div class="offerheader">
+						<div class="offericon iconHolder_offline">
+							<div class="avatarIcon"><img src="https://images.example.invalid/placeholder.png" data-miniprofile="39734273" alt=""></div>
+						</div>
+						<div style="overflow: hidden">
+							<h2 class="ellipsis">Ваши предметы:</h2>
+							Их вы утратите после обмена.
+						</div>
+						<div style="clear: left"></div>
+					</div>
+					<div class="trade_item_box">
+						<div id="your_slots_currency"></div>
+						<div id="your_slots">
+							<div class="itemHolder trade_slot" id="your_slot_0">
+								<div class="slot_inner"></div>
+								<div class="slot_applogo" style="display: none"><img class="slot_applogo_img" src="https://images.example.invalid/placeholder.png" alt=""></div>
+								<a class="slot_actionmenu_button" id="your_slot_0_actionmenu_button" href="javascript:void(0)"></a>
+								<div class="slot_app_fraudwarning" style="display: none"></div>
+							</div>
+						</div>
+						<div style="clear: left"></div>
+					</div>
+					<div class="tutorial_arrow_ctn">
+						<div class="readystate" id="you_cantready" style="display: none"><div class="content">Ждём, пока вы что-нибудь предложите.</div></div>
+						<div class="readystate short" id="you_notready">
+							<div class="content">Подтвердить обмен <span id="notready_tradechanged_message" style="display: none">Предложение изменилось.</span></div>
+						</div>
+						<div class="readystate short" id="you_ready" style="display: none"><div class="content">Вы готовы к обмену.</div></div>
+						<div id="modify_trade_offer_opts">
+							<div class="modify_trade_offer_or">или</div>
+							<div class="readystate modify_trade_offer"><div class="content">Контрпредложение</div></div>
+						</div>
+					</div>
+				</div>
+				<div class="trade_rule trade_rule_swap" id="trade_items_separator" style="visibility: visible"></div>
+				<div class="trade_offer ready" id="trade_theirs">
+					<div class="trade_box_bgheader active" id="trade_theirs_active" style="display: none"></div>
+					<div id="trade_theirs_timeout" style="display: none">
+						<img src="https://images.example.invalid/placeholder.png" alt="">
+						<h2>Ожидание trade_partner</h2>
+					</div>
+					<div class="offerheader" style="position: relative">
+						<div class="offericon iconHolder_offline">
+							<div class="avatarIcon">
+								<a href="https://steamcommunity.com/profiles/76561198000000003"><img src="https://images.example.invalid/placeholder.png" data-miniprofile="39734275" alt=""></a>
+							</div>
+						</div>
+						<div style="overflow: hidden">
+							<h2>Предметы <a href="https://steamcommunity.com/profiles/76561198000000003" style="color: inherit">trade_partner</a>:</h2>
+							Их вы получите после обмена.
+						</div>
+						<div style="clear: left"></div>
+					</div>
+					<div class="trade_item_box">
+						<div id="their_slots_currency"></div>
+						<div id="their_slots">
+							<div class="itemHolder trade_slot has_item" id="their_slot_0">
+								<div class="slot_inner">
+									<div class="item app730 context2" id="item730_2_100000000001"></div>
+								</div>
+								<div class="slot_applogo"><img class="slot_applogo_img" src="https://images.example.invalid/placeholder.png" alt=""></div>
+								<a class="slot_actionmenu_button" id="their_slot_0_actionmenu_button" href="javascript:void(0)"></a>
+								<div class="slot_app_fraudwarning" style="display: none"></div>
+							</div>
+						</div>
+						<div style="clear: left"></div>
+					</div>
+					<div class="tradeoffer_partner_ready_note">trade_partner получит уведомление об этом предложении через Steam.</div>
+					<div class="readystate" id="them_ready" style="display: none"><div class="content">Готов к обмену.</div></div>
+				</div>
+				<div class="trade_rule maketrade"></div>
+				<div class="trade_confirm_box tutorial_arrow_ctn">
+					<div id="trade_escrow_notice_near_button" style="display: none">Обмен будет удержан на <span id="trade_escrow_hours2"></span></div>
+					<div class="trade_protected_status_callout active">
+						<img src="https://images.example.invalid/placeholder.png" alt="">
+						<span>У этих предметов будет защита обмена в течение 7 дн. <a href="https://help.steampowered.com/faqs/view/365F-4BEE-2AE2-7BDD">Подробнее</a></span>
+					</div>
+					<div class="trade_confirmbtn ellipsis" id="trade_confirmbtn">
+						<div class="cap left"></div>
+						<div class="cap right"></div>
+						<div id="trade_confirmbtn_text">Принять обмен</div>
+					</div>
+					<div id="trade_confirm_throbber" style="display: none"><img src="https://images.example.invalid/placeholder.png" alt=""></div>
+					<div id="trade_confirm_message">Предметы для обмена ожидают вашего подтверждения.</div>
+				</div>
+			</div>
+		</div>
+		<div class="cancelbtn_ctn">
+			<div class="btn_grey_black btn_medium ico_hover btn_report"><span><i class="ico16 report"></i></span></div>
+			<div class="btn_grey_black btn_medium" id="btn_decline_trade_offer"><span>Отклонить обмен</span></div>
+			<div class="btn_grey_black btn_medium"><span>Отменить и закрыть окно</span></div>
+		</div>
+	</div>
+	<div style="clear: both"></div>
+</div>
+
+</div>
+</div>

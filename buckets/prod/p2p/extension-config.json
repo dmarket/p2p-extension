@@ -58,6 +58,17 @@
   },
   "web": {
     "bannerAnchorSelector": ".maincontent",
+    "offerPageAnchorSelector": "#mainContent",
+    "offerSelectors": {
+      "offer": "div.tradeoffer[id^=\"tradeofferid_\"]",
+      "partner": ".tradeoffer_items.secondary .tradeoffer_items_avatar_ctn [data-miniprofile]",
+      "header": ".tradeoffer_header",
+      "given": ".tradeoffer_items.primary .trade_item",
+      "received": ".tradeoffer_items.secondary .trade_item"
+    },
+    "knownScamPartners": [
+      "76561198781084366"
+    ],
     "logoutExpression": "Logout();",
     "tradeOffersUrl": "https://steamcommunity.com/my/tradeoffers",
     "steamLoginUrl": "https://steamcommunity.com/login/home/?goto=my%2Ftradeoffers",

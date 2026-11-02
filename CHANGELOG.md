@@ -19,6 +19,16 @@ Built against `@dmarket/p2p-tracker-core` `1.1.0-beta`, which ships the TLSN pro
 
 ### Added
 
+- **Suspicious Steam offer warnings (DMA-819).** On the sent-offers page and on an offer's own page
+  (`/tradeoffer/<id>/`) a banner marks an outgoing offer that gives items away with no DMarket deal
+  behind it (yellow, dismissible with "I know this partner") or one whose partner poses as DMarket
+  (red: an account in `web.knownScamPartners`, or a persona name like "D market"); a received offer
+  from a known scam account that asks for the seller's items is red too. The toolbar icon shows a
+  "!" badge and the popup a line while such an offer is open. Nothing is cancelled or blocked, and
+  nothing reaches Steam Mobile, where offers are confirmed. Verdicts come from the core (DMA-818);
+  an older core leaves only the known-account check. Remote config: `web.offerSelectors`,
+  `web.offerPageAnchorSelector`, `web.knownScamPartners`. Debug builds get "Simulate suspicious
+  offer" in the console.
 - **Support logs (DMA-678).** The extension keeps the last 24 hours of its own activity on the device:
   tracker events, trade-proof progress, sign-in and activation changes. Help → Troubleshooting saves it
   as a file or copies it to the clipboard, so a seller can hand it to support. Before anything is saved,

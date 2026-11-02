@@ -22,12 +22,10 @@ import {
 } from '@/state/activation';
 import { BLOCKING_KEY, LINKED_STEAM_ID_KEY } from '@/state/blocking';
 import { REMOTE_CONFIG_CACHE_KEY } from '@/infra/remoteConfig';
-import { STEAM_INTEGRATION } from '@/config/steam';
+import { fromSteamTab } from '@/background/steamSender';
 import { onStorageChanged } from '@/util/storageEvents';
 
 export const MIRRORED_KEYS: readonly string[] = [ACTIVATION_KEY, BLOCKING_KEY, LINKED_STEAM_ID_KEY, REMOTE_CONFIG_CACHE_KEY];
-
-const STEAM_ORIGIN = new URL(STEAM_INTEGRATION.communityUrl).origin;
 
 let chain: Promise<void> = Promise.resolve();
 
@@ -46,16 +44,6 @@ function sync(keys: readonly string[]): Promise<void> {
 function isSetActivation(message: unknown): message is SetActivationMessage {
   const m = message as Partial<SetActivationMessage> | null;
   return typeof m === 'object' && m !== null && m.kind === SET_ACTIVATION_KIND && m.enabled === true;
-}
-
-/** This extension's own content script, on a Steam community tab — where the banner is injected. */
-function fromSteamTab(sender: Browser.runtime.MessageSender): boolean {
-  if (sender.id !== browser.runtime.id) return false;
-  try {
-    return new URL(sender.tab?.url ?? '').origin === STEAM_ORIGIN;
-  } catch {
-    return false;
-  }
 }
 
 /** `storage.local` accepts this only from Chrome 140; older versions throw or reject, and keep it open. */

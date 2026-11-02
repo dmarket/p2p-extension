@@ -8,6 +8,8 @@ import { RulesModal } from './RulesModal';
 import { SuccessModal } from './SuccessModal';
 import { ActiveBanner } from './ActiveBanner';
 import { MismatchBanner } from './MismatchBanner';
+import { CheckingNotice, SuspiciousOfferBanners } from './SuspiciousOfferBanner';
+import { useOfferWarnings } from './useOfferWarnings';
 
 type Step = 'idle' | 'rules' | 'success';
 
@@ -21,8 +23,27 @@ type Step = 'idle' | 'rules' | 'success';
  *     (fail closed) rather than claiming tracking is on.
  *   - not activated       -> onboarding banner -> rules modal -> success modal
  *   - nothing blocking    -> "Trade tracking is ON" banner
+ *
+ * Steam's trade window (`/tradeoffer/<id>/`, and `/tradeoffer/new/`, which the same match pattern reaches) shows
+ * none of these, only the offer's own warning: next to an offer, "Trade tracking is ON" reads as DMarket vouching
+ * for that offer, and onboarding or a sign-in prompt in the middle of a trade is noise. Both live on the
+ * trade-offers list and in the popup.
  */
 export function SteamApp() {
+  // Above whatever the state shows, and in every state: an offer waiting for a mobile confirmation matters
+  // whether or not the tracker is on.
+  const { warnings, trust, checking, offerId } = useOfferWarnings();
+  const onOfferPage = offerId !== undefined;
+  return (
+    <>
+      {checking && <CheckingNotice single={onOfferPage} />}
+      <SuspiciousOfferBanners warnings={warnings} onTrust={trust} onOfferPage={onOfferPage} />
+      {!location.pathname.startsWith('/tradeoffer/') && <SurfaceBanner />}
+    </>
+  );
+}
+
+function SurfaceBanner() {
   // Both are `undefined` until their first read resolves — NOT an optimistic `false`/'NONE', which
   // flashed the "Trade tracking is ON" banner on every page load regardless of the real state.
   const activated = useActivation();

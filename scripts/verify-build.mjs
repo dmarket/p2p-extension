@@ -68,6 +68,10 @@ const DEBUG_SYMBOLS = [
   'debug:retry-proof',
   'debug:force-tick',
   'dmp-simulated-absent', // the blocking-state simulator's cookie-name substitute
+  'debug:simulate-offer', // the suspicious-offer simulation (debug/protocol.ts)
+  'simulatedPersonaName', // the field only that simulation sets (background/offerGuard.ts)
+  'dmpSimulated', // the stand-in offer block it draws on Steam (ui/steam/useOfferWarnings.ts)
+  ' offered you', // that block's header when it stands in for a received offer
 ];
 
 // The production notary WebSocket, asserted present in the shipped bytes because its absence is

@@ -18,6 +18,8 @@ import { logCommand } from '@/debug/netLog';
 import { lastProofOutcome, recordProofStage, runningProof } from '@/debug/proofState';
 import { blockingStateNote } from '@/debug/blockingStates';
 import { DEMAND_KEY, isDemandArmed, parseDemand } from '@/debug/demandState';
+import { clearSimulatedVerdicts } from '@/background/offerGuard';
+import { simulatedOfferFrame } from '@/debug/simulatedOffer';
 import { applyDemand, applySimulation, clearResidue, describeSimulation, effectiveDemand, effectiveSimulation } from '@/debug/simulate';
 import { armedScenarios, parseSimulation, SIMULATION_KEY } from '@/debug/simulationState';
 import { remoteConfigConfig } from '@/infra/config';
@@ -85,6 +87,8 @@ export interface DebugDeps {
    * tree only arrives on a later microtask — and because production must keep no reference to it at all.
    */
   setLifecycleSink: (sink: (json: string) => void) => void;
+  /** Feed one frame to the core's lifecycle callback, as if the core had emitted it. */
+  injectLifecycleEvent: (json: string) => void;
 }
 
 /** Whether two entries maps hold the same parameters — key order is not guaranteed across JSON parses. */
@@ -399,6 +403,32 @@ async function handle(request: DebugRequest, deps: DebugDeps): Promise<DebugResp
       return { ok: true };
     }
 
+    case 'debug:simulate-offer': {
+      const offer = request.offer;
+      if (offer === null) {
+        await clearSimulatedVerdicts();
+        void logCommand(OFFER_EVENT, 'simulated suspicious offers cleared.', 'info');
+        return { ok: true };
+      }
+      const frame = simulatedOfferFrame(offer);
+      if (frame === undefined) {
+        return {
+          ok: false,
+          error: 'offer id must be digits, partner a steamid64, level UNLINKED_GIVE_ONLY or IMPERSONATION, direction sent or received',
+        };
+      }
+      // Built as the core's frame rather than written to storage directly, so the simulation cannot pass where
+      // the real path would fail.
+      deps.injectLifecycleEvent(JSON.stringify(frame));
+      // `warn`, like every other synthesized input: no such event came from the core.
+      void logCommand(
+        OFFER_EVENT,
+        `simulated ${offer.level} for ${offer.direction} offer ${offer.offerId} (${offer.personaName}).`,
+        'warn',
+      );
+      return { ok: true };
+    }
+
     case 'debug:set-demand': {
       const after = parseDemand(request.state);
       await browser.storage.local.set({ [DEMAND_KEY]: after });
@@ -423,6 +453,9 @@ async function handle(request: DebugRequest, deps: DebugDeps): Promise<DebugResp
     }
   }
 }
+
+/** Command-log tag for the suspicious-offer simulation. */
+const OFFER_EVENT = 'SimulateOffer';
 
 /** Command-log tag for the freshness-mark injector, so its entries are filterable like the others. */
 const DEMAND_EVENT = 'InjectDemand';

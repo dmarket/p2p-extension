@@ -30,8 +30,8 @@ const OMITTED: Record<'prod' | 'stage', string[]> = { prod: NOTARY_OMITTED, stag
 
 /** Deliberate differences from the compiled defaults. Change these together with the files. */
 const DEVIATIONS: Record<'prod' | 'stage', Record<string, unknown>> = {
-  prod: { 'tracker.cadence.fallbackHeartbeatIntervalMs': 60000 },
-  stage: { 'tracker.cadence.fallbackHeartbeatIntervalMs': 60000 },
+  prod: { 'tracker.cadence.fallbackHeartbeatIntervalMs': 60000, 'web.knownScamPartners': ['76561198781084366'] },
+  stage: { 'tracker.cadence.fallbackHeartbeatIntervalMs': 60000, 'web.knownScamPartners': ['76561198781084366'] },
 };
 
 /**

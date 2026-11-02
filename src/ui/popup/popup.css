@@ -705,3 +705,41 @@ body {
   align-self: center;
   font-size: 12px;
 }
+
+/* ---- Suspicious outgoing Steam offer (SuspiciousOffersRow.tsx) ------------------------------------------ */
+
+.offer-alert {
+  margin: 12px 16px 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: #121212;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.offer-alert--warning {
+  border: 1px solid rgba(255, 150, 52, 0.45);
+}
+
+.offer-alert--danger {
+  border: 1px solid rgba(255, 80, 48, 0.6);
+}
+
+.offer-alert__title {
+  margin: 0 0 4px;
+  font-weight: 600;
+  color: var(--dm-ext-text);
+}
+
+.offer-alert__text {
+  margin: 0 0 6px;
+  color: var(--dm-ext-text-secondary);
+}
+
+.offer-alert__action {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+}

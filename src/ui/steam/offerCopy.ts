@@ -1,0 +1,90 @@
+// The words for one suspicious offer, shared by the Steam page banner and the popup row so the two cannot
+// disagree about what an offer is or what the user should do with it.
+
+import type { OfferDirection, OfferLevel } from '@/state/offerGuard';
+
+export interface OfferCopyInput {
+  level: OfferLevel;
+  direction: OfferDirection;
+  personaName?: string;
+  partnerSteamId?: string;
+  giveCount: number;
+}
+
+/** A run of plain text, or a value the banner sets apart. */
+export type CopyPart = string | { value: string };
+
+export interface OfferCopy {
+  title: string;
+  body: CopyPart[];
+  /** "To {partner}" or "From {partner}". */
+  partner: string;
+  /** What to do, as one sentence. */
+  advice: string;
+}
+
+/** DMarket's own bots send the user a give-only offer too, so a received offer is judged against this. */
+const OUR_BOTS = 'DMarket bots only send you an offer for a deposit you started on dmarket.com';
+
+function items(n: number): string {
+  return `${n} ${n === 1 ? 'item' : 'items'}`;
+}
+
+export function offerCopy(o: OfferCopyInput): OfferCopy {
+  // The core reads no name for a received offer's sender, so its steamid stands in.
+  const label = o.personaName || o.partnerSteamId || 'this partner';
+  if (o.direction === 'received') {
+    const name = label;
+    const partner = `From ${label}`;
+    const advice = "Decline it, don't accept or confirm it in Steam Mobile.";
+    return o.level === 'IMPERSONATION'
+      ? {
+          title: 'A known scam account sent you a Steam offer',
+          body: [{ value: name }, ` is a known scam account. ${OUR_BOTS} — decline it, don't accept or confirm it in Steam Mobile.`],
+          partner,
+          advice,
+        }
+      : {
+          title: "This trade offer isn't linked to a DMarket deal",
+          body: [{ value: name }, ' asks for ', { value: items(o.giveCount) }, ` and gives nothing back. ${OUR_BOTS} — if you didn't start one, decline it.`],
+          partner,
+          advice,
+        };
+  }
+  // A sent banner shows the steamid apart, so the name alone.
+  const name = o.personaName || 'this partner';
+  const partner = `To ${label}`;
+  const advice = "Don't confirm it in Steam Mobile unless you created it yourself.";
+  return o.level === 'IMPERSONATION'
+    ? {
+        title: 'DMarket never asks you to send items to a "DMarket" account',
+        body: [
+          'The offer to ',
+          { value: name },
+          ...(o.partnerSteamId !== undefined ? [' (', { value: o.partnerSteamId }, ')'] : []),
+          " looks like a scam. Don't confirm it in Steam Mobile.",
+        ],
+        partner,
+        advice,
+      }
+    : {
+        title: "This trade offer isn't linked to a DMarket deal",
+        body: [
+          'You give ',
+          { value: items(o.giveCount) },
+          ' to ',
+          { value: name },
+          " and get nothing back. If you didn't create this offer yourself, don't confirm it in Steam Mobile.",
+        ],
+        partner,
+        advice,
+      };
+}
+
+/**
+ * Whether "I know this partner" may dismiss the warning: only a yellow offer the user sent. A received one is
+ * never dismissed this way: a scammer's offer looks like a deposit bot's, and trust would silence the next one.
+ */
+export function canTrust(o: Pick<OfferCopyInput, 'level' | 'direction' | 'partnerSteamId'>): boolean {
+  return o.level === 'UNLINKED_GIVE_ONLY' && o.direction === 'sent' && o.partnerSteamId !== undefined;
+}

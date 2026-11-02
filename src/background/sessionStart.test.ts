@@ -29,6 +29,18 @@ describe('the session-start claim', () => {
     await expect(claimSessionStart()).resolves.toBe(true);
   });
 
+  it("drops the core's record of reported offers with the verdict cache, and keeps it on a respawn", async () => {
+    const notified = { tracker_guard_notified: '{"11":"IMPERSONATION"}' };
+    await fakeBrowser.storage.local.set(notified);
+    await claimSessionStart();
+    // The cache that showed those warnings is gone, so the core must report them again.
+    expect(await fakeBrowser.storage.local.get('tracker_guard_notified')).toEqual({});
+
+    await fakeBrowser.storage.local.set(notified);
+    await claimSessionStart();
+    expect(await fakeBrowser.storage.local.get('tracker_guard_notified')).toEqual(notified);
+  });
+
   it('forces rather than trusts when the mark cannot be read', async () => {
     vi.spyOn(fakeBrowser.storage.session, 'get').mockRejectedValueOnce(new Error('storage unavailable'));
 

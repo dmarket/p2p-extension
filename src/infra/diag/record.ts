@@ -26,9 +26,10 @@ const NOTARY_EVENT = 'NotaryProof';
 
 /**
  * Fields that name the OTHER party of a trade: not the user's to hand to support (R6). Dropped at write, and
- * again by the export. `accountid_other` is Steam's own name for it, should a frame ever carry one.
+ * again by the export. `accountid_other` is Steam's own name for it, should a frame ever carry one. `personaName`
+ * is that party's Steam name, the sender's on a received offer (DMA-819).
  */
-export const COUNTERPARTY_FIELDS: ReadonlySet<string> = new Set(['partnerSteamId', 'accountid_other']);
+export const COUNTERPARTY_FIELDS: ReadonlySet<string> = new Set(['partnerSteamId', 'accountid_other', 'personaName']);
 
 export type DiagFields = Record<string, DiagValue>;
 

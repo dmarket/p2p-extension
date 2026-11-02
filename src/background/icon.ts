@@ -1,6 +1,9 @@
 import { isActivated, subscribeActivation } from '@/state/activation';
 import { getBlockingReason, subscribeBlockingReason, type BlockingReason } from '@/state/blocking';
 import { resolveSurface } from '@/state/surface';
+import { readVerdicts } from '@/background/offerGuard';
+import { GUARD_VERDICTS_KEY } from '@/state/offerGuard';
+import { onStorageChanged } from '@/util/storageEvents';
 
 // Toolbar icon: three glyphs, chosen through the SAME precedence the popup and the Steam banner use
 // (state/surface.ts), so the icon always matches the screen the popup would show:
@@ -55,6 +58,19 @@ async function applyIcon(): Promise<void> {
   }
 }
 
+// The only badge: "!" while a suspicious outgoing Steam offer is cached (src/background/offerGuard.ts). It sits
+// on top of whichever glyph the state above chose, because an offer waiting for a mobile confirmation matters
+// in every state, and goes once the offer leaves the sent page, the user trusts the partner, or the cache expires.
+async function applyBadge(): Promise<void> {
+  try {
+    const flagged = Object.keys(await readVerdicts()).length > 0;
+    await browser.action.setBadgeBackgroundColor({ color: '#e5484d' });
+    await browser.action.setBadgeText({ text: flagged ? '!' : '' });
+  } catch (error) {
+    console.debug('[dmarket-p2p] badge update failed', error);
+  }
+}
+
 /**
  * Reflect the activation flag and the tracker's blocking reason on the toolbar icon, and keep both in
  * sync. Call once, synchronously, on every service-worker spawn: it seeds the icon from stored state
@@ -70,5 +86,9 @@ export function initIcon(): void {
   subscribeBlockingReason((r) => {
     reason = r;
     void applyIcon();
+  });
+  void applyBadge();
+  onStorageChanged((changes, area) => {
+    if (area === 'session' && GUARD_VERDICTS_KEY in changes) void applyBadge();
   });
 }

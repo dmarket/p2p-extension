@@ -15,6 +15,7 @@
 import { configuredInternalEnvironments, PROD_ENVIRONMENT } from '@/config/defaultEnvironment';
 import type { BlockingReason } from '@/core/tracker';
 import type { DemandInjection } from '@/debug/demandState';
+import type { OfferDirection, OfferLevel } from '@/state/offerGuard';
 import type { SimulationState } from '@/debug/simulationState';
 
 /**
@@ -132,7 +133,25 @@ export type DebugRequest =
    * state and has no reason override — see the header of src/debug/demandState.ts for why it is kept out of
    * the scenario vocabulary entirely.
    */
-  | { type: 'debug:set-demand'; state: DemandInjection };
+  | { type: 'debug:set-demand'; state: DemandInjection }
+  /**
+   * Make the suspicious-offer guard warn about an offer without creating a trade (src/background/offerGuard.ts).
+   * Sent through the core's own lifecycle callback as a `SuspiciousOutgoingOffers` frame, so the cache, the
+   * badge, the popup and the Steam page take exactly the path a real event takes. An offer id Steam does not
+   * list gets a stand-in block on the sent-offers page, or on the landing page for a received one. `offer: null`
+   * removes every simulated verdict.
+   */
+  | { type: 'debug:simulate-offer'; offer: SimulatedOffer | null };
+
+/** The fields of one simulated suspicious offer. */
+export interface SimulatedOffer {
+  level: OfferLevel;
+  direction: OfferDirection;
+  offerId: string;
+  partnerSteamId: string;
+  personaName: string;
+  giveCount: number;
+}
 
 /** Which prover the core resolved. Named once here so the UI cannot spell the union a second time. */
 export type ProverKind = 'tlsn' | 'noop';
@@ -364,6 +383,7 @@ export function isDebugRequest(message: unknown): message is DebugRequest {
     type === 'debug:set-endpoints' ||
     type === 'debug:set-notary' ||
     type === 'debug:set-simulation' ||
-    type === 'debug:set-demand'
+    type === 'debug:set-demand' ||
+    type === 'debug:simulate-offer'
   );
 }

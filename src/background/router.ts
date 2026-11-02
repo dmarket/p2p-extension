@@ -5,6 +5,26 @@ import { isBridgeRequest, type BridgeRequest, type BridgeResponse } from '@/mess
 import { isActivated } from '@/state/activation';
 import { DMARKET_ORIGINS } from '@/config/settings';
 import { extensionVersion } from '@/util/extensionVersion';
+import { fromSteamTab } from '@/background/steamSender';
+import {
+  forgetTrustedPartner,
+  keepOnlyListed,
+  readScanStamp,
+  readVerdicts,
+  recordPageImpersonations,
+  settledScanStamp,
+  watchScanStamp,
+} from '@/background/offerGuard';
+import { getBlockingReason } from '@/state/blocking';
+import { resolveSurface } from '@/state/surface';
+import {
+  isOfferVerdictsRequest,
+  isTrustPartnerRequest,
+  STEAM_ID64,
+  type GuardResponse,
+  type OfferVerdict,
+  type OfferVerdictsRequest,
+} from '@/state/offerGuard';
 
 // How long a create-trade request waits for its deal's directive: one forced heartbeat round trip plus the
 // Steam POST. Past it the page is answered `create_in_flight` while the cycle carries on, and its retry is
@@ -26,8 +46,8 @@ function withCap(settled: Promise<void>, ms: number): Promise<void> {
   });
 }
 
-function wakeAll(): string {
-  return JSON.stringify({ type: 'wake_all' });
+function wakeAll(reason?: 'offers_page'): string {
+  return JSON.stringify(reason === undefined ? { type: 'wake_all' } : { type: 'wake_all', reason });
 }
 
 function wakeDeal(dealId: string): string {
@@ -140,7 +160,10 @@ async function handle(request: BridgeRequest, getHandle: () => TrackerHandle | u
     case 'request-cycle': {
       const tracker = getHandle();
       if (tracker === undefined) return { ok: false, error: 'tracker not started' };
-      await Tracker.deliverPush(tracker, request.dealId ? wakeDeal(request.dealId) : wakeAll());
+      // The reason is passed on only when it is the one value the core knows; the message is not page data,
+      // but nothing else needs to reach the push parser.
+      const reason = request.reason === 'offers_page' ? request.reason : undefined;
+      await Tracker.deliverPush(tracker, request.dealId ? wakeDeal(request.dealId) : wakeAll(reason));
       return { ok: true, kind: 'request-cycle' };
     }
   }
@@ -234,5 +257,61 @@ export function registerBridgeRouter(
         sendResponse({ ok: false, error: String(error) } satisfies BridgeResponse);
       });
     return true; // keep the message channel open for the async response
+  });
+}
+
+async function offerVerdicts(
+  request: OfferVerdictsRequest,
+  getHandle: () => TrackerHandle | undefined,
+): Promise<GuardResponse> {
+  if (request.pageComplete) await keepOnlyListed(request.offerIds);
+  if (request.impersonations !== undefined) await recordPageImpersonations(request.impersonations);
+  const all = await readVerdicts();
+  const coreRunning =
+    getHandle() !== undefined && resolveSurface(await isActivated(), await getBlockingReason()) === 'ACTIVE';
+  const onPage = new Set(request.offerIds);
+  const pick = (keep: (id: string, v: OfferVerdict) => boolean) =>
+    Object.fromEntries(Object.entries(all).filter(([id, v]) => keep(id, v)));
+  return {
+    ok: true,
+    verdicts: pick((id) => onPage.has(id)),
+    scannedAt: settledScanStamp(await readScanStamp(), all),
+    coreRunning,
+    // Debug builds only: offers the console simulated that have no block on this page.
+    ...(import.meta.env.DEV ? { simulated: pick((id, v) => !onPage.has(id) && v.simulated !== undefined) } : {}),
+  };
+}
+
+async function trustPartner(steamId: string): Promise<GuardResponse> {
+  if (!STEAM_ID64.test(steamId)) return { ok: false, error: 'not a steamid64' };
+  try {
+    await Tracker.trustPartner(steamId);
+  } catch (error) {
+    reportError(error);
+  }
+  // Even when the core refused: the warning the user dismissed must go now, and the core keeps deciding
+  // whether it comes back.
+  await forgetTrustedPartner(steamId);
+  return { ok: true };
+}
+
+/**
+ * The suspicious-offer guard's messages from the Steam trade-offers content script: which of the page's offers
+ * are suspicious, and "I know this partner". Only this extension's content script on a Steam community tab may
+ * ask. Also tells those tabs when a check finishes (watchScanStamp). Must be called synchronously on every worker
+ * spawn.
+ */
+export function registerOfferGuardRouter(getHandle: () => TrackerHandle | undefined): void {
+  watchScanStamp();
+  browser.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+    const verdicts = isOfferVerdictsRequest(message);
+    if (!verdicts && !isTrustPartnerRequest(message)) return undefined;
+    if (!fromSteamTab(sender)) {
+      sendResponse({ ok: false, error: 'sender not allowed' } satisfies GuardResponse);
+      return undefined;
+    }
+    const answer = verdicts ? offerVerdicts(message, getHandle) : trustPartner(message.steamId);
+    answer.then(sendResponse, () => sendResponse({ ok: false, error: 'guard failed' } satisfies GuardResponse));
+    return true;
   });
 }

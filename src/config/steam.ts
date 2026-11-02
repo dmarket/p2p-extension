@@ -45,17 +45,37 @@ export const STEAM_INTEGRATION = {
   loginUrl: 'https://steamcommunity.com/login/home/?goto=my%2Ftradeoffers',
 
   /**
-   * The content-script match patterns for the trade-offers page (both canonical forms Steam redirects
-   * `/my/tradeoffers` into). REFERENCE ONLY — WXT statically analyses `defineContentScript({ matches })`
+   * The content-script match patterns: the trade-offers pages (both canonical forms Steam redirects
+   * `/my/tradeoffers` into) and a single offer's page, `/tradeoffer/<id>/`. REFERENCE ONLY — WXT statically analyses `defineContentScript({ matches })`
    * at build time, so the entrypoint must keep these as inline literals; keep the two in sync.
    */
   tradeOffersMatchPatterns: [
     'https://steamcommunity.com/profiles/*/tradeoffers*',
     'https://steamcommunity.com/id/*/tradeoffers*',
+    'https://steamcommunity.com/tradeoffer/*',
   ],
 
   /** Selector for Steam's main content area — the on-page banner is anchored as its first child. */
   bannerAnchorSelector: '.maincontent',
+
+  /**
+   * The same anchor on a single offer's page (`/tradeoffer/<id>/`). That page is Steam's trade window, which has
+   * no `.maincontent`: its content is `div.pagecontent#mainContent`, holding the partner header and the trade
+   * area (src/ui/steam/__fixtures__/trade-offer.html). Remote-overridable as `web.offerPageAnchorSelector`.
+   */
+  offerPageAnchorSelector: '#mainContent',
+
+  /**
+   * Where the suspicious-offer guard reads an offer on `/tradeoffers/sent/` (src/ui/steam/offerScan.ts).
+   * Remote-overridable as `web.offerSelectors`, field by field. On the sent page `primary` is this account's side and `secondary` the partner's; `partner` must carry `data-miniprofile`.
+   */
+  offerSelectors: {
+    offer: 'div.tradeoffer[id^="tradeofferid_"]',
+    partner: '.tradeoffer_items.secondary .tradeoffer_items_avatar_ctn [data-miniprofile]',
+    header: '.tradeoffer_header',
+    given: '.tradeoffer_items.primary .trade_item',
+    received: '.tradeoffer_items.secondary .trade_item',
+  },
 
   logout: {
     /**

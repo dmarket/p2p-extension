@@ -159,6 +159,10 @@ Open it from the popup's “debug console” link (dev builds only), or navigate
   the un-activated state can be walked end to end from here;
 - a **freshness-mark injector** for demand-driven proving, pinned to the storage row that holds the
   core's answer;
+- **simulate suspicious offer**: makes the trade-offer guard warn about an outgoing Steam offer (yellow
+  give-only or red impersonation) without any trade. It feeds the same `SuspiciousOutgoingOffers` event the
+  core emits, so the toolbar badge, the popup line and the banner on `/tradeoffers/sent/` all react; an
+  offer id Steam does not list gets a stand-in block on that page;
 - a **`chrome.storage.local` inspector/editor** to view, edit, add and remove persisted keys.
   JSON-in-string values are expanded for reading while `edit` still shows the raw stored value, and
   credentials are rendered through the redactor (so a row's `steam_id` and expiry are readable

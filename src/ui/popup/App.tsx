@@ -10,6 +10,7 @@ import { MissingConnectionScreen } from './screens/MissingConnectionScreen';
 import { ConnectionErrorScreen } from './screens/ConnectionErrorScreen';
 import { SteamSignedOutScreen } from './screens/SteamSignedOutScreen';
 import { InfoScreen } from './screens/InfoScreen';
+import { SuspiciousOffersRow } from './SuspiciousOffersRow';
 
 export function App() {
   const [tab, setTab] = useState<Tab>('home');
@@ -55,6 +56,7 @@ export function App() {
   return (
     <div class="app">
       <Header tab={tab} onSelect={setTab} />
+      {tab === 'home' && <SuspiciousOffersRow />}
       <div class="screen">
         {tab === 'help' ? <InfoScreen /> : homeScreen}
       </div>

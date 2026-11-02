@@ -19,6 +19,14 @@
 // CLAIMED FIRST, not after the heartbeat lands: a worker killed inside its own boot second is not a
 // case Chrome produces (eviction follows idleness), and the due tick is the backstop regardless.
 // Marking late would instead let a slow heartbeat and a quick respawn stack a second forced POST.
+//
+// THE SAME GAP, for the suspicious-offer guard: its verdict cache lives in `storage.session` and is gone in those
+// windows, while the core's record of what it already reported lives in `storage.local` and survives them. The
+// core reports an offer only once per level, so a scam offer still open would never be warned about again. The
+// record is dropped here, before the core starts and restores it, so the first check re-reports every offer it
+// still flags.
+
+import { GUARD_NOTIFIED_KEY } from '@/state/offerGuard';
 
 const SESSION_KEY = 'boot.heartbeatForcedForBrowserSession';
 
@@ -34,5 +42,6 @@ export async function claimSessionStart(): Promise<boolean> {
   } catch {
     /* session storage unavailable — force, do not trust the restored verdict */
   }
+  await browser.storage.local.remove(GUARD_NOTIFIED_KEY).catch(() => {});
   return true;
 }

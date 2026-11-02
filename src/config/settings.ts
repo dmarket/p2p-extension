@@ -346,8 +346,26 @@ export interface NotaryOverrides {
 }
 
 /** Web-extension-only settings (fully resolved: defaults with any valid overrides applied). */
+/** Where the suspicious-offer guard reads an offer on Steam's sent-offers page (src/ui/steam/offerScan.ts). */
+export interface OfferSelectors {
+  offer: string;
+  partner: string;
+  header: string;
+  given: string;
+  received: string;
+}
+
 interface WebSettings {
   bannerAnchorSelector: string;
+  /** The banner anchor on a single offer's page, `/tradeoffer/<id>/`. */
+  offerPageAnchorSelector: string;
+  offerSelectors: OfferSelectors;
+  /**
+   * steamid64 of accounts known to pose as DMarket: an offer to one is shown as an impersonation whatever its
+   * name. Remote config only (`web.knownScamPartners`): `undefined` until a document carries a valid list, so
+   * a published empty list, the way to take a wrong entry back, is not mistaken for no list at all.
+   */
+  knownScamPartners: string[] | undefined;
   logoutExpression: string;
   tradeOffersUrl: string;
   steamLoginUrl: string;
@@ -396,6 +414,9 @@ interface Settings {
 function defaultWeb(): WebSettings {
   return {
     bannerAnchorSelector: STEAM_INTEGRATION.bannerAnchorSelector,
+    offerPageAnchorSelector: STEAM_INTEGRATION.offerPageAnchorSelector,
+    offerSelectors: { ...STEAM_INTEGRATION.offerSelectors },
+    knownScamPartners: undefined,
     logoutExpression: STEAM_INTEGRATION.logout.expression,
     tradeOffersUrl: STEAM_INTEGRATION.tradeOffersUrl,
     steamLoginUrl: STEAM_INTEGRATION.loginUrl,
@@ -432,6 +453,27 @@ function int(min: number, max?: number): Validator {
 }
 
 const nonEmptyStr: Validator = (v) => (typeof v === 'string' && v.trim() !== '' ? v : undefined);
+
+/**
+ * A CSS selector. Where a DOM exists (the content script that uses it) a selector the browser cannot parse
+ * is rejected here, so a bad publish keeps the default instead of throwing on every scan.
+ */
+const cssSelector: Validator = (v) => {
+  if (typeof v !== 'string' || v.trim() === '') return undefined;
+  if (typeof document === 'undefined') return v;
+  try {
+    document.createDocumentFragment().querySelector(v);
+    return v;
+  } catch {
+    return undefined;
+  }
+};
+
+/** A list of steamid64, at most 1000. One bad entry rejects the list: a half-applied list is a typo, not a decision. */
+const steamIdList: Validator = (v) =>
+  Array.isArray(v) && v.length <= 1000 && v.every((x) => typeof x === 'string' && /^7656119\d{10}$/.test(x))
+    ? [...(v as string[])]
+    : undefined;
 
 /**
  * Always `undefined` — the key exists for its POSITION in a `*_ORDER` array and must never be settable from
@@ -742,6 +784,16 @@ function buildWeb(raw: Record<string, unknown>): WebSettings {
   const minVersion = isChromeVersion(raw.minExtensionVersion) ? raw.minExtensionVersion : undefined;
 
   if (anchor !== undefined) web.bannerAnchorSelector = anchor;
+  const offerPageAnchor = cssSelector(raw.offerPageAnchorSelector) as string | undefined;
+  if (offerPageAnchor !== undefined) web.offerPageAnchorSelector = offerPageAnchor;
+  if (isObj(raw.offerSelectors)) {
+    for (const key of Object.keys(web.offerSelectors) as (keyof OfferSelectors)[]) {
+      const sel = cssSelector(raw.offerSelectors[key]) as string | undefined;
+      if (sel !== undefined) web.offerSelectors[key] = sel;
+    }
+  }
+  const scamPartners = steamIdList(raw.knownScamPartners) as string[] | undefined;
+  if (scamPartners !== undefined) web.knownScamPartners = scamPartners;
   if (logout !== undefined) web.logoutExpression = logout;
   if (tradeUrl !== undefined) web.tradeOffersUrl = tradeUrl;
   if (loginUrl !== undefined) web.steamLoginUrl = loginUrl;

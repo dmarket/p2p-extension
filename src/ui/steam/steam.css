@@ -162,6 +162,80 @@
   background: #ffffff;
 }
 
+/* ---- Suspicious outgoing offer (src/ui/steam/SuspiciousOfferBanner.tsx) ---------------------------------
+   Yellow = a give-only offer no DMarket deal explains; red = the partner poses as DMarket (reuses the
+   mismatch icon box). Not in the Figma file yet: the yellow box mirrors the mismatch one in amber. */
+.icon-box--warning {
+  background: linear-gradient(220.72deg, #ffe08a 4.73%, #ff9634 92.44%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.banner--warning {
+  border: 1px solid rgba(255, 150, 52, 0.45);
+}
+
+.banner--danger {
+  border: 1px solid rgba(255, 80, 48, 0.6);
+}
+
+.banner__title--offer {
+  font-size: 18px;
+}
+
+.banner__actions {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.button--ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 23px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dm-ext-text-primary);
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.button--ghost:hover {
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.banner__more {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--dm-ext-text-primary);
+}
+
+.banner__checking {
+  margin: 0 0 12px;
+}
+
+.banner__more-link {
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.banner__more-link:hover {
+  text-decoration: underline;
+}
+
+.banner__more-link--warning {
+  color: #ff9634;
+}
+
+.banner__more-link--danger {
+  color: #ff5030;
+}
+
 .button--accent:disabled,
 .button--light:disabled {
   opacity: 0.4;

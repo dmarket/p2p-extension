@@ -192,4 +192,24 @@ describe('what never reaches the buffer', () => {
     for (const id of [STEAM_ID, DEAL_ID, OFFER_ID]) expect(dump).toContain(id);
     expect(dump).not.toContain(PARTNER_STEAM_ID);
   });
+
+  // The only frame that carries a persona name nests it in `offers`, which the buffer drops with every array.
+  it('keeps no offers array, so no persona name in it (pin: arrays were never kept)', async () => {
+    const { record, store } = await spawn();
+    const offer = { offerId: OFFER_ID, partnerSteamId: PARTNER_STEAM_ID, level: 'IMPERSONATION', personaName: 'DM Bot', direction: 'RECEIVED' };
+    record.recordLifecycle({ event: 'SuspiciousOutgoingOffers', offers: [offer], cleared: [] });
+    const dump = JSON.stringify(await store.readDiagLog());
+    expect(dump).toContain('SuspiciousOutgoingOffers');
+    expect(dump).not.toContain('offers"');
+    expect(dump).not.toContain('DM Bot');
+  });
+
+  // Defensive: no event carries the name at the top level today.
+  it('drops a persona name a frame carries at the top level', async () => {
+    const { record, store } = await spawn();
+    record.recordLifecycle({ event: 'SuspiciousOutgoingOffers', offerId: OFFER_ID, personaName: 'DM Bot' });
+    const dump = JSON.stringify(await store.readDiagLog());
+    expect(dump).toContain(OFFER_ID);
+    expect(dump).not.toContain('DM Bot');
+  });
 });

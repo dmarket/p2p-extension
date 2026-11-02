@@ -6,7 +6,9 @@ import '@/infra/report/install';
 import { Tracker, type BlockingReason, type TrackerHandle } from '@/core/tracker';
 import { installSteamAntiCsrf } from '@/background/anti-csrf';
 import { installDevSteamRedirect } from '@/background/dev-steam-redirect';
-import { registerBridgeRouter } from '@/background/router';
+import { registerBridgeRouter, registerOfferGuardRouter } from '@/background/router';
+import { recordSuspiciousOffers, type SuspiciousOffersFrame } from '@/background/offerGuard';
+import { applyKnownScamPartners, forwardKnownScamPartners } from '@/background/knownScamPartners';
 import { registerStateMirror } from '@/background/stateMirror';
 import { injectContentScriptsOnSessionStart, registerContentScriptInjection } from '@/background/inject-content-scripts';
 import { reconcileSteamSession, registerRefreshTriggers } from '@/background/refresh';
@@ -138,6 +140,7 @@ export default defineBackground(() => {
 
   // Register the dmarket.com bridge router synchronously (reads the handle lazily).
   registerBridgeRouter(() => handle, bootSettled, refreshRemoteConfigOnPresence);
+  registerOfferGuardRouter(() => handle);
   void registerStateMirror();
 
   // Apply a downloaded update as soon as no proof is running, instead of when the browser next restarts.
@@ -300,7 +303,7 @@ export default defineBackground(() => {
     } catch {
       /* never break the core's cycle */
     }
-    let parsed: { event?: unknown; tokenSteamId?: unknown; linkedSteamId?: unknown } & ProofFrame;
+    let parsed: { event?: unknown; tokenSteamId?: unknown; linkedSteamId?: unknown } & SuspiciousOffersFrame & ProofFrame;
     try {
       parsed = JSON.parse(json) as typeof parsed;
     } catch {
@@ -328,6 +331,8 @@ export default defineBackground(() => {
       // linked id; the other account's id (`tokenSteamId`) is pushed to the FE but never stored or shown.
       if (typeof parsed.linkedSteamId === 'string') void setLinkedSteamId(parsed.linkedSteamId);
     }
+    // Offers the core flagged or cleared (DMA-818, DMA-819): cached for the Steam page, the badge and the popup.
+    if (parsed.event === 'SuspiciousOutgoingOffers') void recordSuspiciousOffers(parsed).catch(() => {});
     // The only production record of the proof path's outcomes — see src/infra/report/proof.ts.
     try {
       reportProofEvent(parsed);
@@ -381,6 +386,9 @@ export default defineBackground(() => {
   const startWith = (apiUrl: string, feUrl: string): TrackerHandle => {
     const started = Tracker.start(apiUrl, feUrl, onLifecycleEvent, trackerOverrides());
     handle = started;
+    // Before the boot cycle runs (the core starts it on a later tick): a check without the published list
+    // would clear the warnings that rest on it.
+    applyKnownScamPartners(started);
     currentApiUrl = apiUrl;
     currentFeUrl = feUrl;
     // Mirror the core's live active-tracking count into session storage so the popup's "Activity on
@@ -627,6 +635,9 @@ export default defineBackground(() => {
     // reload, an update or a browser restart the user may have signed out with no worker awake to see
     // the cookie change — so the restored `NONE` would paint tracking ON over a session that is gone
     // (sessionStart.ts). The first spawn re-earns the verdict instead of remembering it.
+    // Subscribed before the start, so a first-install document that outlives the budgeted wait and lands while the
+    // core is starting reaches it: a listener added after that write would never hear of it.
+    forwardKnownScamPartners(() => handle);
     await lifecycle.reconcile({ force: await claimSessionStart() });
     // A real change writes the cache → the subscription below fires and reconciles onto the running
     // core (diff-guarded, so an unchanged fetch is a no-op). Already in flight; see above.
@@ -682,6 +693,7 @@ export default defineBackground(() => {
           setLifecycleSink: (sink) => {
             lifecycleSink = sink;
           },
+          injectLifecycleEvent: (json) => onLifecycleEvent(json),
         }),
       );
     }

@@ -447,3 +447,33 @@ describe('snapshot + reactivity (loadSettings / subscribeSettings / cookie-name 
     expect(seen).toHaveLength(1);
   });
 });
+
+describe('suspicious-offer guard knobs', () => {
+  it('replaces the scam list with a published list of steamid64', () => {
+    expect(parse({ web: { knownScamPartners: ['76561198000000002'] } }).web.knownScamPartners).toEqual([
+      '76561198000000002',
+    ]);
+    expect(parse({ web: { knownScamPartners: [] } }).web.knownScamPartners).toEqual([]);
+  });
+
+  it('has no list of its own, and drops a published list with one entry that is not a steamid64', () => {
+    expect(parse({}).web.knownScamPartners).toBeUndefined();
+    const web = parse({ web: { knownScamPartners: ['76561198000000002', '123'] } }).web;
+    expect(web.knownScamPartners).toBeUndefined();
+  });
+
+  it('overrides selectors field by field and ignores the rest', () => {
+    const s = parse({ web: { offerSelectors: { header: '.offer_head', given: '', bogus: '.x' } } }).web.offerSelectors;
+    expect(s.header).toBe('.offer_head');
+    expect(s.given).toBe('.tradeoffer_items.primary .trade_item');
+    expect(s).not.toHaveProperty('bogus');
+  });
+
+  it('anchors the single-offer page banner on its own selector, overridable', () => {
+    expect(parse({}).web.offerPageAnchorSelector).toBe('#mainContent');
+    expect(parse({ web: { offerPageAnchorSelector: '.trade_partner_header' } }).web.offerPageAnchorSelector).toBe(
+      '.trade_partner_header',
+    );
+    expect(parse({ web: { offerPageAnchorSelector: ' ' } }).web.offerPageAnchorSelector).toBe('#mainContent');
+  });
+});
