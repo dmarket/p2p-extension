@@ -10,12 +10,13 @@ import { MissingConnectionScreen } from './screens/MissingConnectionScreen';
 import { ConnectionErrorScreen } from './screens/ConnectionErrorScreen';
 import { SteamSignedOutScreen } from './screens/SteamSignedOutScreen';
 import { InfoScreen } from './screens/InfoScreen';
-import { SuspiciousOffersRow } from './SuspiciousOffersRow';
+import { SuspiciousOffersRow, useVerdicts } from './SuspiciousOffersRow';
 
 export function App() {
   const [tab, setTab] = useState<Tab>('home');
   const activated = useActivation();
   const reason = useBlockingReason();
+  const verdicts = useVerdicts();
 
   // No "re-check now" nudge on open (an earlier design forced a heartbeat per popup view): the
   // persisted blocking reason is kept truthful without it — blocked states never advance the
@@ -29,9 +30,11 @@ export function App() {
   // `LOADING` must stay a VISIBLE placeholder, not null: the popup is black-on-black, so an empty home
   // screen is indistinguishable from a popup that failed to open when the storage reads lag behind a cold
   // worker start. `BLOCKED` is the fail-closed bucket (a DMarket server error, or a reason this build does
-  // not recognise) and gets the neutral "paused" surface rather than ActiveScreen.
+  // not recognise) and gets the neutral "paused" surface rather than ActiveScreen. The first verdict read is
+  // waited for too, so the warning row and the screen under it paint in one frame.
+  const surface = verdicts === undefined ? 'LOADING' : resolveSurface(activated, reason);
   const homeScreen = ((): preact.JSX.Element => {
-    switch (resolveSurface(activated, reason)) {
+    switch (surface) {
       case 'LOADING':
         return (
           <div class="screen-loading" aria-busy="true">
@@ -56,8 +59,8 @@ export function App() {
   return (
     <div class="app">
       <Header tab={tab} onSelect={setTab} />
-      {tab === 'home' && <SuspiciousOffersRow />}
       <div class="screen">
+        {tab === 'home' && surface !== 'LOADING' && verdicts !== undefined && <SuspiciousOffersRow verdicts={verdicts} />}
         {tab === 'help' ? <InfoScreen /> : homeScreen}
       </div>
     </div>

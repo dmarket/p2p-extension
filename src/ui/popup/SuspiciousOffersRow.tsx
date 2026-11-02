@@ -4,15 +4,19 @@ import { GUARD_VERDICTS_KEY, parseVerdicts, type OfferVerdict, type OfferVerdict
 import { offerCopy } from '@/ui/steam/offerCopy';
 import { onStorageChanged } from '@/util/storageEvents';
 
-/** The cached suspicious-offer verdicts (src/background/offerGuard.ts), live. */
-function useVerdicts(): OfferVerdicts {
-  const [verdicts, setVerdicts] = useState<OfferVerdicts>({});
+/**
+ * The cached suspicious-offer verdicts (src/background/offerGuard.ts), live. `undefined` until the first read
+ * settles, so the popup can hold its home screen and paint it together with the row (App.tsx).
+ */
+export function useVerdicts(): OfferVerdicts | undefined {
+  const [verdicts, setVerdicts] = useState<OfferVerdicts>();
   useEffect(() => {
     const read = () =>
       void browser.storage.session
         .get(GUARD_VERDICTS_KEY)
         .then((s) => setVerdicts(parseVerdicts(s[GUARD_VERDICTS_KEY])))
-        .catch(() => {});
+        // A failed read shows no row rather than holding the home screen on the spinner.
+        .catch(() => setVerdicts((v) => v ?? {}));
     read();
     return onStorageChanged((changes, area) => {
       if (area === 'session' && GUARD_VERDICTS_KEY in changes) read();
@@ -74,20 +78,23 @@ export function describeFlagged(
 }
 
 /**
- * One line above the home screen while suspicious outgoing Steam offers are cached: the badge says something is
- * wrong, this says what, and the button opens the page that shows which offers. A single offer is named by the
- * partner's persona name from the core (its Steam id with an older core), several by how many of each kind.
+ * The warning in the top band of the home screen while suspicious Steam offers are cached: the toolbar icon says
+ * something is wrong, this says what, and the link opens the page that shows which offers. A single offer is named
+ * by the partner's persona name from the core (its Steam id with an older core), several by how many of each kind.
+ * Where it sits is popup.css's business (`--offer-slot`), so the home screen under it does not move when it appears.
  */
-export function SuspiciousOffersRow() {
-  const flagged = describeFlagged(Object.values(useVerdicts()));
+export function SuspiciousOffersRow({ verdicts }: { verdicts: OfferVerdicts }) {
+  const flagged = describeFlagged(Object.values(verdicts));
   if (flagged === undefined) return null;
   return (
     <div class={`offer-alert offer-alert--${flagged.danger ? 'danger' : 'warning'}`} role="alert">
       <p class="offer-alert__title">{flagged.title}</p>
-      <p class="offer-alert__text">{flagged.text}</p>
-      <button type="button" class="link offer-alert__action" onClick={() => openOffers(flagged.page)}>
-        Open in Steam
-      </button>
+      <p class="offer-alert__text">
+        {flagged.text}{' '}
+        <button type="button" class="link offer-alert__action" onClick={() => openOffers(flagged.page)}>
+          Open in Steam
+        </button>
+      </p>
     </div>
   );
 }
