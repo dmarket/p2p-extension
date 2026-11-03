@@ -85,6 +85,8 @@ function insertStandIn(offerId: string, v: OfferVerdict): void {
   const miniprofile = accountId(v.partnerSteamId);
   // Not a number: the scan leaves the partner unknown.
   if (miniprofile !== undefined) avatar.dataset.miniprofile = miniprofile;
+  // A stand-in is an open offer: the scan skips a block without footer actions.
+  el('div', 'tradeoffer_footer_actions', el('div', 'tradeoffer_footer', block));
   const before = document.querySelector(getSettings().web.offerSelectors.offer);
   if (before?.parentElement) before.parentElement.insertBefore(block, before);
   // No offers at all: Steam's left column still holds the (empty) list.

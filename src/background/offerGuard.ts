@@ -214,6 +214,16 @@ export function keepOnlyListed(offerIds: readonly string[]): Promise<void> {
   return update((v) => keep(v, (id, x) => listed.has(id) || !prunable(x)));
 }
 
+/**
+ * Drop the impersonations only the page raised whose partner is no longer on the known-scam list: the core never
+ * set them, so a retracted entry would otherwise stay red until the TTL. With no published list the page flags
+ * nothing, so neither does this.
+ */
+export function forgetRetractedScamPartners(knownScamPartners: readonly string[] = []): Promise<void> {
+  const listed = new Set(knownScamPartners);
+  return update((v) => keep(v, (_, x) => x.fromPage !== true || x.simulated !== undefined || listed.has(x.partnerSteamId)));
+}
+
 /** Debug console only: remove every simulated verdict. */
 export function clearSimulatedVerdicts(): Promise<void> {
   return update((v) => keep(v, (_, x) => !x.simulated));

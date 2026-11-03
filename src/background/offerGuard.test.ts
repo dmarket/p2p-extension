@@ -3,6 +3,7 @@ import { fakeBrowser } from 'wxt/testing/fake-browser';
 import {
   clearSimulatedVerdicts,
   forgetTrustedPartner,
+  forgetRetractedScamPartners,
   keepOnlyListed,
   readVerdicts,
   RECEIVED_VERDICT_TTL_MS,
@@ -145,6 +146,15 @@ describe('the verdict cache', () => {
     expect(await readVerdicts()).toEqual({});
   });
 
+  it('drops page-only impersonations whose partner left the list, keeps the core\'s own', async () => {
+    await record([wire('12', SCAM, 'IMPERSONATION')]);
+    await recordPageImpersonations([{ offerId: '16', partnerSteamId: SCAM, giveCount: 1 }]);
+    await forgetRetractedScamPartners([SCAM]);
+    expect(Object.keys(await readVerdicts()).sort()).toEqual(['12', '16']);
+    await forgetRetractedScamPartners([]);
+    expect(Object.keys(await readVerdicts())).toEqual(['12']);
+  });
+
   it('forgets offers the full sent page no longer lists, but not simulated ones', async () => {
     await record([
       wire('11', FRIEND, 'UNLINKED_GIVE_ONLY'),
@@ -206,34 +216,39 @@ describe('the guard router', () => {
   });
 
   it('caches what the page recognised itself, once, and raises a lower verdict without losing it', async () => {
-    const at = Date.now();
-    await record([wire('13', FRIEND, 'UNLINKED_GIVE_ONLY', 2, { simulatedPersonaName: 'D market' })], at);
-    const req = {
-      kind: 'offer-verdicts',
-      offerIds: ['12', '13'],
-      pageComplete: false,
-      impersonations: [
-        { offerId: '12', partnerSteamId: SCAM, giveCount: 1 },
-        { offerId: '13', partnerSteamId: FRIEND, giveCount: 2 },
-      ],
-    };
-    await ask(req);
-    const first = await readVerdicts();
-    expect(first['12']).toMatchObject({ level: 'IMPERSONATION', partnerSteamId: SCAM, giveCount: 1 });
-    expect(first['12']).toMatchObject({ fromPage: true });
-    expect(first['13']).toEqual({
-      level: 'IMPERSONATION',
-      direction: 'sent',
-      partnerSteamId: FRIEND,
-      giveCount: 2,
-      at,
-      simulated: { personaName: 'D market' },
-      fromPage: true,
-    });
-    // Asked again on a later refresh: nothing is rewritten, so no tab is woken into another refresh.
-    vi.spyOn(Date, 'now').mockReturnValue(at + 5000);
-    await ask(req);
-    expect(await readVerdicts()).toEqual(first);
+    await publishRemoteConfig({ web: { knownScamPartners: [SCAM, FRIEND] } });
+    try {
+      const at = Date.now();
+      await record([wire('13', FRIEND, 'UNLINKED_GIVE_ONLY', 2, { simulatedPersonaName: 'D market' })], at);
+      const req = {
+        kind: 'offer-verdicts',
+        offerIds: ['12', '13'],
+        pageComplete: false,
+        impersonations: [
+          { offerId: '12', partnerSteamId: SCAM, giveCount: 1 },
+          { offerId: '13', partnerSteamId: FRIEND, giveCount: 2 },
+        ],
+      };
+      await ask(req);
+      const first = await readVerdicts();
+      expect(first['12']).toMatchObject({ level: 'IMPERSONATION', partnerSteamId: SCAM, giveCount: 1 });
+      expect(first['12']).toMatchObject({ fromPage: true });
+      expect(first['13']).toEqual({
+        level: 'IMPERSONATION',
+        direction: 'sent',
+        partnerSteamId: FRIEND,
+        giveCount: 2,
+        at,
+        simulated: { personaName: 'D market' },
+        fromPage: true,
+      });
+      // Asked again on a later refresh: nothing is rewritten, so no tab is woken into another refresh.
+      vi.spyOn(Date, 'now').mockReturnValue(at + 5000);
+      await ask(req);
+      expect(await readVerdicts()).toEqual(first);
+    } finally {
+      await publishRemoteConfig({});
+    }
   });
 
   it('records a page impersonation as a sent offer, whatever direction the message names', async () => {

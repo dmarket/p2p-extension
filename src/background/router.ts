@@ -3,11 +3,12 @@ import { reportError } from '@/infra/report/reporter';
 import { Tracker, type TrackerHandle } from '@/core/tracker';
 import { isBridgeRequest, type BridgeRequest, type BridgeResponse } from '@/messaging/protocol';
 import { isActivated } from '@/state/activation';
-import { DMARKET_ORIGINS } from '@/config/settings';
+import { DMARKET_ORIGINS, getSettings } from '@/config/settings';
 import { extensionVersion } from '@/util/extensionVersion';
 import { fromSteamTab } from '@/background/steamSender';
 import {
   forgetTrustedPartner,
+  forgetRetractedScamPartners,
   keepOnlyListed,
   readScanStamp,
   readVerdicts,
@@ -264,6 +265,7 @@ async function offerVerdicts(
   request: OfferVerdictsRequest,
   getHandle: () => TrackerHandle | undefined,
 ): Promise<GuardResponse> {
+  await forgetRetractedScamPartners(getSettings().web.knownScamPartners);
   if (request.pageComplete) await keepOnlyListed(request.offerIds);
   if (request.impersonations !== undefined) await recordPageImpersonations(request.impersonations);
   const [all, activated, reason, scanStamp] = await Promise.all([

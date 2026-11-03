@@ -362,6 +362,8 @@ export interface OfferSelectors {
   header: string;
   given: string;
   received: string;
+  /** Present only on an offer that is still open (Active or Needs Confirmation): the Cancel link's container. */
+  active: string;
 }
 
 interface WebSettings {

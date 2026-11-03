@@ -55,10 +55,11 @@ function personaName(header: Element | null): string {
   return header.textContent?.match(/offered\s+(.+?)\s+a trade/i)?.[1]?.trim() ?? '';
 }
 
+/** The open offers on the page. Closed ones (accepted, canceled, declined) cannot be confirmed, so they are skipped. */
 export function scanSentOffers(root: ParentNode, s: OfferSelectors): PageOffer[] {
   return Array.from(root.querySelectorAll<HTMLElement>(s.offer)).flatMap((el) => {
     const offerId = blockOfferId(el);
-    if (offerId === undefined) return [];
+    if (offerId === undefined || el.querySelector(s.active) === null) return [];
     const partner = el.querySelector<HTMLElement>(s.partner);
     return [
       {

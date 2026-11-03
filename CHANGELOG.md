@@ -58,6 +58,11 @@ Built against `@dmarket/p2p-tracker-core` `1.2.0-beta`, which ships the TLSN pro
 
 ### Fixed
 
+- **Closed Steam offers are no longer flagged as suspicious (DMA-849).** Steam keeps recently accepted,
+  canceled and declined offers on `/tradeoffers/sent/`; the page now skips any offer without footer
+  actions (`web.offerSelectors.active`), so a closed offer to a known scam account is neither warned
+  about nor counted in the badge and popup. A partner taken off `web.knownScamPartners` also loses the
+  warnings only the page raised for it, at once instead of after the 24 h TTL.
 - **Messages from other extensions and pages are refused (DMA-813).** Every `runtime.onMessage`
   handler checks that the sender is this extension's own page or content script before it acts.
 - **The Steam credential leaves the device with the extension (DMA-817).** Deactivating, and a

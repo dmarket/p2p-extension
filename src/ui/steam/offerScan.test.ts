@@ -26,6 +26,12 @@ describe('scanSentOffers on the sent-offers page', () => {
     ]);
   });
 
+  it('skips a closed offer: Steam still lists it, but it has no footer actions and cannot be confirmed', () => {
+    expect(scan().map((o) => o.offerId)).not.toContain('1000000004');
+    const doc = parseHTML(`<html><body>${fixture}</body></html>`).document;
+    expect(doc.getElementById('tradeofferid_1000000004')).not.toBeNull();
+  });
+
   it('takes the partner from the receiving side, never the page owner on the giving side', () => {
     expect(scan().map((o) => o.partnerSteamId)).not.toContain('76561198000000001');
   });

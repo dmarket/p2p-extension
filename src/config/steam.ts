@@ -75,6 +75,8 @@ export const STEAM_INTEGRATION = {
     header: '.tradeoffer_header',
     given: '.tradeoffer_items.primary .trade_item',
     received: '.tradeoffer_items.secondary .trade_item',
+    // Steam keeps recently closed offers on the list; only an open one has footer actions (Cancel).
+    active: '.tradeoffer_footer_actions',
   },
 
   logout: {
