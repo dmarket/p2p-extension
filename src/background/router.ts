@@ -13,6 +13,7 @@ import {
   readScanStamp,
   readVerdicts,
   recordPageImpersonations,
+  restoreReported,
   settledScanStamp,
   watchScanStamp,
 } from '@/background/offerGuard';
@@ -267,6 +268,7 @@ async function offerVerdicts(
 ): Promise<GuardResponse> {
   await forgetRetractedScamPartners(getSettings().web.knownScamPartners);
   if (request.pageComplete) await keepOnlyListed(request.offerIds);
+  if (request.listed !== undefined) await restoreReported(request.listed);
   if (request.impersonations !== undefined) await recordPageImpersonations(request.impersonations);
   const [all, activated, reason, scanStamp] = await Promise.all([
     readVerdicts(),

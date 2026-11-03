@@ -5,7 +5,8 @@
 // simulation, which sends the same event). The core reports an offer once per level and names in `cleared` the
 // ones a later Steam read listed and no longer flags. Entries leave the cache that way, by VERDICT_TTL_MS, or,
 // for the yellow sent ones and those only the page found, by a scan of the full sent-offers page that no longer
-// lists them. Nothing here touches the offer itself.
+// lists them. An open sent offer the core already reported gets its verdict back from that page (restoreReported).
+// Nothing here touches the offer itself.
 
 import { STEAM_INTEGRATION } from '@/config/steam';
 import { broadcastToTabs } from '@/background/broadcast';
@@ -13,7 +14,9 @@ import { getVerdicts } from '@/state/verdicts';
 import { onStorageChanged } from '@/util/storageEvents';
 import {
   GUARD_CHANGED_KIND,
+  GUARD_NOTIFIED_KEY,
   GUARD_SCANNED_AT_KEY,
+  GUARD_TRUSTED_PARTNERS_KEY,
   GUARD_VERDICTS_KEY,
   isOfferLevel,
   OFFER_ID,
@@ -21,7 +24,7 @@ import {
   type OfferDirection,
   type OfferVerdict,
   type OfferVerdicts,
-  type PageImpersonation,
+  type ListedOffer,
 } from '@/state/offerGuard';
 
 /** As long as the core's own create lease: past it a real deal has its `steamOfferId`, or is long closed. */
@@ -168,7 +171,7 @@ export function recordSuspiciousOffers(frame: SuspiciousOffersFrame, now = Date.
  * never reported red is marked `fromPage`: the core will not take back a level it never set, so nothing but the
  * page can (see keepOnlyListed).
  */
-export function recordPageImpersonations(offers: readonly PageImpersonation[], now = Date.now()): Promise<void> {
+export function recordPageImpersonations(offers: readonly ListedOffer[], now = Date.now()): Promise<void> {
   if (offers.length === 0) return Promise.resolve();
   return update((v) => {
     for (const o of offers) {
@@ -183,6 +186,51 @@ export function recordPageImpersonations(offers: readonly PageImpersonation[], n
             at: now,
             fromPage: true,
           };
+    }
+    return v;
+  }, now);
+}
+
+/** The value a JSON string holds; `undefined` for anything else. */
+function parseJsonString(raw: unknown): unknown {
+  if (typeof raw !== 'string') return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Give back the verdict of an open sent offer the core has already reported but the cache no longer holds (DMA-859).
+ * The core reports an offer once per level, so a verdict lost here (a page scan that read the list wrong, the
+ * TTL) would otherwise stay lost while the offer is open. The level comes from the core's own record
+ * (`tracker_guard_notified`), the partner and item count from the page. A give-only warning to a partner the user
+ * trusted is not given back: the core clears it at its next check. Nothing the core did not flag is created.
+ */
+export async function restoreReported(listed: readonly ListedOffer[], now = Date.now()): Promise<void> {
+  if (listed.length === 0) return;
+  const stored = await browser.storage.local.get([GUARD_NOTIFIED_KEY, GUARD_TRUSTED_PARTNERS_KEY]);
+  const notified = parseJsonString(stored[GUARD_NOTIFIED_KEY]);
+  if (typeof notified !== 'object' || notified === null) return;
+  const trusted = parseJsonString(stored[GUARD_TRUSTED_PARTNERS_KEY]);
+  const trustedIds = new Set(Array.isArray(trusted) ? trusted : []);
+  await update((v) => {
+    for (const o of listed) {
+      if (v[o.offerId] !== undefined) continue;
+      // The core writes a list-made impersonation as IMPERSONATION_BY_LIST and one made on the name as IMPERSONATION.
+      const record = (notified as Record<string, unknown>)[o.offerId];
+      const level = record === 'IMPERSONATION_BY_LIST' ? 'IMPERSONATION' : record;
+      if (!isOfferLevel(level)) continue;
+      if (level === 'UNLINKED_GIVE_ONLY' && trustedIds.has(o.partnerSteamId)) continue;
+      v[o.offerId] = {
+        level,
+        direction: 'sent',
+        partnerSteamId: o.partnerSteamId,
+        giveCount: o.giveCount,
+        at: now,
+        ...(record === 'IMPERSONATION' ? { byName: true as const } : {}),
+      };
     }
     return v;
   }, now);

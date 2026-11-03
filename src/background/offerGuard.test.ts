@@ -18,7 +18,13 @@ import { publishRemoteConfig } from '@/testing/stubs';
 import { ACTIVATION_KEY } from '@/state/activation';
 import { BLOCKING_KEY } from '@/state/blocking';
 import { registerOfferGuardRouter } from '@/background/router';
-import { GUARD_CHANGED_KIND, GUARD_SCANNED_AT_KEY, GUARD_VERDICTS_KEY, type GuardResponse } from '@/state/offerGuard';
+import {
+  GUARD_CHANGED_KIND,
+  GUARD_SCANNED_AT_KEY,
+  GUARD_VERDICTS_KEY,
+  isOfferVerdictsRequest,
+  type GuardResponse,
+} from '@/state/offerGuard';
 
 const { trustPartner } = vi.hoisted(() => ({ trustPartner: vi.fn(() => Promise.resolve()) }));
 vi.mock('@/core/tracker', () => ({ Tracker: { trustPartner } }));
@@ -249,6 +255,76 @@ describe('the guard router', () => {
     } finally {
       await publishRemoteConfig({});
     }
+  });
+
+  describe('giving back verdicts the core already reported (DMA-859)', () => {
+    const OTHER = '76561198000000005';
+    const sent = (offerId: string, partnerSteamId: string, giveCount = 1) => ({ offerId, partnerSteamId, giveCount });
+    const notify = (records: Record<string, string>, trusted: string[] = []) =>
+      fakeBrowser.storage.local.set({
+        tracker_guard_notified: JSON.stringify(records),
+        guard_trusted_partners: JSON.stringify(trusted),
+      });
+
+    it('a page scan that listed nothing takes the yellow warning down, never the red one', async () => {
+      await record([wire('11', FRIEND, 'UNLINKED_GIVE_ONLY'), wire('12', SCAM, 'IMPERSONATION')]);
+      await ask({ kind: 'offer-verdicts', offerIds: [], pageComplete: true });
+      expect(Object.keys(await readVerdicts())).toEqual(['12']);
+    });
+
+    it('gives a wiped warning back once the page lists the offer again, for the page, popup and badge', async () => {
+      await record([wire('11', FRIEND, 'UNLINKED_GIVE_ONLY', 2), wire('12', SCAM, 'IMPERSONATION')]);
+      await notify({ '11': 'UNLINKED_GIVE_ONLY', '12': 'IMPERSONATION_BY_LIST' });
+      // The core will not report '11' again: it is on record at this level.
+      await ask({ kind: 'offer-verdicts', offerIds: [], pageComplete: true });
+      expect((await readVerdicts())['11']).toBeUndefined();
+
+      const offerIds = ['11', '12'];
+      const listed = [sent('11', FRIEND, 2), sent('12', SCAM)];
+      const reply = await ask({ kind: 'offer-verdicts', offerIds, pageComplete: true, listed });
+      expect(reply).toMatchObject({ verdicts: { '11': { level: 'UNLINKED_GIVE_ONLY' }, '12': { level: 'IMPERSONATION' } } });
+      // The popup and the badge read this same cache.
+      expect((await readVerdicts())['11']).toMatchObject({
+        level: 'UNLINKED_GIVE_ONLY',
+        direction: 'sent',
+        partnerSteamId: FRIEND,
+        giveCount: 2,
+      });
+    });
+
+    it('keeps the cached verdict as it is, and takes the level the core recorded with its basis', async () => {
+      await record([wire('11', FRIEND, 'UNLINKED_GIVE_ONLY', 3, { personaName: 'gift_bot' })], 1000);
+      await notify({ '11': 'UNLINKED_GIVE_ONLY', '12': 'IMPERSONATION', '13': 'IMPERSONATION_BY_LIST' });
+      const before = (await readVerdicts(1000))['11'];
+      const listed = [sent('11', FRIEND), sent('12', OTHER), sent('13', SCAM)];
+      vi.spyOn(Date, 'now').mockReturnValue(1000);
+      await ask({ kind: 'offer-verdicts', offerIds: ['11', '12', '13'], pageComplete: false, listed });
+      const after = await readVerdicts(1000);
+      expect(after['11']).toEqual(before);
+      expect(after['12']).toEqual({ level: 'IMPERSONATION', direction: 'sent', partnerSteamId: OTHER, giveCount: 1, at: 1000, byName: true });
+      expect(after['13']).not.toHaveProperty('byName');
+    });
+
+    it('creates nothing the core did not flag, and no give-only warning for a trusted partner', async () => {
+      await notify({ '12': 'UNLINKED_GIVE_ONLY', '13': 'IMPERSONATION_BY_LIST', '14': 'NONE' }, [OTHER]);
+      const listed = [sent('11', FRIEND), sent('12', OTHER), sent('13', OTHER), sent('14', FRIEND)];
+      await ask({ kind: 'offer-verdicts', offerIds: ['11', '12', '13', '14'], pageComplete: true, listed });
+      expect(Object.keys(await readVerdicts())).toEqual(['13']);
+    });
+
+    it('still prunes an offer that really closed: the page skips its block, so nothing gives it back', async () => {
+      await record([wire('11', FRIEND, 'UNLINKED_GIVE_ONLY'), wire('15', OTHER, 'UNLINKED_GIVE_ONLY')]);
+      await notify({ '11': 'UNLINKED_GIVE_ONLY', '15': 'UNLINKED_GIVE_ONLY' });
+      await ask({ kind: 'offer-verdicts', offerIds: ['11'], pageComplete: true, listed: [sent('11', FRIEND)] });
+      expect(Object.keys(await readVerdicts())).toEqual(['11']);
+    });
+
+    it('refuses a request whose listed offers are not on its page', () => {
+      const req = { kind: 'offer-verdicts', offerIds: [], pageComplete: false, listed: [sent('11', FRIEND)] };
+      expect(isOfferVerdictsRequest(req)).toBe(false);
+      expect(isOfferVerdictsRequest({ ...req, offerIds: ['11'] })).toBe(true);
+      expect(isOfferVerdictsRequest({ ...req, offerIds: ['11'], listed: [sent('11', 'not-a-steamid')] })).toBe(false);
+    });
   });
 
   it('records a page impersonation as a sent offer, whatever direction the message names', async () => {

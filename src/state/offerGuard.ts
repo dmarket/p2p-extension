@@ -85,6 +85,9 @@ export const GUARD_SCANNED_AT_KEY = 'tracker_guard_scanned_at';
  */
 export const GUARD_NOTIFIED_KEY = 'tracker_guard_notified';
 
+/** The core's own key in `storage.local`: the partners the user trusted, a JSON array of steamid64s. */
+export const GUARD_TRUSTED_PARTNERS_KEY = 'guard_trusted_partners';
+
 export function parseScanStamp(raw: unknown): number | null {
   return typeof raw === 'string' && /^\d{1,15}$/.test(raw) ? Number(raw) : null;
 }
@@ -108,11 +111,16 @@ export interface OfferVerdictsRequest {
    * Offers on the page whose partner the page itself recognised as posing as DMarket (by name, or by the
    * known-account list), so the badge and the popup count them too. Can only add or raise to IMPERSONATION.
    */
-  impersonations?: PageImpersonation[];
+  impersonations?: ListedOffer[];
+  /**
+   * The open offers on the sent page whose partner the page could read. An offer the core already reported (its
+   * `tracker_guard_notified` record) that has no cached verdict gets it back from these (DMA-859).
+   */
+  listed?: ListedOffer[];
 }
 
-/** An offer on the sent list: no other page reports one, so nothing else would know to take it back. */
-export interface PageImpersonation {
+/** An open offer on the sent list, as the page reads it. */
+export interface ListedOffer {
   offerId: string;
   partnerSteamId: string;
   giveCount: number;
@@ -150,19 +158,29 @@ export function isOfferVerdictsRequest(m: unknown): m is OfferVerdictsRequest {
     r.offerIds.length <= 200 &&
     r.offerIds.every((id) => typeof id === 'string' && OFFER_ID.test(id)) &&
     typeof r.pageComplete === 'boolean' &&
-    (r.impersonations === undefined ||
-      (Array.isArray(r.impersonations) &&
-        r.impersonations.every(
-          (x) =>
-            typeof x === 'object' &&
-            x !== null &&
-            r.offerIds!.includes(x.offerId) &&
-            typeof x.partnerSteamId === 'string' &&
-            STEAM_ID64.test(x.partnerSteamId) &&
-            Number.isInteger(x.giveCount) &&
-            x.giveCount >= 0 &&
-            x.giveCount <= 1000,
-        )))
+    isListedOffers(r.impersonations, r.offerIds) &&
+    isListedOffers(r.listed, r.offerIds)
+  );
+}
+
+/** Absent, or offers that are all among [offerIds] with a steamid64 partner and a plausible item count. */
+function isListedOffers(list: unknown, offerIds: string[]): boolean {
+  return (
+    list === undefined ||
+    (Array.isArray(list) &&
+      list.every((x: Partial<ListedOffer> | null) => {
+        return (
+          typeof x === 'object' &&
+          x !== null &&
+          typeof x.offerId === 'string' &&
+          offerIds.includes(x.offerId) &&
+          typeof x.partnerSteamId === 'string' &&
+          STEAM_ID64.test(x.partnerSteamId) &&
+          Number.isInteger(x.giveCount) &&
+          x.giveCount! >= 0 &&
+          x.giveCount! <= 1000
+        );
+      }))
   );
 }
 

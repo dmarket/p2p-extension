@@ -62,7 +62,9 @@ Built against `@dmarket/p2p-tracker-core` `1.2.0-beta`, which ships the TLSN pro
   `web.offerSelectors.offer` missed the offer blocks on `/tradeoffers/sent/` (a Steam markup change or a
   bad publish), the empty scan was read as "no open offers" and every yellow verdict was dropped; the
   core reports an offer once, so the warnings did not come back after the selector was fixed. The page
-  now prunes only when the selector matched every `tradeofferid_` block on it.
+  now prunes only when the selector matched every `tradeofferid_` block on it, and an open offer the
+  core already reported (its `tracker_guard_notified` record) gets its warning back the next time the
+  sent page lists it, which also heals installs that lost the warning before this fix.
 - **Closed Steam offers are no longer flagged as suspicious (DMA-849).** Steam keeps recently accepted,
   canceled and declined offers on `/tradeoffers/sent/`; the page now skips any offer without footer
   actions (`web.offerSelectors.active`), so a closed offer to a known scam account is neither warned

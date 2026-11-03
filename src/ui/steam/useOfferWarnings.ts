@@ -192,17 +192,16 @@ export function useOfferWarnings(): {
     const { onSentPage, complete } = sentPage();
     if (!onSentPage) return;
     let offers = scanSentOffers(document, offerSelectors);
-    // What this page recognises on its own goes to the worker too, so the badge and the popup count it.
-    const impersonations = offers.flatMap((o) =>
-      o.partnerSteamId !== undefined && isKnownScamPartner(o, knownScamPartners)
-        ? [{ offerId: o.offerId, partnerSteamId: o.partnerSteamId, giveCount: o.giveCount }]
-        : [],
+    const listed = offers.flatMap((o) =>
+      o.partnerSteamId !== undefined ? [{ offerId: o.offerId, partnerSteamId: o.partnerSteamId, giveCount: o.giveCount }] : [],
     );
     const reply = await ask({
       kind: OFFER_VERDICTS_KIND,
       offerIds: offers.map((o) => o.offerId),
       pageComplete: complete && offerSelectorCoversPage(document, offerSelectors),
-      impersonations,
+      // What this page recognises on its own goes to the worker too, so the badge and the popup count it.
+      impersonations: listed.filter((o) => isKnownScamPartner(o, knownScamPartners)),
+      listed,
     });
     const answered = hasVerdicts(reply);
     const verdicts = answered ? { ...reply.verdicts } : {};
