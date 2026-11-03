@@ -90,9 +90,10 @@ const snapshot = (over: Partial<ProofSnapshot>): ProofSnapshot => ({
 });
 
 /** What the offscreen document relays from the worker: a phase line with a snapshot of one proof. */
-const deliverSnapshot = (proofId: string, snap: ProofSnapshot): void => {
+const OFFSCREEN_SENDER = { id: fakeBrowser.runtime.id, url: fakeBrowser.runtime.getURL('/offscreen.html') };
+const deliverSnapshot = (proofId: string, snap: ProofSnapshot, sender: object = OFFSCREEN_SENDER): void => {
   const message: NotaryPhaseMessage = { type: NOTARY_PHASE, note: `proof ${proofId}: tick`, proofId, snapshot: snap };
-  void fakeBrowser.runtime.onMessage.trigger(message, {}, () => {});
+  void fakeBrowser.runtime.onMessage.trigger(message, sender, () => {});
 };
 
 const ok = (presentation = 'cHJlc2VudGF0aW9u'): NotaryProveReply => ({ ok: true, presentation });
@@ -280,6 +281,21 @@ describe('failure diagnostics', () => {
     await failure;
     reportProofEvent({ event: 'ProofFailed', dealId: 'deal-3', source: 'offer', reason: 'E: stalled' });
     expect(reports[0]!.diag).toMatchObject({ outcome: 'failed', notarySent: 2, notaryIdleMs: 30_000 });
+  });
+
+  it('ignores phase lines from any context but the offscreen document', async () => {
+    const reply = Promise.withResolvers<NotaryProveReply>();
+    stubs.sendMessage.mockReturnValue(reply.promise);
+    const attempt = prove(requestFor('deal-5'));
+    const failure = expect(attempt).rejects.toThrow('handshake');
+    await vi.advanceTimersByTimeAsync(0);
+    const steamTab = { id: fakeBrowser.runtime.id, url: 'https://steamcommunity.com/id/x/tradeoffers/', tab: { id: 1 } };
+    deliverSnapshot(proofIdOf(0), snapshot({ notarySent: 666 }), steamTab);
+    deliverSnapshot(proofIdOf(0), snapshot({ notarySent: 777 }), { id: 'other-extension', url: OFFSCREEN_SENDER.url });
+    reply.resolve({ ok: false, error: 'notary handshake failed' });
+    await failure;
+    reportProofEvent({ event: 'ProofFailed', dealId: 'deal-5', source: 'offer', reason: 'E: handshake' });
+    expect(reports[0]!.diag).not.toHaveProperty('notarySent');
   });
 
   it('ignores snapshots for a proof nobody is waiting on', async () => {

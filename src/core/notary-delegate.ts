@@ -53,9 +53,13 @@ const snapshots = new Map<string, ProofSnapshot>();
  * is still logged.
  *
  * A plain listener returning `undefined`: it never answers, and the phase relay expects no answer.
+ *
+ * Only the offscreen document relays phase lines, so a line from any other context (the Steam content script
+ * included) is dropped: it would otherwise write arbitrary entries, at any level, into the support log.
  */
-const onPhase = (message: unknown): undefined => {
+const onPhase = (message: unknown, sender: Browser.runtime.MessageSender): undefined => {
   if (!isNotaryPhaseMessage(message)) return undefined;
+  if (sender.id !== browser.runtime.id || sender.url !== browser.runtime.getURL(`/${OFFSCREEN_PATH}`)) return undefined;
   recordNotary(message.note, message.level, message.proofId, message.snapshot);
   if (hasProofSnapshot(message) && live.has(message.proofId)) snapshots.set(message.proofId, message.snapshot);
   return undefined;

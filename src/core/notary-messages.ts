@@ -112,8 +112,9 @@ export const NOTARY_PHASE = 'dmarket.notary.phase' as const;
  * as the same single timeout string, and they call for four different fixes.
  *
  * Primitives only, so it cannot smuggle a payload. In production the only listener is the proof delegate,
- * which reads `snapshot` and nothing else (it keeps the last one per proof for a failure report); the `note`
- * is ingested by `logCommand` in `src/debug/`, which is stripped from prod.
+ * which accepts it only from the offscreen document: it writes `note` and `level` into the local activity log
+ * and keeps the last `snapshot` per proof for a failure report. Debug builds also ingest `note` through
+ * `logCommand` in `src/debug/`.
  */
 export interface NotaryPhaseMessage {
   type: typeof NOTARY_PHASE;
