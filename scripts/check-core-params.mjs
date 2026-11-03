@@ -65,10 +65,7 @@ const GROUPS = {
  *
  * Format: order name → trailing parameter names, in the order they appear at the end of that `*_ORDER`.
  */
-const PENDING = {
-  // The received-offer name check (DMA-819), declared by the core's main branch and not yet published.
-  TRACKER_ORDER: ['receivedOfferNameCheck', 'isTradeOurGraceMs'],
-};
+const PENDING = {};
 
 const read = (p) => {
   try {

@@ -14,7 +14,7 @@ the README.
 
 ## [Unreleased]
 
-Built against `@dmarket/p2p-tracker-core` `1.1.0-beta`, which ships the TLSN prover from
+Built against `@dmarket/p2p-tracker-core` `1.2.0-beta`, which ships the TLSN prover from
 `steam-provenance` `v1.0.1` (`3fe3354`).
 
 ### Added
