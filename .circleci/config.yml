@@ -126,11 +126,10 @@ version: 2.1
 #   `approve_force_update` checks the release branch out — `delete_release_branch` may already have removed
 #   it — they clone `main` instead.
 #
-#   Secrets it needs once re-enabled, each in a context of its own and not in project settings:
-#   CIRCLE_API_TOKEN (a CircleCI PERSONAL token — API v2 accepts no project token; it expires within a year
-#   and dies with its owner's access; the pipelines it starts run as its owner) and the key that writes
-#   p2p/extension-config.json (P2P_EXTENSION_DEPLOY_SA_KEY today sits in `p2p-extension-qa-bucket`, which
-#   must not simply be reused: that context is for the debug-build upload). scripts/ci/gcs.mjs signs with
+#   Secrets it needs once re-enabled: CIRCLE_API_TOKEN (a CircleCI PERSONAL token — API v2 accepts no
+#   project token; it expires within a year and dies with its owner's access; the pipelines it starts run
+#   as its owner) and the key that writes p2p/extension-config.json (not P2P_EXTENSION_DEPLOY_SA_KEY,
+#   which is the debug-build upload's key and must not simply be reused). scripts/ci/gcs.mjs signs with
 #   the key, no gcloud needed. Pushing to `main` uses org-global's GITHUB_TOKEN, whose owner is an admin and
 #   bypasses the rulesets. Slack goes through the `circleci/slack` orb with the org context `dm-release-notify`
 #   (SLACK_ACCESS_TOKEN + SLACK_DEFAULT_CHANNEL) — the same bot, channel and message shape as every backend
@@ -138,19 +137,27 @@ version: 2.1
 #
 # ENVIRONMENT — no .env file is ever written in CI. Vite folds `process.env` keys matching its
 #   envPrefix (WXT sets `['VITE_','WXT_']`) into `import.meta.env`, taking precedence over .env
-#   files, and wxt.config.ts's manifest hooks read `process.env.WXT_*` directly. So plain context
+#   files, and wxt.config.ts's manifest hooks read `process.env.WXT_*` directly. So plain environment
 #   variables are enough.
 #
-# CONTEXTS — every secret lives in a context that only the jobs that need it list. No secret is a
-#   project-level environment variable: CircleCI hands those to EVERY job, `check` and both builds
-#   included, and those jobs run dependency code on every push (dependabot branches live in this repo, not
-#   in a fork). Incident 2026-10-30 (DMA-823) is why this is now strict.
+# SECRETS — project environment variables, plus `org-global` for GITHUB_TOKEN.
+#   Every other secret and build setting is a PROJECT-level environment variable (Project Settings ->
+#   Environment Variables): CRX_SIGNING_KEY_B64 (base64 of the RSA private key registered under Verified
+#   CRX Uploads), CHROME_EXTENSION_ID, CHROME_PUBLISHER_ID, CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL,
+#   CHROME_SERVICE_ACCOUNT_PRIVATE_KEY, P2P_EXTENSION_DEPLOY_SA_KEY and DEBUG_BUILD_GCS_URI (the debug-build
+#   upload), and the WXT_* build configuration: WXT_COLLECTOR_URL derives a host permission that MUST be in
+#   the first published build, and WXT_DEV_*/WXT_STAGE_* point the debug artifact at the internal endpoints.
+#   No other context exists for this project, so no job below lists one.
 #
-#   context `p2p-extension-ci`          -> the build jobs and `verify_store`. WXT_COLLECTOR_URL (production
-#     build: it derives a host permission that MUST be in the first published build), plus WXT_DEV_*/
-#     WXT_STAGE_* so the debug artifact points at the internal endpoints. `check` deliberately gets NO
-#     context — the suite is env-independent (every env-sensitive test pins its own value with
-#     vi.stubEnv), and the job that runs the most code should hold the fewest secrets.
+#   CircleCI hands project variables to EVERY job on every branch, `check` and both builds included, and
+#   those jobs run dependency code on every push (dependabot branches live in this repo, not in a fork).
+#   So the signing key and the store credentials are readable by any job and by any dependency installed
+#   there; nothing in this config keeps them apart. Creating a context needs CircleCI organization rights
+#   this project does not have. With them, the split to aim for (incident 2026-10-30, DMA-823) is one
+#   context per group, each restricted to this project: the signing key for `pack_crx`; the store
+#   credentials for `store_preflight` and `upload_to_store`; the bucket key for `publish_debug_build`; the
+#   WXT_* settings for the builds and `verify_store`.
+#
 #   context `org-global`                -> `release`, `pack_crx`, `delete_release_branch`. Supplies
 #     GITHUB_TOKEN. This is the org-wide context the dmarket org already maintains for every repo (per
 #     @dmytro.tkachuk, 2026-09-02), so there is no project-scoped GitHub context: a second GITHUB_TOKEN
@@ -158,25 +165,16 @@ version: 2.1
 #     read it) and NOT verified to carry `contents: write` on dmarket/p2p-extension; if it does not, the
 #     first `release` run fails at the tag push and `scripts/ci/release.sh` says which of four causes it
 #     is (`diagnose_push_denied`) — read that before asking anyone for a new token.
-#   context `p2p-extension-crx-signing` -> `pack_crx` only. CRX_SIGNING_KEY_B64, base64 of the RSA private
-#     key registered under Verified CRX Uploads. Nothing else can sign a package.
-#   context `p2p-extension-store`       -> `store_preflight` and `upload_to_store` only. CHROME_EXTENSION_ID,
-#     CHROME_PUBLISHER_ID, CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL, CHROME_SERVICE_ACCOUNT_PRIVATE_KEY. No
-#     CWS_* switches: the upload's behaviour switches are CLI flags on the job's own command, not state.
-#   context `p2p-extension-qa-bucket`   -> `publish_debug_build` only. P2P_EXTENSION_DEPLOY_SA_KEY and
-#     DEBUG_BUILD_GCS_URI.
 #   context `dm-release-notify`         -> the Slack notice jobs (paused, see above).
 #
-#   The signing key and the store credentials are never in the same job, so neither can do the other's
-#   damage alone: a job that can sign cannot upload, and a job that can upload cannot sign.
+#   No CWS_* switches in project settings: the upload's behaviour switches are CLI flags on the job's own
+#   command, not state.
 #
-#   BELT AND BRACES: `check` and both builds start with `drop_store_secrets`, which `unset`s the
-#   store, signing and bucket variables for every later step of the job (through $BASH_ENV, the same
-#   mechanism scripts/ci/release.sh uses to export across steps). They should not be set there at all once
-#   the contexts hold them; this covers the time while a variable is still left at project level, and a
-#   variable someone adds there later by habit. It is a mitigation, not a boundary: it removes the
-#   variables from the shells and processes the steps start, but not from the container's own process
-#   environment, so the contexts are the control that counts.
+#   BELT AND BRACES: `check`, both builds and `verify_store` start with `drop_store_secrets`, which
+#   `unset`s the store, signing and bucket variables for every later step of the job (through $BASH_ENV,
+#   the same mechanism scripts/ci/release.sh uses to export across steps). It is a mitigation, not a
+#   boundary: it removes the variables from the shells and processes the steps start, but not from the
+#   container's own process environment.
 #
 #   FORKS: Project Settings -> Advanced must keep "Build forked pull requests" and "Pass secrets to builds
 #   from forked pull requests" OFF, "Only build pull requests" as chosen, and — since this config is the
@@ -418,8 +416,8 @@ jobs:
   # Signs the released zip into a CRX3. No approval: this is the artifact step. Runs `npm ci`-free like
   # `release` — scripts/ci/pack-crx.mjs and verify-build.mjs have no dependencies precisely so these
   # jobs stay node + curl + coreutils, which also means no third-party code runs next to the signing
-  # key HERE. `check`/`build-*` do install, which is why they drop the signing key (`drop_store_secrets`) and
-  # never receive its context.
+  # key HERE. `check`/`build-*` do install, which is why they drop the signing key (`drop_store_secrets`;
+  # a mitigation only, see SECRETS in the header).
   pack_crx:
     executor: node
     steps:
@@ -470,8 +468,8 @@ jobs:
           command: bash scripts/ci/upload-to-store.sh upload
 
   # After a green `build-debug` on `main`: the debug zip from the workspace, uploaded over the QA autotests'
-  # `latest.zip`. Node only — no `npm ci`; DEBUG_BUILD_GCS_URI and P2P_EXTENSION_DEPLOY_SA_KEY come from the
-  # context `p2p-extension-qa-bucket`. Replacing the object needs storage.objects.delete as well as create; a 403 says so.
+  # `latest.zip`. Node only — no `npm ci`; DEBUG_BUILD_GCS_URI and P2P_EXTENSION_DEPLOY_SA_KEY are project
+  # environment variables. Replacing the object needs storage.objects.delete as well as create; a 403 says so.
   publish_debug_build:
     executor: node
     steps:
@@ -550,8 +548,8 @@ jobs:
           kind: raised
 
   # Is the package in the store the one we built? Rebuilds the tag and compares it with what Chrome gets from the
-  # public update server (scripts/ci/verify-store.sh). Holds no store or signing credential — only the build
-  # context, so the rebuild carries the same WXT_* values as `build-prod`. Started by hand, see `verify_store`.
+  # public update server (scripts/ci/verify-store.sh). Drops the store and signing credentials first; the WXT_*
+  # project variables stay, so the rebuild carries the same values as `build-prod`. Started by hand, see `verify_store`.
   verify_store:
     executor: node
     environment:
@@ -605,23 +603,17 @@ workflows:
           outdir: .output/chrome-mv3
           requires:
             - check
-          context:
-            - p2p-extension-ci
       - build:
           name: build-debug
           mode: development
           outdir: .output/chrome-mv3-dev
           requires:
             - check
-          context:
-            - p2p-extension-ci
       # The QA autotests install the newest debug build from Cloud Storage; see the header. `main` only, so a
       # feature branch never replaces what the tests run against.
       - publish_debug_build:
           requires:
             - build-debug
-          context:
-            - p2p-extension-qa-bucket
           filters:
             branches:
               only: main
@@ -675,19 +667,14 @@ workflows:
             - release
           context:
             - org-global
-            - p2p-extension-crx-signing
           filters: *release_branches
       - store_preflight:
           requires:
             - pack_crx
-          context:
-            - p2p-extension-store
           filters: *release_branches
       - upload_to_store:
           requires:
             - store_preflight
-          context:
-            - p2p-extension-store
           filters: *release_branches
       - delete_release_branch:
           requires:
@@ -742,6 +729,4 @@ workflows:
       not:
         equal: ['', << pipeline.parameters.verify_store_tag >>]
     jobs:
-      - verify_store:
-          context:
-            - p2p-extension-ci
+      - verify_store

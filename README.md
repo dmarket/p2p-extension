@@ -199,23 +199,22 @@ branch, and `hold_release` is the only approval among them; a push anywhere else
 
 ### Secrets
 
-Every secret lives in a CircleCI context that only the jobs needing it list; none is a project-level
-environment variable, because CircleCI hands those to every job and `check` and the builds run
-dependency code on every push.
+`GITHUB_TOKEN` comes from the org-wide `org-global` context, listed on `release`, `pack_crx` and
+`delete_release_branch`. Everything else is a project-level environment variable:
 
-| Context | Jobs | Holds |
-|---|---|---|
-| `p2p-extension-ci` | `build-prod`, `build-debug`, `verify_store` | `WXT_*` build configuration |
-| `org-global` | `release`, `pack_crx`, `delete_release_branch` | `GITHUB_TOKEN` (org-wide) |
-| `p2p-extension-crx-signing` | `pack_crx` | the CRX signing key |
-| `p2p-extension-store` | `store_preflight`, `upload_to_store` | Chrome Web Store credentials |
-| `p2p-extension-qa-bucket` | `publish_debug_build` | the stage-bucket service-account key and target |
+| Variables | Used by |
+|---|---|
+| `WXT_*` build configuration | `build-prod`, `build-debug`, `verify_store` |
+| `CRX_SIGNING_KEY_B64` (the CRX signing key) | `pack_crx` |
+| `CHROME_EXTENSION_ID`, `CHROME_PUBLISHER_ID`, `CHROME_SERVICE_ACCOUNT_*` | `store_preflight`, `upload_to_store` |
+| `P2P_EXTENSION_DEPLOY_SA_KEY`, `DEBUG_BUILD_GCS_URI` | `publish_debug_build` |
 
-The signing key and the store credentials are never in the same job. `check` has no context, and `check`
-and the builds also `unset` the store, signing and bucket variables in their first step, so a variable left
-at project level by mistake still does not reach the code they run. That is a mitigation, not a boundary;
-the contexts are the control. Keep the project's "Build forked pull requests" and "Pass secrets to builds
-from forked pull requests" settings off.
+CircleCI hands project variables to every job on every branch, and `check` and the builds run
+dependency code on every push, so nothing here keeps the signing key and the store credentials apart.
+`check`, the builds and `verify_store` `unset` the store, signing and bucket variables in their first
+step; that is a mitigation, not a boundary. The fix is one context per group of secrets, restricted to
+this project, which needs CircleCI organization rights. Keep the project's "Build forked pull requests"
+and "Pass secrets to builds from forked pull requests" settings off.
 
 Both zips are meant to be installed by hand: download, unzip, then `chrome://extensions` →
 Developer mode → **Load unpacked**. Each build is verified by `scripts/verify-build.mjs`, which
@@ -263,7 +262,7 @@ The debug build is deliberately **not** published — it is not what ships, and 
 CircleCI, on any push. From `main` it also goes to a private stage bucket, where the UI autotests pick
 it up (`scripts/ci/publish-debug-build.mjs`): the object is always overwritten, so it is the build of
 the last green `main` pipeline, and its metadata (`gsutil stat`) names the version, commit and build.
-The target is `DEBUG_BUILD_GCS_URI` (`gs://<bucket>/<object>`), set in the `p2p-extension-qa-bucket` context.
+The target is `DEBUG_BUILD_GCS_URI` (`gs://<bucket>/<object>`), a project environment variable.
 
 ### Checking what the store serves
 

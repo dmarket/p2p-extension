@@ -8,9 +8,8 @@
 #
 # WHY A SEPARATE JOB FROM THE UPLOAD. The signed package is attached to the Release on its own, so
 # what the store receives can be inspected there whether or not the upload that follows succeeds.
-# The split also separates the secrets: this job holds the signing key (context
-# `p2p-extension-crx-signing`) and the store jobs hold the store credentials (`p2p-extension-store`).
-# See the CONTEXTS note in .circleci/config.yml.
+# It does not separate the secrets: both the signing key and the store credentials are project
+# environment variables, which every job receives. See SECRETS in .circleci/config.yml.
 #
 # Nothing is re-zipped: the CRX payload is the exact archive whose checksum the release job recorded, so
 # what the store receives is byte-for-byte what was built, verified and published on the Release.
@@ -28,9 +27,8 @@
 #                        pipeline runs this, otherwise from package.json (the release job in the same
 #                        workflow has just tagged exactly that version)
 #   CRX_SIGNING_KEY_B64  base64 of the RSA private key PEM registered under Package → Verified CRX
-#                        Uploads. A CircleCI PROJECT env var today; it belongs in a project-scoped
-#                        context (`p2p-extension-crx-signing`) once someone has the org rights — see
-#                        the env note in .circleci/config.yml.
+#                        Uploads. A CircleCI PROJECT env var; it belongs in a project-scoped context
+#                        once someone has the org rights — see SECRETS in .circleci/config.yml.
 #   BASH_ENV             CircleCI's per-job env file, sourced before every step
 set -euo pipefail
 
@@ -130,7 +128,7 @@ verify() {
 
   # The same guard the build and release jobs run, now against the bytes actually downloaded from the
   # Release. --require-derived-hosts because the collector host permission is derived from a
-  # build-time variable: a build that missed its context must never reach the store, where adding
+  # build-time variable: a build that missed that variable must never reach the store, where adding
   # a host permission later disables the extension for every user until they re-consent.
   node scripts/verify-build.mjs "$WORK/unpacked" --mode production --require-derived-hosts
 

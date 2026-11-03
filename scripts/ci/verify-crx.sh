@@ -6,7 +6,7 @@
 # Steps:
 #   1. Unpack the package. A CRX3 is "Cr24" + version + header length + header + zip, so the header is stripped.
 #   2. `git worktree add` on the tag, `npm ci`, `npx wxt build --mode production`. The build needs the same
-#      WXT_* variables as CI's build-prod (context p2p-extension-ci): without WXT_COLLECTOR_URL the manifest
+#      WXT_* variables as CI's build-prod (project env vars): without WXT_COLLECTOR_URL the manifest
 #      carries different host_permissions, and that shows up here as a mismatch, not as an error.
 #   3. Compare (a) the sha256 of every file, ignoring what legitimately differs: `_metadata/` (the store adds
 #      verified_contents.json), `*.map` (`wxt zip` leaves sourcemaps out, `wxt build` does not) and
