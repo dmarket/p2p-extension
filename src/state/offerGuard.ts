@@ -12,12 +12,7 @@ export type OfferLevel = 'UNLINKED_GIVE_ONLY' | 'IMPERSONATION';
 export const OFFER_LEVELS: readonly OfferLevel[] = ['UNLINKED_GIVE_ONLY', 'IMPERSONATION'];
 
 export function isOfferLevel(v: unknown): v is OfferLevel {
-  return v === 'UNLINKED_GIVE_ONLY' || v === 'IMPERSONATION';
-}
-
-/** The higher of two levels; `undefined` is lowest. */
-export function maxLevel(a: OfferLevel | undefined, b: OfferLevel | undefined): OfferLevel | undefined {
-  return a === 'IMPERSONATION' || b === 'IMPERSONATION' ? 'IMPERSONATION' : (a ?? b);
+  return OFFER_LEVELS.includes(v as OfferLevel);
 }
 
 /** Which of Steam's lists the offer is on: one this account sent, or one sent to it. */
@@ -42,8 +37,6 @@ export interface OfferVerdict {
   simulated?: { personaName: string };
   /** The page recognised it and the core has not reported it: only a complete sent page can take it back. */
   fromPage?: true;
-  /** Reported by a core that names the offers it stops flagging (`cleared`), so that, not the page, takes it back. */
-  clearable?: true;
 }
 
 /** `storage.session`, so a browser restart forgets every verdict along with the offers it was about. */
@@ -55,7 +48,7 @@ export type OfferVerdicts = Record<string, OfferVerdict>;
 export const STEAM_ID64 = /^7656119\d{10}$/;
 
 /** Steam's own offer ids: digits only. */
-const OFFER_ID = /^\d{1,20}$/;
+export const OFFER_ID = /^\d{1,20}$/;
 
 export function parseVerdicts(raw: unknown): OfferVerdicts {
   if (typeof raw !== 'object' || raw === null) return {};
@@ -75,7 +68,6 @@ export function parseVerdicts(raw: unknown): OfferVerdicts {
       ...(r.byName === true ? { byName: true as const } : {}),
       ...(typeof r.simulated?.personaName === 'string' ? { simulated: { personaName: r.simulated.personaName } } : {}),
       ...(r.fromPage === true ? { fromPage: true as const } : {}),
-      ...(r.clearable === true ? { clearable: true as const } : {}),
     };
   }
   return out;
@@ -94,8 +86,7 @@ export const GUARD_SCANNED_AT_KEY = 'tracker_guard_scanned_at';
 export const GUARD_NOTIFIED_KEY = 'tracker_guard_notified';
 
 export function parseScanStamp(raw: unknown): number | null {
-  const n = typeof raw === 'string' && /^\d{1,15}$/.test(raw) ? Number(raw) : NaN;
-  return Number.isSafeInteger(n) ? n : null;
+  return typeof raw === 'string' && /^\d{1,15}$/.test(raw) ? Number(raw) : null;
 }
 
 // ---- content script -> service worker -------------------------------------------------------------------

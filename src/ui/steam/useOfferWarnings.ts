@@ -10,19 +10,19 @@ import {
   type OfferLevel,
   type OfferVerdict,
   type OfferVerdictsRequest,
+  type OfferVerdictsResponse,
   type TrustPartnerRequest,
 } from '@/state/offerGuard';
-import { isKnownScamPartner, pageLevel, scanSentOffers, type PageOffer } from './offerScan';
+import { accountId, isKnownScamPartner, OFFER_ID_PREFIX, pageLevel, scanSentOffers, type PageOffer } from './offerScan';
 import {
   CHECK_TIMEOUT_MS,
   checkingVisible,
   isLandingPage,
-  landingRequest,
   landingWarnings,
   offerBlockIds,
   offerPageId,
-  offerPageRequest,
   offerPageWarning,
+  verdictsRequest,
 } from './offerPage';
 
 export interface OfferWarning {
@@ -43,8 +43,6 @@ function sentPage(): { onSentPage: boolean; complete: boolean } {
   return { onSentPage, complete: onSentPage && !new URLSearchParams(location.search).has('history') };
 }
 
-const STEAM64_BASE = 76561197960265728n;
-
 /** What a stand-in block shows; stored on the block so a changed simulation redraws it. */
 const standInKey = (v: OfferVerdict): string =>
   JSON.stringify([v.simulated?.personaName, v.partnerSteamId, v.giveCount, v.direction]);
@@ -55,7 +53,7 @@ const standInKey = (v: OfferVerdict): string =>
  * received one as the landing page draws an offer sent to the user.
  */
 function insertStandIn(offerId: string, v: OfferVerdict): void {
-  if (document.getElementById(`tradeofferid_${offerId}`) !== null || v.simulated === undefined) return;
+  if (document.getElementById(`${OFFER_ID_PREFIX}${offerId}`) !== null || v.simulated === undefined) return;
   const el = (tag: string, cls: string, parent: Element): HTMLElement => {
     const e = document.createElement(tag);
     e.className = cls;
@@ -64,7 +62,7 @@ function insertStandIn(offerId: string, v: OfferVerdict): void {
   };
   const block = document.createElement('div');
   block.className = 'tradeoffer';
-  block.id = `tradeofferid_${offerId}`;
+  block.id = `${OFFER_ID_PREFIX}${offerId}`;
   block.dataset.dmpSimulated = standInKey(v);
   block.style.cssText = 'margin:12px 0;padding:12px;border:1px dashed #f5b83d;border-radius:4px;color:#c6d4df';
   const received = v.direction === 'received';
@@ -84,11 +82,9 @@ function insertStandIn(offerId: string, v: OfferVerdict): void {
   }
   // Steam puts the partner's avatar on the side they give from, even when that side is empty.
   const avatar = el('a', 'tradeoffer_avatar playerAvatar', el('div', 'tradeoffer_items_avatar_ctn', received ? primarySide : secondarySide));
-  try {
-    avatar.dataset.miniprofile = (BigInt(v.partnerSteamId) - STEAM64_BASE).toString();
-  } catch {
-    /* not a number: the scan leaves the partner unknown */
-  }
+  const miniprofile = accountId(v.partnerSteamId);
+  // Not a number: the scan leaves the partner unknown.
+  if (miniprofile !== undefined) avatar.dataset.miniprofile = miniprofile;
   const before = document.querySelector(getSettings().web.offerSelectors.offer);
   if (before?.parentElement) before.parentElement.insertBefore(block, before);
   // No offers at all: Steam's left column still holds the (empty) list.
@@ -103,14 +99,14 @@ function insertStandIn(offerId: string, v: OfferVerdict): void {
 export function syncStandIns(wanted: Record<string, OfferVerdict>): boolean {
   let changed = false;
   for (const el of document.querySelectorAll<HTMLElement>('[data-dmp-simulated]')) {
-    const v = wanted[el.id.slice('tradeofferid_'.length)];
+    const v = wanted[el.id.slice(OFFER_ID_PREFIX.length)];
     if (v?.simulated === undefined || el.dataset.dmpSimulated !== standInKey(v)) {
       el.remove();
       changed = true;
     }
   }
   for (const [id, v] of Object.entries(wanted)) {
-    if (v.simulated === undefined || document.getElementById(`tradeofferid_${id}`) !== null) continue;
+    if (v.simulated === undefined || document.getElementById(`${OFFER_ID_PREFIX}${id}`) !== null) continue;
     insertStandIn(id, v);
     changed = true;
   }
@@ -120,6 +116,15 @@ export function syncStandIns(wanted: Record<string, OfferVerdict>): boolean {
 /** The entries of [verdicts] on one of Steam's two lists. */
 function ofDirection(verdicts: Record<string, OfferVerdict> | undefined, direction: OfferDirection): Record<string, OfferVerdict> {
   return Object.fromEntries(Object.entries(verdicts ?? {}).filter(([, v]) => v.direction === direction));
+}
+
+function hasVerdicts(reply: GuardResponse | undefined): reply is OfferVerdictsResponse {
+  return reply?.ok === true && 'verdicts' in reply;
+}
+
+/** Impersonations first: they are the ones a user must not miss. */
+function impersonationsFirst(a: OfferWarning, b: OfferWarning): number {
+  return a.level === b.level ? 0 : a.level === 'IMPERSONATION' ? -1 : 1;
 }
 
 function ask(request: OfferVerdictsRequest | TrustPartnerRequest): Promise<GuardResponse | undefined> {
@@ -143,31 +148,35 @@ export function useOfferWarnings(): {
   const [checking, setChecking] = useState(false);
   const [offerId] = useState(() => offerPageId(location.pathname));
   const [openedAt] = useState(() => Date.now());
+  const setIfChanged = useCallback(
+    (next: OfferWarning[]) => setWarnings((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next)),
+    [],
+  );
 
   const refresh = useCallback(async (): Promise<void> => {
     const knownScamPartners = getSettings().web.knownScamPartners ?? [];
     if (offerId !== undefined) {
-      const reply = await ask(offerPageRequest(offerId));
-      if (reply?.ok !== true || !('verdicts' in reply)) return;
+      const reply = await ask(verdictsRequest([offerId]));
+      if (!hasVerdicts(reply)) return;
       setChecking(checkingVisible({ ...reply, openedAt, now: Date.now() }));
       const w = offerPageWarning(offerId, reply.verdicts[offerId], knownScamPartners);
       const next = w === undefined ? [] : [w];
-      setWarnings((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+      setIfChanged(next);
       return;
     }
     const { offerSelectors } = getSettings().web;
     if (isLandingPage(location.pathname, location.search)) {
       let ids = offerBlockIds(document, offerSelectors);
-      const reply = await ask(landingRequest(ids));
-      if (reply?.ok !== true || !('verdicts' in reply)) return;
+      const reply = await ask(verdictsRequest(ids));
+      if (!hasVerdicts(reply)) return;
       const verdicts = { ...reply.verdicts };
       if (import.meta.env.DEV) {
         Object.assign(verdicts, ofDirection(reply.simulated, 'received'));
         if (syncStandIns(ofDirection(verdicts, 'received'))) ids = offerBlockIds(document, offerSelectors);
       }
       const next = landingWarnings(ids, verdicts, knownScamPartners);
-      next.sort((a, b) => (a.level === b.level ? 0 : a.level === 'IMPERSONATION' ? -1 : 1));
-      setWarnings((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+      next.sort(impersonationsFirst);
+      setIfChanged(next);
       return;
     }
     const { onSentPage, complete } = sentPage();
@@ -185,10 +194,11 @@ export function useOfferWarnings(): {
       pageComplete: complete,
       impersonations,
     });
-    const verdicts = reply?.ok === true && 'verdicts' in reply ? { ...reply.verdicts } : {};
-    if (reply?.ok === true && 'verdicts' in reply) setChecking(checkingVisible({ ...reply, openedAt, now: Date.now() }));
+    const answered = hasVerdicts(reply);
+    const verdicts = answered ? { ...reply.verdicts } : {};
+    if (answered) setChecking(checkingVisible({ ...reply, openedAt, now: Date.now() }));
     // Only on an answer: a failed ask must not wipe the stand-ins of a simulation that is still on.
-    if (import.meta.env.DEV && reply?.ok === true && 'verdicts' in reply) {
+    if (import.meta.env.DEV && answered) {
       Object.assign(verdicts, ofDirection(reply.simulated, 'sent'));
       if (syncStandIns(ofDirection(verdicts, 'sent'))) offers = scanSentOffers(document, offerSelectors);
     }
@@ -199,10 +209,9 @@ export function useOfferWarnings(): {
       const personaName = verdict?.personaName ?? offer.personaName;
       return level === undefined ? [] : [{ offer: { ...offer, personaName }, level, direction: verdict?.direction ?? 'sent' }];
     });
-    // Impersonations first: they are the ones a user must not miss.
-    next.sort((a, b) => (a.level === b.level ? 0 : a.level === 'IMPERSONATION' ? -1 : 1));
-    setWarnings((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
-  }, [offerId, openedAt]);
+    next.sort(impersonationsFirst);
+    setIfChanged(next);
+  }, [offerId, openedAt, setIfChanged]);
 
   useEffect(() => {
     // The core checks this account's sent offers now rather than at its next due cycle, at most every 30 s

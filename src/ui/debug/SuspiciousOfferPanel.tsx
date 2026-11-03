@@ -7,17 +7,15 @@
 // Pinned beside the storage rows like the freshness-mark injector, and showing its answer the same way: the
 // cached verdicts live in `storage.session`, which the storage list (local only) does not show.
 
-import { useEffect, useState } from 'preact/hooks';
+import { useState } from 'preact/hooks';
 import type { SimulatedOffer } from '@/debug/protocol';
 import {
   GUARD_VERDICTS_KEY,
   OFFER_LEVELS,
-  parseVerdicts,
   type OfferDirection,
   type OfferLevel,
-  type OfferVerdicts,
 } from '@/state/offerGuard';
-import { onStorageChanged } from '@/util/storageEvents';
+import { useVerdicts } from '@/ui/hooks/useVerdicts';
 import { sendDebug } from '@/ui/debug/messaging';
 import { getSettings } from '@/config/settings';
 import { isKnownScamPartner } from '@/ui/steam/offerScan';
@@ -42,17 +40,8 @@ function expectedColour(o: SimulatedOffer): string {
 
 export function SuspiciousOfferPanel(): preact.JSX.Element {
   const [draft, setDraft] = useState<SimulatedOffer>(INITIAL);
-  const [cached, setCached] = useState<OfferVerdicts>({});
+  const cached = useVerdicts() ?? {};
   const [note, setNote] = useState('');
-
-  useEffect(() => {
-    const read = () =>
-      void browser.storage.session.get(GUARD_VERDICTS_KEY).then((s) => setCached(parseVerdicts(s[GUARD_VERDICTS_KEY])));
-    read();
-    return onStorageChanged((changes, area) => {
-      if (area === 'session' && GUARD_VERDICTS_KEY in changes) read();
-    });
-  }, []);
 
   const send = (offer: SimulatedOffer | null) =>
     void sendDebug({ type: 'debug:simulate-offer', offer }).then((r) =>

@@ -9,12 +9,11 @@ import {
   CHECK_TIMEOUT_MS,
   checkingVisible,
   isLandingPage,
-  landingRequest,
   landingWarnings,
   offerBlockIds,
   offerPageId,
-  offerPageRequest,
   offerPageWarning,
+  verdictsRequest,
 } from './offerPage';
 import { CheckingNotice, SuspiciousOfferBanners } from './SuspiciousOfferBanner';
 
@@ -54,7 +53,7 @@ describe('the offer page anchor', () => {
 
 describe('the offer page request and banner', () => {
   it('asks about this offer only, never as a complete page', () => {
-    expect(offerPageRequest('9000000001')).toEqual({ kind: 'offer-verdicts', offerIds: ['9000000001'], pageComplete: false });
+    expect(verdictsRequest(['9000000001'])).toEqual({ kind: 'offer-verdicts', offerIds: ['9000000001'], pageComplete: false });
   });
 
   it('builds the banner from the verdict, with the core name and item count', () => {
@@ -132,7 +131,7 @@ describe('the trade-offers landing page', () => {
   it('takes only the offer block ids and reports nothing it recognised itself', () => {
     const ids = offerBlockIds(html(['11', '12']), { offer: '.tradeoffer' });
     expect(ids).toEqual(['11', '12']);
-    expect(landingRequest(ids)).toEqual({ kind: 'offer-verdicts', offerIds: ['11', '12'], pageComplete: false });
+    expect(verdictsRequest(ids)).toEqual({ kind: 'offer-verdicts', offerIds: ['11', '12'], pageComplete: false });
   });
 
   it('warns about the received verdicts among its offers only', () => {

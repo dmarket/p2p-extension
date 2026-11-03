@@ -4,7 +4,7 @@ import { loadSettings } from '@/config/settings';
 import type { TrackerHandle } from '@/core/tracker';
 import { flushMacrotasks, publishRemoteConfig } from '@/testing/stubs';
 
-const { setKnownScamPartners } = vi.hoisted(() => ({ setKnownScamPartners: vi.fn(() => true) }));
+const { setKnownScamPartners } = vi.hoisted(() => ({ setKnownScamPartners: vi.fn() }));
 vi.mock('@/core/tracker', () => ({ Tracker: { setKnownScamPartners } }));
 
 const SCAM = '76561198781084366';

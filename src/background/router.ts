@@ -26,8 +26,8 @@ import {
   type OfferVerdictsRequest,
 } from '@/state/offerGuard';
 
-// How long a create-trade request waits for its deal's directive: one forced heartbeat round trip plus the
-// Steam POST. Past it the page is answered `create_in_flight` while the cycle carries on, and its retry is
+// How long a create-trade request waits for its deal's directive: the core's POST /create-trade round trip plus
+// the Steam POST. Past it the page is answered `create_in_flight` while the cycle carries on, and its retry is
 // answered from the deal's claim, so a slow cycle cannot become a second offer.
 const CREATE_TRADE_WAIT_MS = 30_000;
 
@@ -47,7 +47,7 @@ function withCap(settled: Promise<void>, ms: number): Promise<void> {
 }
 
 function wakeAll(reason?: 'offers_page'): string {
-  return JSON.stringify(reason === undefined ? { type: 'wake_all' } : { type: 'wake_all', reason });
+  return JSON.stringify({ type: 'wake_all', reason });
 }
 
 function wakeDeal(dealId: string): string {
@@ -151,8 +151,8 @@ async function handle(request: BridgeRequest, getHandle: () => TrackerHandle | u
       // Coded: the page distinguishes "the tracker is not running" (retry once it is) from a Steam
       // refusal, and a caller must never have to pattern-match this string to find that out.
       if (tracker === undefined) return { ok: false, error: 'tracker not started', reason: 'EXT_NOT_READY' };
-      // A trigger only: the core forces a heartbeat and runs the backend's own create_offer directive for this
-      // deal, with the account binding from that heartbeat. The page's message carried nothing else in.
+      // A trigger only: the core fetches the backend's own create_offer directive for this deal and runs it with
+      // the account binding from the last heartbeat. The page's message carried nothing else in.
       const result = await Tracker.awaitDirectiveOutcome(tracker, request.dealId, CREATE_TRADE_WAIT_MS);
       return { ok: true, kind: 'create-trade', result };
     }
@@ -266,16 +266,20 @@ async function offerVerdicts(
 ): Promise<GuardResponse> {
   if (request.pageComplete) await keepOnlyListed(request.offerIds);
   if (request.impersonations !== undefined) await recordPageImpersonations(request.impersonations);
-  const all = await readVerdicts();
-  const coreRunning =
-    getHandle() !== undefined && resolveSurface(await isActivated(), await getBlockingReason()) === 'ACTIVE';
+  const [all, activated, reason, scanStamp] = await Promise.all([
+    readVerdicts(),
+    isActivated(),
+    getBlockingReason(),
+    readScanStamp(),
+  ]);
+  const coreRunning = getHandle() !== undefined && resolveSurface(activated, reason) === 'ACTIVE';
   const onPage = new Set(request.offerIds);
   const pick = (keep: (id: string, v: OfferVerdict) => boolean) =>
     Object.fromEntries(Object.entries(all).filter(([id, v]) => keep(id, v)));
   return {
     ok: true,
     verdicts: pick((id) => onPage.has(id)),
-    scannedAt: settledScanStamp(await readScanStamp(), all),
+    scannedAt: settledScanStamp(scanStamp, all),
     coreRunning,
     // Debug builds only: offers the console simulated that have no block on this page.
     ...(import.meta.env.DEV ? { simulated: pick((id, v) => !onPage.has(id) && v.simulated !== undefined) } : {}),

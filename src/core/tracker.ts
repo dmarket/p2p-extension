@@ -13,11 +13,11 @@ import {
   startTracker,
   startTrackerWithEvents,
   stopTracker,
+  setKnownScamPartners as coreSetKnownScamPartners,
   subscribeActiveTrackingCount as coreSubscribeActiveTrackingCount,
   trackerCoreVersion,
+  trustPartner as coreTrustPartner,
 } from '@dmarket/p2p-tracker-core';
-// For the one export read by name below, which the installed core may not carry yet.
-import * as core from '@dmarket/p2p-tracker-core';
 import { createNotaryProofDelegate, supportsOffscreenProver } from '@/core/notary-delegate';
 // The TrackerConfig builder, shared with the offscreen prover so the two realms cannot disagree.
 import { buildTrackerConfig } from '@/core/config';
@@ -195,23 +195,17 @@ export const Tracker = {
 
   /**
    * Stop reporting give-only offers to [steamId] (a steamid64) as suspicious. Needs no handle: the core writes
-   * `guard_trusted_partners`, which a running tracker reads on its next check. A core before DMA-818 has no
-   * such export and no such check, so there it resolves without doing anything.
+   * `guard_trusted_partners`, which a running tracker reads on its next check.
    */
-  async trustPartner(steamId: string): Promise<void> {
-    // shortcut: read by name until the pinned core declares trustPartner; import it directly after the bump.
-    const trust = Reflect.get(core, 'trustPartner') as ((steamId: string) => Promise<unknown>) | undefined;
-    if (typeof trust === 'function') await trust(steamId);
+  trustPartner(steamId: string): Promise<void> {
+    return coreTrustPartner(steamId);
   },
 
   /**
    * Replace the running tracker's known-scam list with [steamIds] (steamid64 strings): an active offer to or from
-   * one of them is reported as an impersonation. `false` when the core kept its list (no steamid64 in a non-empty
-   * array) or, before DMA-819, has no such export, where it keeps the list compiled into it.
+   * one of them is reported as an impersonation.
    */
-  setKnownScamPartners(handle: TrackerHandle, steamIds: readonly string[]): boolean {
-    // shortcut: read by name until the pinned core declares setKnownScamPartners; import it directly after the bump.
-    const set = Reflect.get(core, 'setKnownScamPartners') as ((handle: TrackerHandle, ids: string[]) => boolean) | undefined;
-    return typeof set === 'function' ? set(handle, [...steamIds]) : false;
+  setKnownScamPartners(handle: TrackerHandle, steamIds: readonly string[]): void {
+    coreSetKnownScamPartners(handle, [...steamIds]);
   },
 };

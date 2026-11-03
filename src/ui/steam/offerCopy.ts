@@ -36,13 +36,12 @@ export function offerCopy(o: OfferCopyInput): OfferCopy {
   // A received offer's sender may come without a name, so its steamid stands in.
   const label = o.personaName || o.partnerSteamId || 'this partner';
   if (o.direction === 'received') {
-    const name = label;
     const partner = `From ${label}`;
     const advice = "Decline it, don't accept or confirm it in Steam Mobile.";
     if (o.level === 'IMPERSONATION' && o.byName) {
       return {
         title: 'An account posing as a DMarket bot sent you a Steam offer',
-        body: [{ value: name }, ` poses as a DMarket bot. ${OUR_BOTS} — decline it, don't accept or confirm it in Steam Mobile.`],
+        body: [{ value: label }, ` poses as a DMarket bot. ${OUR_BOTS} — decline it, don't accept or confirm it in Steam Mobile.`],
         partner,
         advice,
       };
@@ -50,13 +49,13 @@ export function offerCopy(o: OfferCopyInput): OfferCopy {
     return o.level === 'IMPERSONATION'
       ? {
           title: 'A known scam account sent you a Steam offer',
-          body: [{ value: name }, ` is a known scam account. ${OUR_BOTS} — decline it, don't accept or confirm it in Steam Mobile.`],
+          body: [{ value: label }, ` is a known scam account. ${OUR_BOTS} — decline it, don't accept or confirm it in Steam Mobile.`],
           partner,
           advice,
         }
       : {
           title: "This trade offer isn't linked to a DMarket deal",
-          body: [{ value: name }, ' asks for ', { value: items(o.giveCount) }, ` and gives nothing back. ${OUR_BOTS} — if you didn't start one, decline it.`],
+          body: [{ value: label }, ' asks for ', { value: items(o.giveCount) }, ` and gives nothing back. ${OUR_BOTS} — if you didn't start one, decline it.`],
           partner,
           advice,
         };

@@ -8,14 +8,16 @@
 // lists them. Nothing here touches the offer itself.
 
 import { STEAM_INTEGRATION } from '@/config/steam';
+import { broadcastToTabs } from '@/background/broadcast';
+import { getVerdicts } from '@/state/verdicts';
 import { onStorageChanged } from '@/util/storageEvents';
 import {
   GUARD_CHANGED_KIND,
   GUARD_SCANNED_AT_KEY,
   GUARD_VERDICTS_KEY,
   isOfferLevel,
+  OFFER_ID,
   parseScanStamp,
-  parseVerdicts,
   type OfferDirection,
   type OfferVerdict,
   type OfferVerdicts,
@@ -32,14 +34,17 @@ export const VERDICT_TTL_MS = 24 * 60 * 60 * 1000;
  */
 export const RECEIVED_VERDICT_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
+function keep(verdicts: OfferVerdicts, pred: (id: string, v: OfferVerdict) => boolean): OfferVerdicts {
+  return Object.fromEntries(Object.entries(verdicts).filter(([id, v]) => pred(id, v)));
+}
+
+/** The verdicts still within their TTL. */
+export function liveVerdicts(all: OfferVerdicts, now = Date.now()): OfferVerdicts {
+  return keep(all, (_, v) => now - v.at < (v.direction === 'received' ? RECEIVED_VERDICT_TTL_MS : VERDICT_TTL_MS));
+}
+
 export async function readVerdicts(now = Date.now()): Promise<OfferVerdicts> {
-  const stored = await browser.storage.session.get(GUARD_VERDICTS_KEY);
-  const all = parseVerdicts(stored[GUARD_VERDICTS_KEY]);
-  return Object.fromEntries(
-    Object.entries(all).filter(
-      ([, v]) => now - v.at < (v.direction === 'received' ? RECEIVED_VERDICT_TTL_MS : VERDICT_TTL_MS),
-    ),
-  );
+  return liveVerdicts(await getVerdicts(), now);
 }
 
 let chain: Promise<unknown> = Promise.resolve();
@@ -95,19 +100,8 @@ export function watchScanStamp(): () => void {
   });
 }
 
-/** Best-effort: a tab without our content script (or closed meanwhile) just rejects. */
-async function notifyTabs(): Promise<void> {
-  try {
-    const tabs = await browser.tabs.query({ url: [...STEAM_INTEGRATION.tradeOffersMatchPatterns] });
-    await Promise.all(
-      tabs
-        .map((t) => t.id)
-        .filter((id): id is number => id !== undefined)
-        .map((id) => browser.tabs.sendMessage(id, { kind: GUARD_CHANGED_KIND }).catch(() => {})),
-    );
-  } catch {
-    /* no matching tabs */
-  }
+function notifyTabs(): Promise<void> {
+  return broadcastToTabs([...STEAM_INTEGRATION.tradeOffersMatchPatterns], { kind: GUARD_CHANGED_KIND });
 }
 
 interface WireOffer {
@@ -127,7 +121,7 @@ interface WireOffer {
 /** The parts of a `SuspiciousOutgoingOffers` frame the cache reads. */
 export interface SuspiciousOffersFrame {
   offers?: unknown;
-  /** Offer ids the core no longer flags; a core before DMA-819 sends none. */
+  /** Offer ids the core no longer flags. */
   cleared?: unknown;
 }
 
@@ -138,13 +132,13 @@ function wireDirection(d: unknown): OfferDirection {
 /** Cache the offers of one `SuspiciousOutgoingOffers` event and drop the ones it clears. Malformed entries are skipped. */
 export function recordSuspiciousOffers(frame: SuspiciousOffersFrame, now = Date.now()): Promise<void> {
   const offers = Array.isArray(frame.offers) ? (frame.offers as WireOffer[]) : [];
-  // A core that sends `cleared` sends it on every frame, empty or not; an older one never does.
-  const clearable = Array.isArray(frame.cleared);
-  const cleared = clearable ? (frame.cleared as unknown[]).filter((id): id is string => typeof id === 'string') : [];
+  const cleared = Array.isArray(frame.cleared)
+    ? (frame.cleared as unknown[]).filter((id): id is string => typeof id === 'string')
+    : [];
   const parsed: [string, OfferVerdict][] = [];
   for (const o of offers) {
     if (typeof o !== 'object' || o === null) continue;
-    if (typeof o.offerId !== 'string' || !/^\d+$/.test(o.offerId)) continue;
+    if (typeof o.offerId !== 'string' || !OFFER_ID.test(o.offerId)) continue;
     if (typeof o.partnerSteamId !== 'string' || !isOfferLevel(o.level)) continue;
     const verdict: OfferVerdict = {
       level: o.level,
@@ -154,7 +148,6 @@ export function recordSuspiciousOffers(frame: SuspiciousOffersFrame, now = Date.
       at: now,
       ...(typeof o.personaName === 'string' ? { personaName: o.personaName } : {}),
       ...(o.byName === true ? { byName: true as const } : {}),
-      ...(clearable ? { clearable: true as const } : {}),
     };
     // A production build ignores the field: only the debug console's simulation may ask for a stand-in block.
     if (import.meta.env.DEV && typeof o.simulatedPersonaName === 'string') {
@@ -209,20 +202,19 @@ export function forgetTrustedPartner(steamId: string): Promise<void> {
 /**
  * The full sent-offers page lists every active sent offer, so a yellow sent verdict or one only the page found is
  * gone when the page does not list it. A red verdict of the core stays until its `cleared` or the TTL: a page
- * Steam drew short must not take down the warning that matters most. A core that sends no `cleared` would never
- * take its red verdict back, so for that one the page does. Received and simulated verdicts stay: this page does
- * not list them.
+ * Steam drew short must not take down the warning that matters most. Received and simulated verdicts stay: this
+ * page does not list them.
  */
 export function keepOnlyListed(offerIds: readonly string[]): Promise<void> {
   const listed = new Set(offerIds);
   const prunable = (x: OfferVerdict): boolean =>
     x.simulated === undefined &&
     x.direction === 'sent' &&
-    (x.fromPage === true || x.level === 'UNLINKED_GIVE_ONLY' || x.clearable !== true);
-  return update((v) => Object.fromEntries(Object.entries(v).filter(([id, x]) => listed.has(id) || !prunable(x))));
+    (x.fromPage === true || x.level === 'UNLINKED_GIVE_ONLY');
+  return update((v) => keep(v, (id, x) => listed.has(id) || !prunable(x)));
 }
 
 /** Debug console only: remove every simulated verdict. */
 export function clearSimulatedVerdicts(): Promise<void> {
-  return update((v) => Object.fromEntries(Object.entries(v).filter(([, x]) => !x.simulated)));
+  return update((v) => keep(v, (_, x) => !x.simulated));
 }

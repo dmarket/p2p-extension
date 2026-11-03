@@ -37,6 +37,7 @@ import {
   REMOTE_CONFIG_PARAM,
   type ConfigEntries,
 } from '@/infra/remoteConfig';
+import { STEAM_ID64 } from '@/state/offerGuard';
 import { STATE_AREA } from '@/state/stateArea';
 import { onStorageChanged } from '@/util/storageEvents';
 import { isChromeVersion } from '@/util/version';
@@ -479,7 +480,7 @@ const cssSelector: Validator = (v) => {
 
 /** A list of steamid64, at most 1000. One bad entry rejects the list: a half-applied list is a typo, not a decision. */
 const steamIdList: Validator = (v) =>
-  Array.isArray(v) && v.length <= 1000 && v.every((x) => typeof x === 'string' && /^7656119\d{10}$/.test(x))
+  Array.isArray(v) && v.length <= 1000 && v.every((x) => typeof x === 'string' && STEAM_ID64.test(x))
     ? [...(v as string[])]
     : undefined;
 

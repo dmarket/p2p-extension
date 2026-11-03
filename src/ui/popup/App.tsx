@@ -2,6 +2,7 @@ import { useState } from 'preact/hooks';
 import { resolveSurface } from '@/state/surface';
 import { useActivation } from '@/ui/hooks/useActivation';
 import { useBlockingReason } from '@/ui/hooks/useBlockingReason';
+import { useVerdicts } from '@/ui/hooks/useVerdicts';
 import { Header, type Tab } from './Header';
 import { InactiveScreen } from './screens/InactiveScreen';
 import { ActiveScreen } from './screens/ActiveScreen';
@@ -10,7 +11,7 @@ import { MissingConnectionScreen } from './screens/MissingConnectionScreen';
 import { ConnectionErrorScreen } from './screens/ConnectionErrorScreen';
 import { SteamSignedOutScreen } from './screens/SteamSignedOutScreen';
 import { InfoScreen } from './screens/InfoScreen';
-import { SuspiciousOffersRow, useVerdicts } from './SuspiciousOffersRow';
+import { SuspiciousOffersRow } from './SuspiciousOffersRow';
 
 export function App() {
   const [tab, setTab] = useState<Tab>('home');

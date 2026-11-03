@@ -7,7 +7,7 @@
 // change is a publish, not a release.
 
 import type { OfferSelectors } from '@/config/settings';
-import type { OfferLevel } from '@/state/offerGuard';
+import { OFFER_ID, type OfferLevel } from '@/state/offerGuard';
 
 export interface PageOffer {
   offerId: string;
@@ -19,11 +19,29 @@ export interface PageOffer {
 }
 
 const STEAM64_BASE = 76561197960265728n;
-const OFFER_ID_PREFIX = 'tradeofferid_';
+/** Steam's element id of an offer block is this prefix plus the offer id. */
+export const OFFER_ID_PREFIX = 'tradeofferid_';
 
-function steamId64(accountId: string | undefined): string | undefined {
+/** The steamid64 of a `data-miniprofile` account id. */
+export function steamId64(accountId: string | undefined): string | undefined {
   if (accountId === undefined || !/^\d{1,10}$/.test(accountId)) return undefined;
   return (BigInt(accountId) + STEAM64_BASE).toString();
+}
+
+/** The `data-miniprofile` account id of a steamid64; `undefined` when it is not a number. */
+export function accountId(steamId: string): string | undefined {
+  try {
+    return (BigInt(steamId) - STEAM64_BASE).toString();
+  } catch {
+    return undefined;
+  }
+}
+
+/** The offer id of an offer block, from its `tradeofferid_<id>` element id only. */
+export function blockOfferId(el: Element): string | undefined {
+  if (!el.id.startsWith(OFFER_ID_PREFIX)) return undefined;
+  const id = el.id.slice(OFFER_ID_PREFIX.length);
+  return OFFER_ID.test(id) ? id : undefined;
 }
 
 /**
@@ -39,9 +57,8 @@ function personaName(header: Element | null): string {
 
 export function scanSentOffers(root: ParentNode, s: OfferSelectors): PageOffer[] {
   return Array.from(root.querySelectorAll<HTMLElement>(s.offer)).flatMap((el) => {
-    if (!el.id.startsWith(OFFER_ID_PREFIX)) return [];
-    const offerId = el.id.slice(OFFER_ID_PREFIX.length);
-    if (!/^\d+$/.test(offerId)) return [];
+    const offerId = blockOfferId(el);
+    if (offerId === undefined) return [];
     const partner = el.querySelector<HTMLElement>(s.partner);
     return [
       {

@@ -1,29 +1,6 @@
-import { useEffect, useState } from 'preact/hooks';
 import { getSettings } from '@/config/settings';
-import { GUARD_VERDICTS_KEY, parseVerdicts, type OfferVerdict, type OfferVerdicts } from '@/state/offerGuard';
+import type { OfferVerdict, OfferVerdicts } from '@/state/offerGuard';
 import { offerCopy } from '@/ui/steam/offerCopy';
-import { onStorageChanged } from '@/util/storageEvents';
-
-/**
- * The cached suspicious-offer verdicts (src/background/offerGuard.ts), live. `undefined` until the first read
- * settles, so the popup can hold its home screen and paint it together with the row (App.tsx).
- */
-export function useVerdicts(): OfferVerdicts | undefined {
-  const [verdicts, setVerdicts] = useState<OfferVerdicts>();
-  useEffect(() => {
-    const read = () =>
-      void browser.storage.session
-        .get(GUARD_VERDICTS_KEY)
-        .then((s) => setVerdicts(parseVerdicts(s[GUARD_VERDICTS_KEY])))
-        // A failed read shows no row rather than holding the home screen on the spinner.
-        .catch(() => setVerdicts((v) => v ?? {}));
-    read();
-    return onStorageChanged((changes, area) => {
-      if (area === 'session' && GUARD_VERDICTS_KEY in changes) read();
-    });
-  }, []);
-  return verdicts;
-}
 
 /** The sent list, or the landing page, which lists the offers sent to the user. */
 function openOffers(page: 'sent' | 'received'): void {

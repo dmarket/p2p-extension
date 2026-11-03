@@ -5,6 +5,7 @@
 import '@/infra/report/install';
 import { Tracker, type BlockingReason, type TrackerHandle } from '@/core/tracker';
 import { installSteamAntiCsrf } from '@/background/anti-csrf';
+import { broadcastToTabs } from '@/background/broadcast';
 import { installDevSteamRedirect } from '@/background/dev-steam-redirect';
 import { registerBridgeRouter, registerOfferGuardRouter } from '@/background/router';
 import { recordSuspiciousOffers, type SuspiciousOffersFrame } from '@/background/offerGuard';
@@ -197,23 +198,8 @@ export default defineBackground(() => {
 
   // Push an unsolicited `account_mismatch` to every dmarket tab: the content script relays it to the
   // page. Best-effort — tabs without our content script (or closed mid-send) just reject.
-  const pushAccountMismatch = async (tokenSteamId: string): Promise<void> => {
-    try {
-      const tabs = await browser.tabs.query({ url: await dmarketTabPatterns() });
-      // Ids first, so the map below is one promise per tab rather than an array of arrays padded with
-      // non-thenables (which is what `Promise.all` was being handed).
-      const ids = tabs.map((t) => t.id).filter((id): id is number => id !== undefined);
-      await Promise.all(
-        ids.map((id) =>
-          browser.tabs
-            .sendMessage(id, { kind: 'push-account-mismatch', tokenSteamId } satisfies AccountMismatchPush)
-            .catch(() => {}),
-        ),
-      );
-    } catch {
-      /* no matching tabs / query failed */
-    }
-  };
+  const pushAccountMismatch = async (tokenSteamId: string): Promise<void> =>
+    broadcastToTabs(await dmarketTabPatterns(), { kind: 'push-account-mismatch', tokenSteamId } satisfies AccountMismatchPush);
 
   // The core events that mark a settled state worth re-reading `blockingReason()` at (per the core's
   // FE-interaction contract). Only these poke the UI — the core emits other event types too, and

@@ -2,12 +2,12 @@
 // the frame the core emits, plus the one field only a simulation carries.
 
 import type { SimulatedOffer } from '@/debug/protocol';
-import { isOfferLevel, STEAM_ID64 } from '@/state/offerGuard';
+import { isOfferLevel, OFFER_ID, STEAM_ID64 } from '@/state/offerGuard';
 
 /** `undefined` when [offer] is not one the core could have reported. */
 export function simulatedOfferFrame(offer: SimulatedOffer): object | undefined {
   if (
-    !/^\d{1,20}$/.test(offer.offerId) ||
+    !OFFER_ID.test(offer.offerId) ||
     !STEAM_ID64.test(offer.partnerSteamId) ||
     !isOfferLevel(offer.level) ||
     (offer.direction !== 'sent' && offer.direction !== 'received')

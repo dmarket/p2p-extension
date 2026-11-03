@@ -25,7 +25,7 @@ vi.mock('@/core/tracker', () => ({ Tracker: { trustPartner } }));
 const SCAM = '76561198781084366';
 const FRIEND = '76561198000000002';
 
-/** A `SuspiciousOutgoingOffers` frame carrying [offers] and nothing cleared, as a core that sends `cleared` writes it. */
+/** A `SuspiciousOutgoingOffers` frame carrying [offers] and nothing cleared. */
 const record = (offers: unknown[], now?: number) => recordSuspiciousOffers({ offers, cleared: [] }, now);
 
 /** The `SuspiciousOutgoingOffers` frame's `offers`, as the core writes it. */
@@ -42,8 +42,8 @@ describe('the verdict cache', () => {
     await record([wire('11', FRIEND, 'UNLINKED_GIVE_ONLY', 3)], 1000);
     await record([wire('11', FRIEND, 'IMPERSONATION', 3), wire('12', SCAM, 'IMPERSONATION')], 2000);
     expect(await readVerdicts(2000)).toEqual({
-      '11': { level: 'IMPERSONATION', direction: 'sent', partnerSteamId: FRIEND, giveCount: 3, at: 2000, clearable: true },
-      '12': { level: 'IMPERSONATION', direction: 'sent', partnerSteamId: SCAM, giveCount: 1, at: 2000, clearable: true },
+      '11': { level: 'IMPERSONATION', direction: 'sent', partnerSteamId: FRIEND, giveCount: 3, at: 2000 },
+      '12': { level: 'IMPERSONATION', direction: 'sent', partnerSteamId: SCAM, giveCount: 1, at: 2000 },
     });
   });
 
@@ -137,12 +137,6 @@ describe('the verdict cache', () => {
     expect(Object.keys(await readVerdicts()).sort()).toEqual(['12', '13', '14', '15']);
   });
 
-  it('on a full sent page also drops an unlisted red one from a core that never clears', async () => {
-    await recordSuspiciousOffers({ offers: [wire('12', SCAM, 'IMPERSONATION')] });
-    await keepOnlyListed([]);
-    expect(await readVerdicts()).toEqual({});
-  });
-
   it('lets the full sent page drop a red the page raised from a yellow of the core', async () => {
     await record([wire('11', SCAM, 'UNLINKED_GIVE_ONLY')]);
     await recordPageImpersonations([{ offerId: '11', partnerSteamId: SCAM, giveCount: 1 }]);
@@ -234,7 +228,6 @@ describe('the guard router', () => {
       giveCount: 2,
       at,
       simulated: { personaName: 'D market' },
-      clearable: true,
       fromPage: true,
     });
     // Asked again on a later refresh: nothing is rewritten, so no tab is woken into another refresh.

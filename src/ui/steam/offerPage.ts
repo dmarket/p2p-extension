@@ -7,7 +7,7 @@
 
 import type { OfferSelectors } from '@/config/settings';
 import { OFFER_VERDICTS_KIND, type OfferVerdict, type OfferVerdicts, type OfferVerdictsRequest } from '@/state/offerGuard';
-import { isKnownScamPartner, pageLevel } from './offerScan';
+import { blockOfferId, isKnownScamPartner, pageLevel } from './offerScan';
 import type { OfferWarning } from './useOfferWarnings';
 
 const OFFER_PAGE = /^\/tradeoffer\/(\d{1,20})(?:\/|$)/;
@@ -18,11 +18,11 @@ export function offerPageId(pathname: string): string | undefined {
 }
 
 /**
- * What the page asks the worker: this offer only, and never as a complete page (that would make the worker drop
- * every other cached verdict). No impersonations: this page has no list to read names from.
+ * What the offer page and the landing page ask the worker: the verdicts of [offerIds] only, never as a complete
+ * page (that would make the worker drop every other cached verdict), and with no impersonations of their own.
  */
-export function offerPageRequest(offerId: string): OfferVerdictsRequest {
-  return { kind: OFFER_VERDICTS_KIND, offerIds: [offerId], pageComplete: false };
+export function verdictsRequest(offerIds: string[]): OfferVerdictsRequest {
+  return { kind: OFFER_VERDICTS_KIND, offerIds, pageComplete: false };
 }
 
 /** The banner for this page's offer, from its verdict: the name and item count are the core's. */
@@ -61,14 +61,9 @@ export function isLandingPage(pathname: string, search: string): boolean {
 /** The ids of the offer blocks on the page, from their `tradeofferid_<id>` element ids only. */
 export function offerBlockIds(root: ParentNode, s: Pick<OfferSelectors, 'offer'>): string[] {
   return Array.from(root.querySelectorAll<HTMLElement>(s.offer)).flatMap((el) => {
-    const id = /^tradeofferid_(\d{1,20})$/.exec(el.id)?.[1];
+    const id = blockOfferId(el);
     return id === undefined ? [] : [id];
   });
-}
-
-/** What the landing page asks: its offers' verdicts, as an incomplete page with nothing it recognised itself. */
-export function landingRequest(offerIds: string[]): OfferVerdictsRequest {
-  return { kind: OFFER_VERDICTS_KIND, offerIds, pageComplete: false };
 }
 
 /** The landing page's banners: the received verdicts among its offers. A sent offer is the sent page's to show. */
