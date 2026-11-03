@@ -490,3 +490,38 @@ describe('suspicious-offer guard knobs', () => {
     expect(parse({ web: { offerPageAnchorSelector: ' ' } }).web.offerPageAnchorSelector).toBe('#mainContent');
   });
 });
+
+describe('web.tradeOffersUrl — Steam community origin only', () => {
+  const DEFAULT = 'https://steamcommunity.com/my/tradeoffers';
+  const trade = (v: unknown) => parse({ web: { tradeOffersUrl: v } }).web.tradeOffersUrl;
+
+  it('applies a valid https://steamcommunity.com URL', () => {
+    expect(trade('https://steamcommunity.com/id/someone/tradeoffers')).toBe(
+      'https://steamcommunity.com/id/someone/tradeoffers',
+    );
+  });
+
+  it.each([
+    ['another host', 'https://evil.example/my/tradeoffers'],
+    ['plain http', 'http://steamcommunity.com/my/tradeoffers'],
+    ['subdomain lookalike', 'https://steamcommunity.com.evil.example/my/tradeoffers'],
+    ['userinfo trick', 'https://steamcommunity.com@evil.example/my/tradeoffers'],
+    ['credentials on the real host', 'https://user:pw@steamcommunity.com/my/tradeoffers'],
+    ['other port', 'https://steamcommunity.com:8443/my/tradeoffers'],
+    ['not a URL', 'steamcommunity.com/my/tradeoffers'],
+    ['javascript scheme', 'javascript:alert(1)'],
+    ['non-string', 42],
+  ])('rejects %s and keeps the default, with a warning', (_name, value) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(trade(value)).toBe(DEFAULT);
+    expect(warn).toHaveBeenCalledTimes(1);
+    // The rejected value itself is not echoed into the log.
+    expect(String(warn.mock.calls[0]?.[0])).not.toContain(String(value));
+  });
+
+  it('is silent when the field is absent', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(trade(undefined)).toBe(DEFAULT);
+    expect(warn).not.toHaveBeenCalled();
+  });
+});

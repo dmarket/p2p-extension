@@ -552,6 +552,20 @@ const httpUrl: Validator = (v) => {
   }
 };
 
+/** https URL on exactly the Steam community origin — for tab-open targets a publish must not be able to
+ *  point at another site. `URL.origin` drops default ports and case, and a lookalike such as
+ *  `steamcommunity.com.evil.example` or `steamcommunity.com@evil.example` has a different origin/host. */
+const steamCommunityUrl: Validator = (v) => {
+  if (typeof v !== 'string' || v === '') return undefined;
+  try {
+    const u = new URL(v);
+    const ok = u.origin === new URL(STEAM_INTEGRATION.communityUrl).origin && !u.username && !u.password;
+    return ok ? v : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 // ---- Group schemas (field name → validator). Fields absent from the raw object keep their default. --
 //
 // Each schema is pinned to its group's parameter order from @/config/coreParams, so the two lists cannot
@@ -781,7 +795,10 @@ function buildWeb(raw: Record<string, unknown>): WebSettings {
   const web = defaultWeb();
   const anchor = nonEmptyStr(raw.bannerAnchorSelector) as string | undefined;
   const logout = callExpression(raw.logoutExpression) as string | undefined;
-  const tradeUrl = httpUrl(raw.tradeOffersUrl) as string | undefined;
+  const tradeUrl = steamCommunityUrl(raw.tradeOffersUrl) as string | undefined;
+  if (raw.tradeOffersUrl !== undefined && tradeUrl === undefined) {
+    console.warn('[dmarket-p2p] remote config web.tradeOffersUrl is not on steamcommunity.com — using the default');
+  }
   const loginUrl = httpUrl(raw.steamLoginUrl) as string | undefined;
   const activeLink = httpUrl(raw.activeBannerLink) as string | undefined;
   const dmUrl = httpUrl(raw.dmarketUrl) as string | undefined;
