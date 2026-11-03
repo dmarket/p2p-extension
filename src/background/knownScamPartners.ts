@@ -6,7 +6,8 @@ import { Tracker, type TrackerHandle } from '@/core/tracker';
 
 /**
  * Hand [ids] to the running core, an empty list included: publishing one is how a wrong entry is taken back. With
- * no published list nothing is sent, and the core keeps the one compiled into it.
+ * no published list nothing is sent: a running core keeps the last list it was given, and only a core started since
+ * uses the one compiled into it. So removing the key retracts nothing until the worker restarts.
  */
 export function applyKnownScamPartners(handle: TrackerHandle, ids = getSettings().web.knownScamPartners): void {
   if (ids !== undefined) Tracker.setKnownScamPartners(handle, ids);
