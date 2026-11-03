@@ -14,6 +14,17 @@ describe('offerCopy', () => {
     expect(copy.advice).toBe("Decline it, don't accept or confirm it in Steam Mobile.");
   });
 
+  it('says a sender flagged on its name poses as a DMarket bot, and keeps the known-scam copy otherwise', () => {
+    const copy = offerCopy({ level: 'IMPERSONATION', direction: 'received', personaName: 'DM Bot', partnerSteamId: SCAM, giveCount: 1, byName: true });
+    expect(text(copy.body)).toBe(
+      "DM Bot poses as a DMarket bot. DMarket bots only send you an offer for a deposit you started on dmarket.com — decline it, don't accept or confirm it in Steam Mobile.",
+    );
+    expect(copy.title).toBe('An account posing as a DMarket bot sent you a Steam offer');
+    expect(copy.partner).toBe('From DM Bot');
+    const scam = offerCopy({ level: 'IMPERSONATION', direction: 'received', personaName: 'DM Bot', partnerSteamId: SCAM, giveCount: 1 });
+    expect(scam.title).toBe('A known scam account sent you a Steam offer');
+  });
+
   it('prefers the persona name for a received offer, set apart as a value', () => {
     const copy = offerCopy({ level: 'IMPERSONATION', direction: 'received', personaName: 'DM Bot', partnerSteamId: SCAM, giveCount: 1 });
     expect(copy.body[0]).toEqual({ value: 'DM Bot' });

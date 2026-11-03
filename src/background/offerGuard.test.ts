@@ -13,6 +13,7 @@ import {
   VERDICT_TTL_MS,
 } from '@/background/offerGuard';
 import type { TrackerHandle } from '@/core/tracker';
+import { publishRemoteConfig } from '@/testing/stubs';
 import { ACTIVATION_KEY } from '@/state/activation';
 import { BLOCKING_KEY } from '@/state/blocking';
 import { registerOfferGuardRouter } from '@/background/router';
@@ -79,6 +80,23 @@ describe('the verdict cache', () => {
     const v = await readVerdicts();
     expect(v['11']?.direction).toBe('received');
     expect(v['12']?.direction).toBe('sent');
+  });
+
+  it('keeps the core\'s mark on a received offer flagged on the name, whatever the published scam list says', async () => {
+    const received = { direction: 'RECEIVED' };
+    // The core ran with its compiled list here: an empty published one must not turn its known-scam flag into a name one.
+    await publishRemoteConfig({ web: { knownScamPartners: [] } });
+    try {
+      await record([
+        wire('11', SCAM, 'IMPERSONATION', 1, received),
+        wire('12', FRIEND, 'IMPERSONATION', 1, { ...received, byName: true }),
+        wire('13', FRIEND, 'IMPERSONATION', 1, { byName: 'true' }),
+      ]);
+      const v = await readVerdicts();
+      expect([v['11']?.byName, v['12']?.byName, v['13']?.byName]).toEqual([undefined, true, undefined]);
+    } finally {
+      await publishRemoteConfig({});
+    }
   });
 
   it('reads a cache written before received offers as sent offers', async () => {

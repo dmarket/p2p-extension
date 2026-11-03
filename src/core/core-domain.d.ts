@@ -22,9 +22,9 @@
 // MIDDLE may run ahead — see below.
 //
 // Trailing parameters the extension never sets are simply omitted (a positional call stops at the last
-// argument supplied) — `TrackerConfig`'s `writeClaims`/`steamWrites` and `NotaryConfig`'s two
-// `KtList<string>` reveal-path fields are all trailing, so their absence is safe. A parameter in the
-// MIDDLE is not: it must be declared even if unused, or everything after it moves.
+// argument supplied) — `NotaryConfig`'s two `KtList<string>` reveal-path fields are trailing, so their
+// absence is safe. A parameter in the MIDDLE is not: it must be declared even if unused, or everything after
+// it moves (`TrackerConfig`'s `writeClaims`/`steamWrites`/`knownScamPartners`, ahead of the name check).
 
 declare module '@dmarket/p2p-tracker-core-domain' {
   export class CadenceConfig {
@@ -226,6 +226,12 @@ declare module '@dmarket/p2p-tracker-core-domain' {
       steamProfile?: SteamProfileConfig,
       steamScrape?: SteamScrapeConfig,
       game?: GameConfig,
+      // Position only: never set from here (CoreOnlyTrackerGroup).
+      writeClaims?: never,
+      steamWrites?: never,
+      knownScamPartners?: never,
+      receivedOfferNameCheck?: boolean,
+      isTradeOurGraceMs?: number,
     ): TrackerConfig;
   }
 }

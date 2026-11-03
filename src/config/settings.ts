@@ -25,6 +25,7 @@ import {
   NOTARY_ORDER,
   STEAM_ENDPOINTS_ORDER,
   STEAM_SCRAPE_ORDER,
+  TRACKER_ORDER,
   type CoreOnlyEndpointParam,
   type CoreOnlyNotaryParam,
 } from '@/config/coreParams';
@@ -239,7 +240,14 @@ export interface TrackerOverrides {
   notary?: NotaryOverrides;
   steamEndpoints?: SteamEndpointsOverrides;
   steamScrape?: SteamScrapeOverrides;
+  /** Received offers from a name posing as DMarket are checked against DMarket's `is-trade-our` (DMA-819). */
+  receivedOfferNameCheck?: boolean;
+  /** How old a received offer must be before DMarket's "not ours" counts, in ms. */
+  isTradeOurGraceMs?: number;
 }
+
+/** The `TrackerConfig` groups (objects) among {@link TrackerOverrides}; the rest are single fields. */
+type TrackerGroupKey = Exclude<keyof TrackerOverrides, keyof typeof TRACKER_FIELD_SCHEMA>;
 
 export interface CadenceOverrides {
   activeOfferIntervalMs?: number;
@@ -669,12 +677,24 @@ const NOTARY_SCHEMA = {
 } satisfies Schema<Exclude<(typeof NOTARY_ORDER)[number], CoreOnlyNotaryParam>>;
 
 /**
+ * `TrackerConfig`'s own scalar fields, at the top of `tracker`. The grace is capped at 30 min: past that a scam
+ * offer would sit unflagged for longer than anyone waits before confirming it.
+ */
+const TRACKER_FIELD_SCHEMA = {
+  receivedOfferNameCheck: boolean,
+  isTradeOurGraceMs: int(0, 1_800_000),
+} satisfies Partial<Schema<(typeof TRACKER_ORDER)[number]>>;
+
+/** The scalar `tracker.*` fields a remote document may set. */
+export const PUBLISHABLE_TRACKER_SCALARS: string[] = Object.keys(TRACKER_FIELD_SCHEMA);
+
+/**
  * Every `tracker.*` field a remote document may set, per group — derived from the schemas above, so it cannot
  * disagree with what the overlay actually accepts. `rejectAlways` keys are left out: they are on the schema
  * only to close the remote channel. Consumed by the test that keeps `buckets/*\/p2p/extension-config.json`
  * complete.
  */
-export const PUBLISHABLE_TRACKER_FIELDS: Record<keyof TrackerOverrides, string[]> = Object.fromEntries(
+export const PUBLISHABLE_TRACKER_FIELDS: Record<TrackerGroupKey, string[]> = Object.fromEntries(
   Object.entries({
     cadence: CADENCE_SCHEMA,
     credentials: CREDENTIAL_SCHEMA,
@@ -684,13 +704,13 @@ export const PUBLISHABLE_TRACKER_FIELDS: Record<keyof TrackerOverrides, string[]
     notary: NOTARY_SCHEMA,
     steamEndpoints: STEAM_ENDPOINTS_SCHEMA,
     steamScrape: STEAM_SCRAPE_SCHEMA,
-  } satisfies Record<keyof TrackerOverrides, Record<string, Validator>>).map(([group, schema]) => [
+  } satisfies Record<TrackerGroupKey, Record<string, Validator>>).map(([group, schema]) => [
     group,
     Object.entries(schema as Record<string, Validator>)
       .filter(([, validate]) => validate !== rejectAlways)
       .map(([key]) => key),
   ]),
-) as Record<keyof TrackerOverrides, string[]>;
+) as Record<TrackerGroupKey, string[]>;
 
 // ---- Parsing / overlay ----------------------------------------------------------------------------
 
@@ -707,7 +727,7 @@ function pickGroup<T>(raw: unknown, schema: Record<string, Validator>): T | unde
 }
 
 function buildTracker(raw: Record<string, unknown>): TrackerOverrides {
-  const t: TrackerOverrides = {};
+  const t: TrackerOverrides = { ...pickGroup<TrackerOverrides>(raw, TRACKER_FIELD_SCHEMA) };
   const cadence = pickGroup<CadenceOverrides>(raw.cadence, CADENCE_SCHEMA);
   const credentials = pickGroup<CredentialOverrides>(raw.credentials, CREDENTIAL_SCHEMA);
   const http = pickGroup<{ requestTimeoutMs?: number }>(raw.http, HTTP_SCHEMA);

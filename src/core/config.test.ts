@@ -66,6 +66,9 @@ interface ConfigView {
     steamSessionIdCookieName: string;
   };
   game: { cs2InventoryContextId: number };
+  knownScamPartners: unknown;
+  receivedOfferNameCheck?: boolean;
+  isTradeOurGraceMs?: number;
 }
 
 const view = (cfg: unknown): ConfigView => cfg as ConfigView;
@@ -178,6 +181,23 @@ describe('buildTrackerConfig — one sentinel per group lands on its declared fi
     expect(cfg.steamScrape.steamSessionIdCookieName).toBe('sid-x');
     expect(cfg.steamProfile.batchSize).toBe(d.steamProfile.batchSize);
     expect(cfg.game.cs2InventoryContextId).toBe(d.game.cs2InventoryContextId);
+  });
+
+  // The two slots arrive with a core publish (DMA-819); until then the installed core lacks them.
+  const nameCheckCore = 'receivedOfferNameCheck' in new TrackerConfig();
+
+  it.runIf(nameCheckCore)('receivedOfferNameCheck and isTradeOurGraceMs (slots 13-14), past three position-only slots', () => {
+    const cfg = build({ receivedOfferNameCheck: true, isTradeOurGraceMs: 4_321 });
+    expect(cfg.receivedOfferNameCheck).toBe(true);
+    expect(cfg.isTradeOurGraceMs).toBe(4_321);
+    // The slot before them: a one-slot shift would write the boolean here.
+    expect(String(cfg.knownScamPartners)).toBe(String(defaults().knownScamPartners));
+  });
+
+  it.runIf(!nameCheckCore)('an older core is not handed the two slots: its copy() would take the first as $super and throw', () => {
+    const cfg = build({ receivedOfferNameCheck: false, isTradeOurGraceMs: 4_321, http: { requestTimeoutMs: 9_999 } });
+    expect(cfg.http.requestTimeoutMs).toBe(9_999);
+    expect(String(cfg.knownScamPartners)).toBe(String(defaults().knownScamPartners));
   });
 });
 

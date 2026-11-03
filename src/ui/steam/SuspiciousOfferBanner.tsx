@@ -14,7 +14,7 @@ const MAX_BANNERS = 3;
  */
 function OfferBanner({ w, onTrust, showLink }: { w: OfferWarning; onTrust: () => void; showLink: boolean }) {
   const danger = w.level === 'IMPERSONATION';
-  const copy = offerCopy({ ...w.offer, level: w.level, direction: w.direction });
+  const copy = offerCopy({ ...w.offer, level: w.level, direction: w.direction, byName: w.byName });
   return (
     <div class={`dmp banner banner--${danger ? 'danger' : 'warning'}`} role="alert">
       <div class={`icon-box ${danger ? 'icon-box--mismatch' : 'icon-box--warning'} banner__icon`}>

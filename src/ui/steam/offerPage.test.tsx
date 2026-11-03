@@ -70,6 +70,12 @@ describe('the offer page request and banner', () => {
     expect(w).toMatchObject({ level: 'IMPERSONATION', offer: { personaName: 'Sim' } });
   });
 
+  it('carries a name-based received verdict to the banner, unless the page list now names the sender', () => {
+    const v = verdict({ level: 'IMPERSONATION', direction: 'received', byName: true });
+    expect(offerPageWarning('1', v, [SCAM])?.byName).toBe(true);
+    expect(offerPageWarning('1', v, [v.partnerSteamId])?.byName).toBeUndefined();
+  });
+
   it('has no banner for an offer with no verdict', () => {
     expect(offerPageWarning('9000000001', undefined, [SCAM])).toBeUndefined();
   });

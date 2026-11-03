@@ -7,7 +7,7 @@
 
 import type { OfferSelectors } from '@/config/settings';
 import { OFFER_VERDICTS_KIND, type OfferVerdict, type OfferVerdicts, type OfferVerdictsRequest } from '@/state/offerGuard';
-import { pageLevel } from './offerScan';
+import { isKnownScamPartner, pageLevel } from './offerScan';
 import type { OfferWarning } from './useOfferWarnings';
 
 const OFFER_PAGE = /^\/tradeoffer\/(\d{1,20})(?:\/|$)/;
@@ -40,7 +40,15 @@ export function offerPageWarning(
     receiveCount: 0,
   };
   const level = pageLevel(offer, verdict.level, knownScamPartners);
-  return level === undefined ? undefined : { offer, level, direction: verdict.direction };
+  return level === undefined
+    ? undefined
+    : {
+        offer,
+        level,
+        direction: verdict.direction,
+        // The list may have gained the sender since the worker decided.
+        ...(verdict.byName && !isKnownScamPartner(offer, knownScamPartners) ? { byName: true as const } : {}),
+      };
 }
 
 const LANDING_PAGE = /\/tradeoffers\/?$/;

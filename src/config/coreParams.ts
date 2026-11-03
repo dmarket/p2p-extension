@@ -290,18 +290,18 @@ export const STEAM_SCRAPE_ORDER = [
 ] as const satisfies readonly (keyof SteamScrapeOverrides)[];
 
 /**
- * Whole `TrackerConfig` groups the overlay does not expose, named in TRACKER_ORDER for position only.
+ * `TrackerConfig` parameters the overlay does not expose, named in TRACKER_ORDER for position only.
  * `steamProfile` (retries/timeouts for Steam profile lookups) and `game` (`cs2InventoryContextId`, a Steam
- * constant) were publishable until 2026-09-24 and never had a reason to be.
+ * constant) were publishable until 2026-09-24 and never had a reason to be. `writeClaims` / `steamWrites` are
+ * core-internal, and `knownScamPartners` reaches the running core through its own setter from
+ * `web.knownScamPartners` (src/background/knownScamPartners.ts), never through this slot.
  */
-export type CoreOnlyTrackerGroup = 'steamProfile' | 'game';
+export type CoreOnlyTrackerGroup = 'steamProfile' | 'game' | 'writeClaims' | 'steamWrites' | 'knownScamPartners';
 
-/** The core's trailing `writeClaims` / `steamWrites` groups are not exposed here. Being trailing, they can
- *  be omitted outright — a positional call stops at the last argument supplied. `backoff` used to sit at
- *  index 1 and was dropped from the core; leaving its slot in place silently shifted every later group by
- *  one, putting `MarketplaceScrapeConfig` into `notary` (so the notary could never be enabled) and the FE
- *  origin nowhere. Removing a MIDDLE parameter is never safe — see CoreOnlyEndpointParam for how those are
- *  held open instead. */
+/** `backoff` used to sit at index 1 and was dropped from the core; leaving its slot in place silently shifted
+ *  every later group by one, putting `MarketplaceScrapeConfig` into `notary` (so the notary could never be
+ *  enabled) and the FE origin nowhere. Removing a MIDDLE parameter is never safe — see CoreOnlyEndpointParam
+ *  for how those are held open instead. */
 export const TRACKER_ORDER = [
   'cadence',
   'credentials',
@@ -313,4 +313,10 @@ export const TRACKER_ORDER = [
   'steamProfile',
   'steamScrape',
   'game',
+  'writeClaims',
+  'steamWrites',
+  'knownScamPartners',
+  // Slots 13-14: the received-offer name check (DMA-819), a kill switch and its grace.
+  'receivedOfferNameCheck',
+  'isTradeOurGraceMs',
 ] as const satisfies readonly (keyof TrackerOverrides | CoreOnlyTrackerGroup)[];

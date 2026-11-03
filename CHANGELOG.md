@@ -32,6 +32,11 @@ Built against `@dmarket/p2p-tracker-core` `1.1.0-beta`, which ships the TLSN pro
   - The popup line is a centred card in a band reserved above the icon on every home screen: it opens
     together with the screen, never moves it, keeps the Steam Mobile advice, and hides the activity pill
     while shown.
+  - A received offer from an account whose persona name poses as DMarket is red too once DMarket says
+    it is not one of its bots' offers, with its own copy ("… poses as a DMarket bot"). Remote config:
+    `tracker.receivedOfferNameCheck` (on for stage, where QA tests it; off for prod until QA confirms a
+    live "yes") and `tracker.isTradeOurGraceMs`. Needs the core version that carries both; an older one
+    is not handed them.
 - **Support logs (DMA-678).** The extension keeps the last 24 hours of its own activity on the device:
   tracker events, trade-proof progress, sign-in and activation changes. Help → Troubleshooting saves it
   as a file or copies it to the clipboard, so a seller can hand it to support. Before anything is saved,

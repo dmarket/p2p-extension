@@ -33,6 +33,11 @@ export interface OfferVerdict {
   at: number;
   /** The partner's Steam persona name, as the core read it from the Steam Web API. */
   personaName?: string;
+  /**
+   * A received impersonation flagged on the sender's persona name (DMarket said the offer is not its bot's), not
+   * on the known-scam list. The core says which, from the list it actually ran with.
+   */
+  byName?: true;
   /** Debug simulation only: there is no such offer on Steam, the page draws a stand-in block for it. */
   simulated?: { personaName: string };
   /** The page recognised it and the core has not reported it: only a complete sent page can take it back. */
@@ -67,6 +72,7 @@ export function parseVerdicts(raw: unknown): OfferVerdicts {
       giveCount: typeof r.giveCount === 'number' ? r.giveCount : 0,
       at: typeof r.at === 'number' ? r.at : 0,
       ...(typeof r.personaName === 'string' ? { personaName: r.personaName } : {}),
+      ...(r.byName === true ? { byName: true as const } : {}),
       ...(typeof r.simulated?.personaName === 'string' ? { simulated: { personaName: r.simulated.personaName } } : {}),
       ...(r.fromPage === true ? { fromPage: true as const } : {}),
       ...(r.clearable === true ? { clearable: true as const } : {}),

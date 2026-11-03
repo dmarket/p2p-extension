@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { TrackerConfig } from '@dmarket/p2p-tracker-core-domain';
-import { parseSettings, PUBLISHABLE_TRACKER_FIELDS } from '@/config/settings';
+import { parseSettings, PUBLISHABLE_TRACKER_FIELDS, PUBLISHABLE_TRACKER_SCALARS } from '@/config/settings';
 import { REMOTE_CONFIG_PARAM } from '@/infra/remoteConfig';
 import { compareVersions, isChromeVersion } from '@/util/version';
 
@@ -31,7 +31,11 @@ const OMITTED: Record<'prod' | 'stage', string[]> = { prod: NOTARY_OMITTED, stag
 /** Deliberate differences from the compiled defaults. Change these together with the files. */
 const DEVIATIONS: Record<'prod' | 'stage', Record<string, unknown>> = {
   prod: { 'tracker.cadence.fallbackHeartbeatIntervalMs': 60000, 'web.knownScamPartners': ['76561198781084366'] },
-  stage: { 'tracker.cadence.fallbackHeartbeatIntervalMs': 60000, 'web.knownScamPartners': ['76561198781084366'] },
+  stage: {
+    'tracker.cadence.fallbackHeartbeatIntervalMs': 60000,
+    'web.knownScamPartners': ['76561198781084366'],
+    'tracker.receivedOfferNameCheck': true,
+  },
 };
 
 /**
@@ -54,7 +58,8 @@ function leaves(doc: Json): Map<string, unknown> {
   const out = new Map<string, unknown>();
   const tracker = (doc.tracker ?? {}) as Record<string, Json>;
   for (const [group, fields] of Object.entries(tracker)) {
-    for (const [key, value] of Object.entries(fields)) out.set(`tracker.${group}.${key}`, value);
+    if (typeof fields !== 'object' || fields === null) out.set(`tracker.${group}`, fields);
+    else for (const [key, value] of Object.entries(fields)) out.set(`tracker.${group}.${key}`, value);
   }
   for (const [key, value] of Object.entries((doc.web ?? {}) as Json)) out.set(`web.${key}`, value);
   return out;
@@ -66,6 +71,8 @@ function defaults(): Map<string, unknown> {
   for (const [group, keys] of Object.entries(PUBLISHABLE_TRACKER_FIELDS)) {
     for (const key of keys) out.set(`tracker.${group}.${key}`, core[group]?.[key]);
   }
+  // A core before the received-offer name check has no default to compare with.
+  for (const key of PUBLISHABLE_TRACKER_SCALARS) if (key in core) out.set(`tracker.${key}`, core[key]);
   for (const [key, value] of Object.entries(parseSettings({}).web)) out.set(`web.${key}`, value);
   return out;
 }
@@ -96,10 +103,15 @@ describe.each(['prod', 'stage'] as const)('buckets/%s/p2p/extension-config.json'
     const d = defaults();
     const deviations = Object.fromEntries(
       [...fields].filter(
-        ([path, value]) => !OPERATIONAL.has(path) && JSON.stringify(value) !== JSON.stringify(d.get(path)),
+        ([path, value]) =>
+          !OPERATIONAL.has(path) && d.has(path) && JSON.stringify(value) !== JSON.stringify(d.get(path)),
       ),
     );
-    expect(deviations).toEqual(DEVIATIONS[env]);
+    expect(deviations).toEqual(Object.fromEntries(Object.entries(DEVIATIONS[env]).filter(([path]) => d.has(path))));
+  });
+
+  it('checks received offers by name on stage only, until QA confirms a live is-trade-our "yes"', () => {
+    expect(fields.get('tracker.receivedOfferNameCheck')).toBe(env === 'stage');
   });
 
   it('names no minimum extension version, or one no lower than the first build that acts on it', () => {

@@ -61,6 +61,16 @@ describe('describeFlagged', () => {
     });
   });
 
+  it('counts a received red offer flagged on the name as posing as DMarket, not as a known scam account', () => {
+    const byName = { ...v('IMPERSONATION', '76561198000000003', 'received'), byName: true as const };
+    expect(describeFlagged([byName, v('IMPERSONATION', '76561198781084366', 'received')])?.text).toMatch(
+      /^1 poses as DMarket, 1 is from a known scam account\./,
+    );
+    expect(describeFlagged([{ ...byName, personaName: 'DM Bot' }])?.title).toBe(
+      'An account posing as a DMarket bot sent you a Steam offer',
+    );
+  });
+
   it('opens the landing page when any of several is received', () => {
     expect(describeFlagged([v('UNLINKED_GIVE_ONLY'), v('IMPERSONATION', undefined, 'received')])?.page).toBe('received');
     expect(describeFlagged([v('UNLINKED_GIVE_ONLY'), v('IMPERSONATION')])?.page).toBe('sent');

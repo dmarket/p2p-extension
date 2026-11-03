@@ -29,6 +29,8 @@ export interface OfferWarning {
   offer: PageOffer;
   level: OfferLevel;
   direction: OfferDirection;
+  /** See `OfferVerdict.byName`. */
+  byName?: true;
 }
 
 const SENT_PAGE = /\/tradeoffers\/sent\/?$/;

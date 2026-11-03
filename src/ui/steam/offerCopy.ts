@@ -9,6 +9,8 @@ export interface OfferCopyInput {
   personaName?: string;
   partnerSteamId?: string;
   giveCount: number;
+  /** A received impersonation flagged on the sender's name, not the known-scam list (`OfferVerdict.byName`). */
+  byName?: boolean;
 }
 
 /** A run of plain text, or a value the banner sets apart. */
@@ -31,12 +33,20 @@ function items(n: number): string {
 }
 
 export function offerCopy(o: OfferCopyInput): OfferCopy {
-  // The core reads no name for a received offer's sender, so its steamid stands in.
+  // A received offer's sender may come without a name, so its steamid stands in.
   const label = o.personaName || o.partnerSteamId || 'this partner';
   if (o.direction === 'received') {
     const name = label;
     const partner = `From ${label}`;
     const advice = "Decline it, don't accept or confirm it in Steam Mobile.";
+    if (o.level === 'IMPERSONATION' && o.byName) {
+      return {
+        title: 'An account posing as a DMarket bot sent you a Steam offer',
+        body: [{ value: name }, ` poses as a DMarket bot. ${OUR_BOTS} — decline it, don't accept or confirm it in Steam Mobile.`],
+        partner,
+        advice,
+      };
+    }
     return o.level === 'IMPERSONATION'
       ? {
           title: 'A known scam account sent you a Steam offer',

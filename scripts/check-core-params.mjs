@@ -45,8 +45,9 @@ const GROUPS = {
  * `node_modules` only when someone publishes. Without a hatch, the extension half of a two-repo change cannot
  * be written — appending the key to its `*_ORDER` makes this script report "N parameters listed but the core
  * takes N-1" and `npm run compile` fails — so the work waits on a release, which is the opposite of what a
- * remote-config knob is for. (The pending key is inert until the publish lands: `withOverrides` passes one
- * extra positional argument and the generated `copy()` ignores arguments past its arity.)
+ * remote-config knob is for. (A pending key is NOT automatically inert: a data class's generated `copy()` reads
+ * the argument past its last parameter as `$super` and throws on a non-object, so the seam must withhold the
+ * slot from a core that lacks it — see `nameCheck` in src/core/config.ts.)
  *
  * The allowance is the narrowest shape that solves that, and specifically NOT "tolerate a longer order":
  *
@@ -65,9 +66,8 @@ const GROUPS = {
  * Format: order name → trailing parameter names, in the order they appear at the end of that `*_ORDER`.
  */
 const PENDING = {
-  // Empty, as it should normally be. The last entry — the three `SteamEndpointsConfig` slots for the
-  // targeted single-trade history read — retired when the pin reached `1.0.1-beta` and the installed
-  // `.d.mts` declared them. Per the contract above, the ordinary prefix check now covers those slots.
+  // The received-offer name check (DMA-819), declared by the core's main branch and not yet published.
+  TRACKER_ORDER: ['receivedOfferNameCheck', 'isTradeOurGraceMs'],
 };
 
 const read = (p) => {

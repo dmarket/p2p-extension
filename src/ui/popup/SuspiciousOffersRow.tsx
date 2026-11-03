@@ -57,8 +57,8 @@ export function describeFlagged(
       page,
     };
   }
-  // A received red offer comes from a known scam account (offerCopy); only a sent one poses as DMarket.
-  const scam = entries.filter((v) => v.level === 'IMPERSONATION' && v.direction === 'received').length;
+  // A received red offer comes from a known scam account (offerCopy) unless it was flagged on the sender's name.
+  const scam = entries.filter((v) => v.level === 'IMPERSONATION' && v.direction === 'received' && !v.byName).length;
   const poses = red - scam;
   const parts = [
     poses > 0 && `${poses} ${poses === 1 ? 'poses' : 'pose'} as DMarket`,

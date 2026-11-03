@@ -122,6 +122,9 @@ export function buildTrackerConfig(feUrl?: string, o: TrackerOverrides = {}): Tr
   // `tokenRefreshUrl` is deliberately never set: an absolute endpoint override is an env/debug concern, and
   // the core allow-lists its origin regardless.
   const scrapeOverrides = { ...o.marketplaceScrape, refreshUrl: feUrl };
+  // A core without the name check reads a 14th `copy()` argument as its `$super` and throws on a boolean, so the
+  // two slots are passed only to a core that has them.
+  const nameCheck = 'receivedOfferNameCheck' in d;
 
   return withOverrides(d, TRACKER_ORDER, {
     cadence: withOverrides(d.cadence, CADENCE_ORDER, o.cadence),
@@ -136,5 +139,7 @@ export function buildTrackerConfig(feUrl?: string, o: TrackerOverrides = {}): Tr
     notary: withOverrides(d.notary, NOTARY_ORDER, o.notary),
     steamEndpoints: withOverrides(d.steamEndpoints, STEAM_ENDPOINTS_ORDER, o.steamEndpoints),
     steamScrape: withOverrides(d.steamScrape, STEAM_SCRAPE_ORDER, o.steamScrape),
+    receivedOfferNameCheck: nameCheck ? o.receivedOfferNameCheck : undefined,
+    isTradeOurGraceMs: nameCheck ? o.isTradeOurGraceMs : undefined,
   });
 }

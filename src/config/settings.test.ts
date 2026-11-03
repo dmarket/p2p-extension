@@ -449,6 +449,19 @@ describe('snapshot + reactivity (loadSettings / subscribeSettings / cookie-name 
 });
 
 describe('suspicious-offer guard knobs', () => {
+  it('takes the received-offer name check and its grace from the top of tracker, the grace within 0..30 min', () => {
+    const t = (o: object) => parse({ tracker: o }).tracker;
+    expect(t({ receivedOfferNameCheck: true, isTradeOurGraceMs: 120_000 })).toEqual({
+      receivedOfferNameCheck: true,
+      isTradeOurGraceMs: 120_000,
+    });
+    expect(t({ receivedOfferNameCheck: false }).receivedOfferNameCheck).toBe(false);
+    expect(t({ isTradeOurGraceMs: 0 }).isTradeOurGraceMs).toBe(0);
+    expect(t({ isTradeOurGraceMs: 1_800_000 }).isTradeOurGraceMs).toBe(1_800_000);
+    expect(t({ receivedOfferNameCheck: 'true', isTradeOurGraceMs: 1_800_001 })).toEqual({});
+    expect(t({ isTradeOurGraceMs: -1 })).toEqual({});
+  });
+
   it('replaces the scam list with a published list of steamid64', () => {
     expect(parse({ web: { knownScamPartners: ['76561198000000002'] } }).web.knownScamPartners).toEqual([
       '76561198000000002',

@@ -54,7 +54,9 @@
       "steamIdRegex": "g_steamID\\s*=\\s*\"(\\d+)\"",
       "steamSessionCookieName": "steamLoginSecure",
       "steamSessionIdCookieName": "sessionid"
-    }
+    },
+    "receivedOfferNameCheck": true,
+    "isTradeOurGraceMs": 120000
   },
   "web": {
     "bannerAnchorSelector": ".maincontent",

@@ -118,6 +118,8 @@ interface WireOffer {
   personaName?: unknown;
   /** `SENT` or `RECEIVED`; a core before DMA-819 reads sent offers only and leaves it out. */
   direction?: unknown;
+  /** `true` on a received impersonation the core flagged on the sender's name, not its known-scam list. */
+  byName?: unknown;
   /** Debug simulation only: the name the stand-in block shows. */
   simulatedPersonaName?: unknown;
 }
@@ -151,6 +153,7 @@ export function recordSuspiciousOffers(frame: SuspiciousOffersFrame, now = Date.
       giveCount: Array.isArray(o.assetIdsGiven) ? o.assetIdsGiven.length : 0,
       at: now,
       ...(typeof o.personaName === 'string' ? { personaName: o.personaName } : {}),
+      ...(o.byName === true ? { byName: true as const } : {}),
       ...(clearable ? { clearable: true as const } : {}),
     };
     // A production build ignores the field: only the debug console's simulation may ask for a stand-in block.
