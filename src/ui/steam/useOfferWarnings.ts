@@ -13,7 +13,15 @@ import {
   type OfferVerdictsResponse,
   type TrustPartnerRequest,
 } from '@/state/offerGuard';
-import { accountId, isKnownScamPartner, OFFER_ID_PREFIX, pageLevel, scanSentOffers, type PageOffer } from './offerScan';
+import {
+  accountId,
+  isKnownScamPartner,
+  OFFER_ID_PREFIX,
+  offerSelectorCoversPage,
+  pageLevel,
+  scanSentOffers,
+  type PageOffer,
+} from './offerScan';
 import {
   CHECK_TIMEOUT_MS,
   checkingVisible,
@@ -193,7 +201,7 @@ export function useOfferWarnings(): {
     const reply = await ask({
       kind: OFFER_VERDICTS_KIND,
       offerIds: offers.map((o) => o.offerId),
-      pageComplete: complete,
+      pageComplete: complete && offerSelectorCoversPage(document, offerSelectors),
       impersonations,
     });
     const answered = hasVerdicts(reply);

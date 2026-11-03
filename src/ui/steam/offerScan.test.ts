@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { parseHTML } from 'linkedom';
 import { describe, expect, it } from 'vitest';
 import { STEAM_INTEGRATION } from '@/config/steam';
-import { isKnownScamPartner, pageLevel, scanSentOffers, type PageOffer } from './offerScan';
+import { isKnownScamPartner, offerSelectorCoversPage, pageLevel, scanSentOffers, type PageOffer } from './offerScan';
 
 const SCAM = '76561198781084366';
 const fixture = readFileSync(new URL('./__fixtures__/sent-offers.html', import.meta.url), 'utf8');
@@ -50,6 +50,27 @@ describe('scanSentOffers on the sent-offers page', () => {
   it('flags the fixture offers the way the page will show them', () => {
     const levels = scan().map((o) => pageLevel(o, o.offerId === '1000000002' ? 'UNLINKED_GIVE_ONLY' : undefined, [SCAM]));
     expect(levels).toEqual([undefined, 'UNLINKED_GIVE_ONLY', 'IMPERSONATION']);
+  });
+});
+
+describe('offerSelectorCoversPage', () => {
+  const page = () => parseHTML(`<html><body>${fixture}</body></html>`).document;
+  const covers = (offer: string, doc = page()) => offerSelectorCoversPage(doc, { ...STEAM_INTEGRATION.offerSelectors, offer });
+
+  it('holds with the default selector, closed blocks included', () => {
+    expect(covers(STEAM_INTEGRATION.offerSelectors.offer)).toBe(true);
+  });
+
+  it('fails for a selector that matches nothing, so the empty scan cannot prune (DMA-859)', () => {
+    expect(covers('div.qa-nope')).toBe(false);
+  });
+
+  it('fails for a selector that misses some blocks', () => {
+    expect(covers('#tradeofferid_1000000001')).toBe(false);
+  });
+
+  it('holds on a page with no offers: the user really has none open, so stale warnings may go', () => {
+    expect(covers('div.qa-nope', parseHTML('<html><body><div class="profile_leftcol"></div></body></html>').document)).toBe(true);
   });
 });
 

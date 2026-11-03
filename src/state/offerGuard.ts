@@ -100,7 +100,8 @@ export interface OfferVerdictsRequest {
   offerIds: string[];
   /**
    * The page lists every active sent offer (`/tradeoffers/sent/` without `history`), so a cached verdict for
-   * an offer that is not on it is no longer active and can be forgotten.
+   * an offer that is not on it is no longer active and can be forgotten. `false` when `web.offerSelectors.offer`
+   * missed an offer block: that scan cannot tell a closed offer from one it failed to read.
    */
   pageComplete: boolean;
   /**

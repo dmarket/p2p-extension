@@ -73,6 +73,16 @@ export function scanSentOffers(root: ParentNode, s: OfferSelectors): PageOffer[]
   });
 }
 
+/**
+ * Whether [s.offer] matched every offer block on the page, found by Steam's own `tradeofferid_` element ids. A
+ * selector broken by a Steam markup change or a bad publish misses them, and a scan that missed blocks says
+ * nothing about which offers are gone: it must not take down the core's warnings (DMA-859).
+ */
+export function offerSelectorCoversPage(root: ParentNode, s: OfferSelectors): boolean {
+  const matched = new Set(root.querySelectorAll(s.offer));
+  return Array.from(root.querySelectorAll(`[id^="${OFFER_ID_PREFIX}"]`)).every((el) => matched.has(el));
+}
+
 // ---- Impersonation ------------------------------------------------------------------------------------
 
 /**
