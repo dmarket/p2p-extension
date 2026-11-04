@@ -24,8 +24,11 @@
 // windows, while the core's record of what it already reported lives in `storage.local` and survives them. The
 // core reports an offer only once per level, so a scam offer still open would never be warned about again. The
 // record is dropped here, before the core starts and restores it, so the first check re-reports every offer it
-// still flags.
+// still flags. Only on an activated install: an inactive one starts no core (coreLifecycle.ts), so nothing would
+// re-report, and the record is the only source the sent page restores its warnings from (offerGuard.ts
+// `restoreReported`, DMA-859).
 
+import { isActivated } from '@/state/activation';
 import { GUARD_NOTIFIED_KEY } from '@/state/offerGuard';
 
 const SESSION_KEY = 'boot.heartbeatForcedForBrowserSession';
@@ -42,6 +45,8 @@ export async function claimSessionStart(): Promise<boolean> {
   } catch {
     /* session storage unavailable — force, do not trust the restored verdict */
   }
-  await browser.storage.local.remove(GUARD_NOTIFIED_KEY).catch(() => {});
+  if (await isActivated().catch(() => false)) {
+    await browser.storage.local.remove(GUARD_NOTIFIED_KEY).catch(() => {});
+  }
   return true;
 }

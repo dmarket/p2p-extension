@@ -31,13 +31,22 @@ describe('the session-start claim', () => {
 
   it("drops the core's record of reported offers with the verdict cache, and keeps it on a respawn", async () => {
     const notified = { tracker_guard_notified: '{"11":"IMPERSONATION"}' };
-    await fakeBrowser.storage.local.set(notified);
+    await fakeBrowser.storage.local.set({ ...notified, 'activation.enabled': true });
     await claimSessionStart();
     // The cache that showed those warnings is gone, so the core must report them again.
     expect(await fakeBrowser.storage.local.get('tracker_guard_notified')).toEqual({});
 
     await fakeBrowser.storage.local.set(notified);
     await claimSessionStart();
+    expect(await fakeBrowser.storage.local.get('tracker_guard_notified')).toEqual(notified);
+  });
+
+  it("keeps the core's record on an inactive install, where no core starts to report the offers again", async () => {
+    const notified = { tracker_guard_notified: '{"11":"UNLINKED_GIVE_ONLY"}' };
+    await fakeBrowser.storage.local.set({ ...notified, 'activation.enabled': false });
+
+    await expect(claimSessionStart()).resolves.toBe(true);
+    // The sent page restores its warnings from this record (DMA-859); dropping it would lose them for good.
     expect(await fakeBrowser.storage.local.get('tracker_guard_notified')).toEqual(notified);
   });
 
