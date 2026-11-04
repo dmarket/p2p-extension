@@ -33,7 +33,11 @@ describe('offerCopy', () => {
 
   it('keeps the sent copy: the partner the offer goes to, and its steamid apart', () => {
     const red = offerCopy({ level: 'IMPERSONATION', direction: 'sent', personaName: 'D market', partnerSteamId: SCAM, giveCount: 1 });
-    expect(text(red.body)).toBe(`The offer to D market (${SCAM}) looks like a scam. Don't confirm it in Steam Mobile.`);
+    expect(red.title).toBe('DMarket never asks you to send items to an account called "DMarket" or "D market"');
+    expect(text(red.body)).toBe(
+      `The offer to "D market" (${SCAM}) looks like a scam. Check the deal in your cabinet before confirming it in Steam Mobile.`,
+    );
+    expect(red.advice).toBe('Check the deal in your cabinet before confirming it in Steam Mobile.');
     expect(red.partner).toBe('To D market');
     const yellow = offerCopy({ level: 'UNLINKED_GIVE_ONLY', direction: 'sent', partnerSteamId: SCAM, giveCount: 3 });
     expect(text(yellow.body)).toMatch(/^You give 3 items to this partner and get nothing back\./);

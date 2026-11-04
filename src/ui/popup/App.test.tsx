@@ -57,7 +57,7 @@ describe('popup home screen and the suspicious-offer row', () => {
     await settle();
     expect(root.querySelector('.screen-loading')).toBeNull();
     expect(root.querySelector('.home')).toBeTruthy();
-    expect(root.querySelector('.offer-alert--danger')?.textContent).toContain("Don't confirm it in Steam Mobile");
+    expect(root.querySelector('.offer-alert--danger')?.textContent).toContain("Check the deal in your cabinet");
   });
 
   it('paints the home screen alone when there is nothing to warn about', async () => {

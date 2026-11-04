@@ -64,17 +64,20 @@ export function offerCopy(o: OfferCopyInput): OfferCopy {
   const name = o.personaName || 'this partner';
   const partner = `To ${label}`;
   const advice = "Don't confirm it in Steam Mobile unless you created it yourself.";
+  // Red copy is verbatim from DMA-819.
+  const cabinet = 'Check the deal in your cabinet before confirming it in Steam Mobile.';
   return o.level === 'IMPERSONATION'
     ? {
-        title: 'DMarket never asks you to send items to a "DMarket" account',
+        title: 'DMarket never asks you to send items to an account called "DMarket" or "D market"',
         body: [
-          'The offer to ',
+          'The offer to "',
           { value: name },
+          '"',
           ...(o.partnerSteamId !== undefined ? [' (', { value: o.partnerSteamId }, ')'] : []),
-          " looks like a scam. Don't confirm it in Steam Mobile.",
+          ` looks like a scam. ${cabinet}`,
         ],
         partner,
-        advice,
+        advice: cabinet,
       }
     : {
         title: "This trade offer isn't linked to a DMarket deal",
