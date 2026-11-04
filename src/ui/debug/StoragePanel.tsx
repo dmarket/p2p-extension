@@ -18,6 +18,15 @@ function typeLabel(v: unknown): string {
   return typeof v;
 }
 
+/** Any JSON value, or the input string itself when it does not parse. */
+function parseAny(s: string): unknown {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return s;
+  }
+}
+
 /** Parse a string that holds a JSON object/array; `undefined` when it isn't one. */
 function parseJsonish(s: string): unknown {
   const t = s.trimStart();
@@ -186,6 +195,9 @@ function AddForm(): preact.JSX.Element {
   const [val, setVal] = useState('');
   const [asJson, setAsJson] = useState(false);
   const [err, setErr] = useState('');
+  // A value that parses to a non-string (true, 123, {...}) is almost always meant as JSON; stored as a
+  // string the core ignores it without a word, so say so before the write.
+  const looksLikeJson = !asJson && typeof parseAny(val) !== 'string';
 
   const add = (): void => {
     if (!key.trim()) {
@@ -221,6 +233,9 @@ function AddForm(): preact.JSX.Element {
         <span class="spacer" />
         <button onClick={add}>add</button>
       </div>
+      {looksLikeJson && (
+        <div class="parse-note">Looks like JSON — without “parse as JSON” it is stored as a string.</div>
+      )}
       {err && <div class="error-banner">{err}</div>}
     </div>
   );
