@@ -17,6 +17,7 @@ import { getActiveTrackingCount } from '@/state/activeCount';
 import { isActivated } from '@/state/activation';
 import { getBlockingReason, getLinkedSteamId } from '@/state/blocking';
 import { redactSecrets } from '@/util/redact';
+import { readSteamCredential } from '@/background/credentialHygiene';
 
 export interface DiagExportHeader {
   version: string;
@@ -40,9 +41,6 @@ export interface DiagExport {
   header: DiagExportHeader;
   entries: DiagEntry[];
 }
-
-/** The core's storage key for the scraped Steam session — a JSON string holding a LIVE token next to the id. */
-const STEAM_CREDENTIAL_KEY = 'steam_credential';
 
 const STEAM_ID64 = /^\d{17}$/;
 
@@ -80,8 +78,7 @@ export function accountIdFromAccessToken(token: string): string | undefined {
 }
 
 async function readSteamId(): Promise<string | undefined> {
-  const stored = await browser.storage.local.get(STEAM_CREDENTIAL_KEY);
-  return steamIdFromCredential(stored[STEAM_CREDENTIAL_KEY]) ?? (await getLinkedSteamId());
+  return steamIdFromCredential(await readSteamCredential()) ?? (await getLinkedSteamId());
 }
 
 /** Absent when signed out, or when the cookie cannot be read here — the file is still worth having without it. */

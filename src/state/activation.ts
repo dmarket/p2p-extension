@@ -8,7 +8,7 @@
 //
 // Persisted in browser.storage.local so it survives service-worker respawns and is shared across the
 // popup and background — which subscribes, so a write from any context starts or stops the core. Content
-// scripts read the worker's copy in storage.session and ask the worker to write (src/background/stateMirror.ts).
+// scripts ask the worker for it by message and ask the worker to write (src/background/stateMirror.ts).
 
 import { STATE_AREA, stateStorage } from '@/state/stateArea';
 import { subscribeKey } from '@/state/subscribeKey';
@@ -18,12 +18,12 @@ import { subscribeKey } from '@/state/subscribeKey';
 export const ACTIVATION_KEY = 'activation.enabled';
 
 /**
- * Read the flag for a UI surface. `undefined` only in a content script whose mirror the worker has not written
- * yet (right after a browser start), so the banner waits instead of showing onboarding to an activated seller.
+ * Read the flag for a UI surface. `undefined` only in a content script the worker has not answered (no reply, or a
+ * dead context), so the banner waits instead of showing onboarding to an activated seller.
  */
 export async function readActivation(): Promise<boolean | undefined> {
   const stored = await stateStorage().get(ACTIVATION_KEY);
-  if (STATE_AREA === 'session' && stored[ACTIVATION_KEY] === undefined) return undefined;
+  if (STATE_AREA === 'mirror' && stored[ACTIVATION_KEY] === undefined) return undefined;
   return stored[ACTIVATION_KEY] === true;
 }
 

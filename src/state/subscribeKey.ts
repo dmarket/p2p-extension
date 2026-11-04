@@ -9,6 +9,7 @@
 // The add/remove pair itself lives one level down in src/util/storageEvents.ts, which is what makes
 // this safe to call (and to undo) from a content script whose extension context has already died.
 
+import type { StateAreaName } from '@/state/stateArea';
 import { onStorageChanged } from '@/util/storageEvents';
 
 /**
@@ -18,7 +19,7 @@ import { onStorageChanged } from '@/util/storageEvents';
  * deciding for itself what an absent value means — `false`, `NONE`, `0`, `undefined`.
  */
 export function subscribeKey<T>(
-  area: Browser.storage.AreaName,
+  area: Browser.storage.AreaName | StateAreaName,
   key: string,
   parse: (value: unknown) => T,
   onChange: (value: T) => void,

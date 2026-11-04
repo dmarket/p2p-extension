@@ -1,5 +1,5 @@
-// The core keeps the scraped Steam web-API token in `storage.local` under a flat key, unencrypted
-// (WebExtStorageCredentialVault). The core clears it on a Steam sign-out or account switch, but not when
+// The core keeps the scraped Steam web-API token in `storage.session` under a flat key, unencrypted, so it never
+// reaches disk (older cores kept it in `storage.local`, and the new vault removes that copy). The core clears it on a Steam sign-out or account switch, but not when
 // the extension stops being allowed to track, so these two paths remove it from the host side. Removal is
 // safe at any time: the core re-scrapes within one cycle once it runs and the seller is signed in.
 
@@ -13,9 +13,18 @@ const DM_MISSING_SINCE_KEY = 'hygiene.dmSessionMissingSince';
 /** How long the DMarket session may stay missing before the Steam token is dropped. */
 export const DM_MISSING_PURGE_MS = 60 * 60 * 1000;
 
-/** Idempotent; removing an absent key fires no `storage.onChanged`. */
-export function clearSteamCredential(): Promise<void> {
-  return browser.storage.local.remove(STEAM_CREDENTIAL_KEY);
+/** Idempotent; removing an absent key fires no `storage.onChanged`. `storage.local` holds an older core's copy. */
+export async function clearSteamCredential(): Promise<void> {
+  await Promise.all([
+    browser.storage.session.remove(STEAM_CREDENTIAL_KEY),
+    browser.storage.local.remove(STEAM_CREDENTIAL_KEY),
+  ]);
+}
+
+/** The raw vault row, from `storage.session`, or `storage.local` under an older core. Trusted contexts only. */
+export async function readSteamCredential(): Promise<unknown> {
+  const session = (await browser.storage.session.get(STEAM_CREDENTIAL_KEY))[STEAM_CREDENTIAL_KEY];
+  return session ?? (await browser.storage.local.get(STEAM_CREDENTIAL_KEY))[STEAM_CREDENTIAL_KEY];
 }
 
 /**

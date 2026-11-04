@@ -153,6 +153,17 @@ describe('buildDiagExport', () => {
     expect((await browser.storage.local.get(INSTALL_ID_KEY))[INSTALL_ID_KEY]).toBeUndefined();
   });
 
+  it('reads the Steam id from storage.session, where the core keeps the credential now', async () => {
+    await browser.storage.local.remove('steam_credential');
+    const sessionId = '76561198000000003';
+    await browser.storage.session.set({
+      steam_credential: JSON.stringify({ token: SECRETS.credentialToken, steam_id: sessionId, expires_at_ms: 1_900_000_000_000 }),
+    });
+    const text = serializeDiagExport(await build());
+    expect((JSON.parse(text) as DiagExport).header.steamId64).toBe(sessionId);
+    expect(text).not.toContain(SECRETS.credentialToken);
+  });
+
   it('falls back to the linked Steam id without a stored credential, and omits it with neither', async () => {
     await browser.storage.local.remove('steam_credential');
     await setLinkedSteamId('76561198000000002');

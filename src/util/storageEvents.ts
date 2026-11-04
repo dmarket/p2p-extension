@@ -16,18 +16,44 @@
 // So both directions fail soft. Subscribing on a dead context is a no-op — there is no update left to
 // deliver, since the listener could never fire again — and unsubscribing never throws, because a
 // teardown that must not fail should not be able to.
+//
+// In a Chrome content script the mirrored keys do not come from storage at all (src/state/stateArea.ts): the
+// worker pushes their changes by message, and they are delivered here as area `'mirror'`.
+
+import { isStateChanged, STATE_AREA, type StateAreaName } from '@/state/stateArea';
 
 export type StorageChangedListener = (
   changes: Record<string, Browser.storage.StorageChange>,
-  area: Browser.storage.AreaName,
+  area: Browser.storage.AreaName | StateAreaName,
 ) => void;
 
 /** Register `listener` for storage changes in any area. Returns an unsubscribe that cannot throw. */
 export function onStorageChanged(listener: StorageChangedListener): () => void {
+  const removers = [subscribe(browser.storage?.onChanged, listener)];
+  if (STATE_AREA === 'mirror') {
+    removers.push(
+      subscribe(browser.runtime?.onMessage, (message: unknown) => {
+        if (isStateChanged(message)) listener(message.changes, 'mirror');
+        return undefined;
+      }),
+    );
+  }
+  return () => removers.forEach((remove) => remove());
+}
+
+interface Events<L> {
+  addListener(listener: L): void;
+  removeListener(listener: L): void;
+}
+
+function subscribe<L>(events: Events<L> | undefined, listener: L): () => void {
   // The types say this is always there; an orphaned content script is exactly the state where it is not.
-  const events = browser.storage?.onChanged;
   if (!events) return () => {};
-  events.addListener(listener);
+  try {
+    events.addListener(listener);
+  } catch {
+    return () => {};
+  }
   return () => {
     try {
       events.removeListener(listener);

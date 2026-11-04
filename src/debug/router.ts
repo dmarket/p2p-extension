@@ -11,6 +11,7 @@ import { supportsOffscreenProver } from '@/core/notary-delegate';
 import { isNotaryPhaseMessage } from '@/core/notary-messages';
 import { NOTARY_TRACE_EVENT } from '@/core/notary-trace';
 import { redactSecrets } from '@/util/redact';
+import { readSteamCredential } from '@/background/credentialHygiene';
 import { isActivated } from '@/state/activation';
 import { getLinkedSteamId } from '@/state/blocking';
 import { clearLogs, readAllLogs } from '@/debug/sessionLog';
@@ -45,8 +46,6 @@ import {
 import { getSettings, type TrackerOverrides } from '@/config/settings';
 import { extensionVersion } from '@/util/extensionVersion';
 
-/** The core's vault row for the Steam credential. Only its public `steam_id` is ever read here. */
-const STEAM_CREDENTIAL_KEY = 'steam_credential';
 
 /** Hooks the debug router needs from the background boot to describe/control the running tracker. */
 export interface DebugDeps {
@@ -138,7 +137,7 @@ async function accountIds(): Promise<{ linkedSteamId: string | null; credentialS
   const linkedSteamId = (await getLinkedSteamId().catch(() => undefined)) ?? null;
   let credentialSteamId: string | null = null;
   try {
-    const raw = (await browser.storage.local.get(STEAM_CREDENTIAL_KEY))[STEAM_CREDENTIAL_KEY];
+    const raw = await readSteamCredential();
     if (typeof raw === 'string') {
       const parsed = JSON.parse(raw) as { steam_id?: unknown };
       if (typeof parsed.steam_id === 'string') credentialSteamId = parsed.steam_id;

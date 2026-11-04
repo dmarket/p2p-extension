@@ -1,8 +1,8 @@
 // Catalog of the chrome.storage.local keys the extension + vendored core persist. Used only to
 // annotate the storage inspector (descriptions, sensitivity) — editing correctness relies on the
 // existing value's JS type, not this catalog. Do NOT list `dmarket_p2p_tracker_tick`: it is a
-// chrome.alarms name, not a storage key. Keys in MIRRORED_KEYS (src/background/stateMirror.ts) are also copied
-// to chrome.storage.session for content scripts; edit the storage.local value, the worker re-copies it.
+// chrome.alarms name, not a storage key. Content scripts get the keys in MIRRORED_KEYS
+// (src/background/stateMirror.ts) from the worker by message, read from storage.local.
 
 interface KeyInfo {
   desc: string;
@@ -17,19 +17,19 @@ interface KeyInfo {
 
 export const KNOWN_KEYS: Record<string, KeyInfo> = {
   // ---- extension-owned ----
-  'activation.enabled': { desc: 'Mirrored to storage.session. Onboarding flag (boolean). The Steam banner writes it via the set-activation message. Gates the core itself (no heartbeat, presence or Steam write while false), and drives the popup screen, Steam banner and toolbar icon.' },
+  'activation.enabled': { desc: 'Served to content scripts by the worker. Onboarding flag (boolean). The Steam banner writes it via the set-activation message. Gates the core itself (no heartbeat, presence or Steam write while false), and drives the popup screen, Steam banner and toolbar icon.' },
   // NOTE: this key does not go through the generic row at all — StoragePanel renders BlockingStatePanel
   // for it (the precedence chain, the trigger conditions and the simulator). The entry stays here so the
   // catalog remains a complete list of what the extension persists.
   'tracker.blockingReason': {
     desc:
-      "Mirrored to storage.session. Mirror of the core's blockingReason() (string), in descending precedence: DM_SESSION_MISSING | " +
+      "Served to content scripts by the worker. Mirror of the core's blockingReason() (string), in descending precedence: DM_SESSION_MISSING | " +
       'STEAM_SESSION_MISSING | STEAM_ACCOUNT_MISMATCH | DM_CONNECTION_ERROR | NONE. Drives the popup screen, ' +
       'Steam banner and icon. Not editable: the core rewrites it on every cycle — simulate the cause instead.',
   },
   'tracker.linkedSteamId': {
     desc:
-      "Mirrored to storage.session. The DMarket-linked Steam id from the core's last wrong-account report (string) — the account the user " +
+      "Served to content scripts by the worker. The DMarket-linked Steam id from the core's last wrong-account report (string) — the account the user " +
       'must sign into. Only the mismatch lifecycle event carries it, so it is persisted for surfaces opened ' +
       'later; removed when the block clears. Shown in the popup + Steam banner and in the header pills.',
   },
@@ -63,12 +63,12 @@ export const KNOWN_KEYS: Record<string, KeyInfo> = {
       'simulation survives a respawn. Absent/invalid = nothing simulated.',
   },
   'remoteconfig.instance_id': { desc: 'Firebase-era app_instance_id (UUID). No longer read or written; left over on installs that ran a Firebase build.' },
-  'remoteconfig.cache': { desc: 'Mirrored to storage.session. Cached remote-config document for offline fallback, under the p2p_tracker_config key.' },
+  'remoteconfig.cache': { desc: 'Served to content scripts by the worker. Cached remote-config document for offline fallback, under the p2p_tracker_config key.' },
   'remoteconfig.fetched_at': { desc: 'Last remote-config answer (epoch ms, a 304 included) — client-side refetch throttle.' },
   'remoteconfig.failed_at': { desc: 'Last failed remote-config fetch (epoch ms). Unforced fetches back off for 15 min after it; cleared by the next good answer.' },
   'remoteconfig.etag': { desc: 'ETag of the cached document, sent as If-None-Match so an unchanged document costs a bodiless 304.' },
   // ---- vendored core (all stored as strings) ----
-  steam_credential: { desc: 'Steam session credential — JSON string containing a LIVE token.', sensitive: true },
+  steam_credential: { desc: 'Steam session credential — JSON string containing a LIVE token. Current cores keep it in storage.session (not listed here); a row here is an older core\'s copy.', sensitive: true },
   device_id: { desc: 'Stable device identifier (UUID) sent with every heartbeat. An id, not a credential.' },
   loop_next_heartbeat_at_ms: { desc: 'Scheduler: next heartbeat time (epoch ms, as string).' },
   loop_expedited_until_ms: { desc: 'Scheduler: expedited-polling-until time (epoch ms, as string).' },
