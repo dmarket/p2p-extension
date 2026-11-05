@@ -19,6 +19,9 @@ import flag from '@/assets/icons/flag.svg';
 import arrowBack from '@/assets/icons/arrow-back.svg';
 import arrowForward from '@/assets/icons/arrow-forward.svg';
 import activity from '@/assets/icons/activity.svg';
+import copy from '@/assets/icons/copy.svg';
+import openInNew from '@/assets/icons/open-in-new.svg';
+import info from '@/assets/icons/info.svg';
 
 export const icons = {
   logo,
@@ -39,4 +42,7 @@ export const icons = {
   arrowBack,
   arrowForward,
   activity,
+  copy,
+  openInNew,
+  info,
 };

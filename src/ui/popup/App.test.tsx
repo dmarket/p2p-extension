@@ -117,8 +117,7 @@ describe('popup home screen during a forced update', () => {
     expect(root.querySelector('.home .body-text')?.textContent).toBe(
       'Yours is out of date. Update it from the extensions page or restart your browser.',
     );
-    // No "How to update?" link in this part: it comes with its own screen.
-    expect(root.querySelector('.home .link-button')).toBeNull();
+    expect(root.querySelector('.home .update-link')?.textContent).toBe('How to update?');
   });
 
   it.each([undefined, 'checking', 'applying'])('keeps the normal screen while the state is %s', async (state) => {
@@ -162,5 +161,69 @@ describe('popup home screen during a forced update', () => {
     ['onboarding', { [ACTIVATION_KEY]: false }],
   ])('replaces %s', async (_name, local) => {
     expect(await homeTitle('restart_required', local)).toBe('Update required');
+  });
+
+  async function openHowTo(): Promise<void> {
+    await homeTitle('restart_required');
+    await act(() => (root.querySelector('.update-link') as HTMLButtonElement).click());
+    await settle();
+  }
+
+  const addressButton = (label: string): HTMLButtonElement =>
+    root.querySelector(`.how-to__address[aria-label="${label}"]`) as HTMLButtonElement;
+
+  it('opens "How to update" with the no-restart path first and the warning row hidden', async () => {
+    await fakeBrowser.storage.session.set({ [GUARD_VERDICTS_KEY]: VERDICTS });
+    await homeTitle('restart_required');
+    expect(root.querySelector('.offer-alert')).toBeTruthy();
+
+    await act(() => (root.querySelector('.update-link') as HTMLButtonElement).click());
+    await settle();
+    expect(root.querySelector('.home')).toBeNull();
+    expect(root.querySelector('.offer-alert')).toBeNull();
+    const titles = [...root.querySelectorAll('.how-to__title')].map((t) => t.textContent?.trim());
+    expect(titles).toEqual(['Update without restarting', 'Update and restart browser']);
+    expect(root.textContent).not.toMatch(/reinstall|remove|uninstall/i);
+  });
+
+  it('opens the extensions page in one click', async () => {
+    const create = vi.spyOn(fakeBrowser.tabs, 'create').mockResolvedValue({} as never);
+    await openHowTo();
+    await act(() => addressButton('Open chrome://extensions').click());
+    expect(create).toHaveBeenCalledWith({ url: 'chrome://extensions' });
+    expect(addressButton('Copy chrome://extensions')).toBeNull();
+  });
+
+  it('offers to copy the extensions address when the tab is refused', async () => {
+    vi.spyOn(fakeBrowser.tabs, 'create').mockRejectedValue(new Error('blocked'));
+    await openHowTo();
+    await act(() => addressButton('Open chrome://extensions').click());
+    await settle();
+    expect(addressButton('Copy chrome://extensions')).toBeTruthy();
+    expect(root.querySelector('.how-to__hint')?.textContent).toContain('paste it into the address bar');
+  });
+
+  it('copies chrome://restart and says so', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    await openHowTo();
+    await act(() => addressButton('Copy chrome://restart').click());
+    await settle();
+    expect(writeText).toHaveBeenCalledWith('chrome://restart');
+    expect(root.querySelector('[role="status"]')?.textContent).toBe('Copied chrome://restart.');
+  });
+
+  it('goes back to "Update required" with focus on the link', async () => {
+    await openHowTo();
+    // linkedom tracks no activeElement, so record which element focus() was called on.
+    const focused: unknown[] = [];
+    const proto = Object.getPrototypeOf(root.querySelector('.back-button')) as { focus(): void };
+    vi.spyOn(proto, 'focus').mockImplementation(function (this: unknown) {
+      focused.push(this);
+    });
+    await act(() => (root.querySelector('.back-button') as HTMLButtonElement).click());
+    await settle();
+    expect(root.querySelector('.home .title')?.textContent?.trim()).toBe('Update required');
+    expect(focused.at(-1)).toBe(root.querySelector('.update-link'));
   });
 });

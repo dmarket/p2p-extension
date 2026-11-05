@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { resolveSurface } from '@/state/surface';
 import { useActivation } from '@/ui/hooks/useActivation';
 import { useBlockingReason } from '@/ui/hooks/useBlockingReason';
@@ -13,6 +13,7 @@ import { MissingConnectionScreen } from './screens/MissingConnectionScreen';
 import { ConnectionErrorScreen } from './screens/ConnectionErrorScreen';
 import { SteamSignedOutScreen } from './screens/SteamSignedOutScreen';
 import { UpdateRequiredScreen } from './screens/UpdateRequiredScreen';
+import { HowToUpdateView } from './screens/HowToUpdateView';
 import { InfoScreen } from './screens/InfoScreen';
 import { SuspiciousOffersRow } from './SuspiciousOffersRow';
 
@@ -22,6 +23,17 @@ export function App() {
   const reason = useBlockingReason();
   const verdicts = useVerdicts();
   const update = useUpdateStatus();
+  const [howTo, setHowTo] = useState(false);
+  const howToLinkRef = useRef<HTMLButtonElement>(null);
+  const returnedRef = useRef(false);
+
+  // Back from "How to update" lands on the link that opened it, as Back from the log export does.
+  useEffect(() => {
+    if (!howTo && returnedRef.current) {
+      returnedRef.current = false;
+      howToLinkRef.current?.focus();
+    }
+  }, [howTo]);
 
   // No "re-check now" nudge on open (an earlier design forced a heartbeat per popup view): the
   // persisted blocking reason is kept truthful without it — blocked states never advance the
@@ -47,7 +59,19 @@ export function App() {
     needsUpdateScreen(update) &&
     (surface === 'NOT_ACTIVATED' || surface === 'BLOCKED' || surface === 'ACTIVE');
   const homeScreen = ((): preact.JSX.Element => {
-    if (updateScreen) return <UpdateRequiredScreen />;
+    if (updateScreen) {
+      if (howTo) {
+        return (
+          <HowToUpdateView
+            onBack={() => {
+              returnedRef.current = true;
+              setHowTo(false);
+            }}
+          />
+        );
+      }
+      return <UpdateRequiredScreen linkRef={howToLinkRef} onHowToUpdate={() => setHowTo(true)} />;
+    }
     switch (surface) {
       case 'LOADING':
         return (
@@ -72,9 +96,19 @@ export function App() {
 
   return (
     <div class="app">
-      <Header tab={tab} onSelect={setTab} />
+      <Header
+        tab={tab}
+        onSelect={(next) => {
+          // Leaving Home closes "How to update", as leaving Help closes the log export.
+          setHowTo(false);
+          setTab(next);
+        }}
+      />
       <div class="screen">
-        {tab === 'home' && surface !== 'LOADING' && verdicts !== undefined && <SuspiciousOffersRow verdicts={verdicts} />}
+        {/* "How to update" is a full sub-view: the warning row stays on the screens, not over the instructions. */}
+        {tab === 'home' && surface !== 'LOADING' && verdicts !== undefined && !(updateScreen && howTo) && (
+          <SuspiciousOffersRow verdicts={verdicts} />
+        )}
         {tab === 'help' ? <InfoScreen /> : homeScreen}
       </div>
     </div>

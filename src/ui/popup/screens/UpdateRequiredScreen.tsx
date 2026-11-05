@@ -1,3 +1,4 @@
+import type { Ref } from 'preact';
 import { icons } from '../icons';
 
 /**
@@ -5,9 +6,16 @@ import { icons } from '../icons';
  * update by itself (`restart_required`). Trades already in progress keep being tracked; the FE and the
  * backend stop new ones, so this screen only tells the user what to do.
  *
- * `onHowToUpdate` renders the "How to update?" link; without it there is no link.
+ * `onHowToUpdate` renders the "How to update?" link; without it there is no link. `linkRef` lets the caller
+ * return focus to it.
  */
-export function UpdateRequiredScreen({ onHowToUpdate }: { onHowToUpdate?: () => void }) {
+export function UpdateRequiredScreen({
+  onHowToUpdate,
+  linkRef,
+}: {
+  onHowToUpdate?: () => void;
+  linkRef?: Ref<HTMLButtonElement>;
+}) {
   return (
     <div class="home">
       <div class="app-icon">
@@ -24,7 +32,7 @@ export function UpdateRequiredScreen({ onHowToUpdate }: { onHowToUpdate?: () => 
         </h1>
         <p class="body-text">Yours is out of date. Update it from the extensions page or restart your browser.</p>
         {onHowToUpdate && (
-          <button type="button" class="link-button" onClick={onHowToUpdate}>
+          <button type="button" class="update-link" ref={linkRef} onClick={onHowToUpdate}>
             How to update?
           </button>
         )}
