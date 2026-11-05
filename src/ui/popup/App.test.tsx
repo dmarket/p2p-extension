@@ -213,6 +213,15 @@ describe('popup home screen during a forced update', () => {
     expect(root.querySelector('[role="status"]')?.textContent).toBe('Copied chrome://restart.');
   });
 
+  it('names the address to type when copying is refused', async () => {
+    vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } });
+    Object.assign(document, { execCommand: () => false });
+    await openHowTo();
+    await act(() => addressButton('Copy chrome://restart').click());
+    await settle();
+    expect(root.querySelector('[role="status"]')?.textContent).toBe("Couldn't copy. Type chrome://restart into the address bar.");
+  });
+
   it('goes back to "Update required" with focus on the link', async () => {
     await openHowTo();
     // linkedom tracks no activeElement, so record which element focus() was called on.
