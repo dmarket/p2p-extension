@@ -1,26 +1,11 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { buildDiagExport, serializeDiagExport } from '@/infra/diag/export';
 import { BackButton } from './BackButton';
+import { copyText } from './clipboard';
 import { icons } from './icons';
 
 interface ExportLogViewProps {
   onBack: () => void;
-}
-
-/** Last resort for a context where the async Clipboard API is refused. Synchronous, so it keeps the click's activation. */
-function copyWithTextarea(text: string): boolean {
-  const area = document.createElement('textarea');
-  area.value = text;
-  area.setAttribute('readonly', '');
-  area.style.position = 'fixed';
-  area.style.opacity = '0';
-  document.body.append(area);
-  area.select();
-  try {
-    return document.execCommand('copy');
-  } finally {
-    area.remove();
-  }
 }
 
 /**
@@ -41,11 +26,7 @@ export function ExportLogView({ onBack }: ExportLogViewProps) {
   const copy = async (): Promise<void> => {
     try {
       const text = serializeDiagExport(await buildDiagExport());
-      try {
-        await navigator.clipboard.writeText(text);
-      } catch {
-        if (!copyWithTextarea(text)) throw new Error('copy refused');
-      }
+      await copyText(text);
       setStatus('Copied. Paste it into your message to support.');
     } catch {
       setStatus("Couldn't copy. Use Save file instead.");
