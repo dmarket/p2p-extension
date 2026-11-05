@@ -48,7 +48,7 @@ export function HowToUpdateView({ onBack }: { onBack: () => void }) {
       <BackButton onClick={onBack} />
 
       <section class="how-to__section how-to__section--divided">
-        <h2 class="how-to__title" ref={headingRef} tabIndex={-1}>
+        <h2 class="subview-title" ref={headingRef} tabIndex={-1}>
           Update without restarting
         </h2>
         <ol class="how-to__steps">
@@ -83,7 +83,7 @@ export function HowToUpdateView({ onBack }: { onBack: () => void }) {
       </section>
 
       <section class="how-to__section">
-        <h2 class="how-to__title">Update and restart browser</h2>
+        <h2 class="subview-title">Update and restart browser</h2>
         <p class="how-to__text">Copy and paste into the address bar and press Enter.</p>
         {copyButton(RESTART_URL, setRestartStatus)}
         <p class="how-to__status" role="status" aria-live="polite">

@@ -614,7 +614,7 @@ body {
 .update-link:focus-visible,
 .how-to__address:focus-visible,
 .button:focus-visible,
-.export__title:focus-visible {
+.subview-title:focus-visible {
   outline: 2px solid var(--dm-ext-accent);
   outline-offset: 2px;
   border-radius: 4px;
@@ -661,7 +661,7 @@ body {
   height: 12px;
 }
 
-.export__title {
+.subview-title {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
@@ -669,7 +669,7 @@ body {
 }
 
 /* The heading takes focus when the view opens so a screen reader announces it; that focus is not a ring. */
-.export__title:focus:not(:focus-visible) {
+.subview-title:focus:not(:focus-visible) {
   outline: none;
 }
 
@@ -755,6 +755,11 @@ body {
   padding: 24px 16px 16px;
 }
 
+/* Back sits as close to the first heading as in the log export (its 12px gap); the sections keep 24px. */
+.how-to > .back-button {
+  margin-bottom: -12px;
+}
+
 .how-to__section {
   display: flex;
   flex-direction: column;
@@ -765,17 +770,6 @@ body {
 .how-to__section--divided {
   padding-bottom: 24px;
   border-bottom: 1px solid var(--dm-ext-border);
-}
-
-.how-to__title {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.8;
-}
-
-.how-to__title:focus:not(:focus-visible) {
-  outline: none;
 }
 
 .how-to__text,

@@ -181,7 +181,7 @@ describe('popup home screen during a forced update', () => {
     await settle();
     expect(root.querySelector('.home')).toBeNull();
     expect(root.querySelector('.offer-alert')).toBeNull();
-    const titles = [...root.querySelectorAll('.how-to__title')].map((t) => t.textContent?.trim());
+    const titles = [...root.querySelectorAll('.how-to .subview-title')].map((t) => t.textContent?.trim());
     expect(titles).toEqual(['Update without restarting', 'Update and restart browser']);
     expect(root.textContent).not.toMatch(/reinstall|remove|uninstall/i);
   });

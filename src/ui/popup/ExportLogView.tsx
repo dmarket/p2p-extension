@@ -37,7 +37,7 @@ export function ExportLogView({ onBack }: ExportLogViewProps) {
     <div class="export">
       <BackButton onClick={onBack} />
 
-      <h2 class="export__title" ref={headingRef} tabIndex={-1}>
+      <h2 class="subview-title" ref={headingRef} tabIndex={-1}>
         Export log for support
       </h2>
       <p class="export__text">
