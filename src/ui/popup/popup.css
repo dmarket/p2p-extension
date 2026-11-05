@@ -789,10 +789,13 @@ body {
   list-style: none;
 }
 
+/* As in the design: a step shorter than 48px is centred in it, a taller one (step 1) starts at the top. */
 .how-to__step {
-  display: flex;
-  gap: 16px;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  column-gap: 16px;
+  align-content: center;
+  align-items: start;
   min-height: 48px;
 }
 
@@ -815,7 +818,6 @@ body {
   flex-direction: column;
   align-items: flex-start;
   gap: 8px;
-  padding-top: 2px;
   font-size: 12px;
   font-weight: 600;
   line-height: 20px;
