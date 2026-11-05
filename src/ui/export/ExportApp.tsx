@@ -16,9 +16,11 @@ function download(url: string, name: string): void {
 const kilobytes = (bytes: number): string => `${Math.max(1, Math.round(bytes / 1024))} KB`;
 
 /**
- * The popup's "Save file" lands here: build the file, hand it to the browser as a download, say what was
- * saved. A tab rather than the popup because the popup closes the moment a "Save as" dialog takes focus.
- * No `downloads` permission — an anchor download needs none, and the manifest stays as it is.
+ * The popup's "Save file" lands here: build the file and hand it to the browser as a download. A tab rather
+ * than the popup because the popup closes the moment a "Save as" dialog takes focus.
+ * No `downloads` permission — an anchor download needs none, and the manifest stays as it is. It also
+ * reports nothing back: the page cannot tell a saved file from a cancelled "Save as", so it never says
+ * "Saved".
  */
 export function ExportApp() {
   const [state, setState] = useState<State>({ kind: 'working' });
@@ -46,8 +48,8 @@ export function ExportApp() {
         {state.kind === 'working' && 'Creating the file…'}
         {state.kind === 'saved' && (
           <>
-            Saved <span class="export-page__name">{state.name}</span> ({kilobytes(state.size)}). Send it to
-            DMarket support. You can close this tab.
+            <span class="export-page__name">{state.name}</span> ({kilobytes(state.size)}) is ready. Once your
+            browser saves it, send it to DMarket support. If no file was saved, press Save again.
           </>
         )}
         {state.kind === 'failed' && "Couldn't create the file."}

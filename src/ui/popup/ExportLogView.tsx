@@ -81,7 +81,9 @@ export function ExportLogView({ onBack }: ExportLogViewProps) {
           <li>Versions of the extension, core and prover, and your browser</li>
           <li>Current status and the last 24 hours of activity</li>
           <li>Your Steam ID, DMarket account ID, deal and trade offer IDs</li>
-          <li>A random install ID that links this file to error reports</li>
+          <li>
+            A random install ID that links this file to error reports, if reporting is on and has sent one
+          </li>
         </ul>
       </div>
 
