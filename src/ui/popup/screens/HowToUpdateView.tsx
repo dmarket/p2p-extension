@@ -16,7 +16,9 @@ const RESTART_URL = 'chrome://restart';
 export function HowToUpdateView({ onBack }: { onBack: () => void }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [openFailed, setOpenFailed] = useState(false);
-  const [status, setStatus] = useState('');
+  // Each copy button answers next to itself: the step-1 fallback and the restart section are far apart.
+  const [extensionsStatus, setExtensionsStatus] = useState('');
+  const [restartStatus, setRestartStatus] = useState('');
 
   useEffect(() => headingRef.current?.focus(), []);
 
@@ -25,7 +27,7 @@ export function HowToUpdateView({ onBack }: { onBack: () => void }) {
     browser.tabs.create({ url: EXTENSIONS_URL }).catch(() => setOpenFailed(true));
   };
 
-  const copy = async (url: string): Promise<void> => {
+  const copy = async (url: string, setStatus: (text: string) => void): Promise<void> => {
     try {
       await copyText(url);
       setStatus(`Copied ${url}.`);
@@ -34,8 +36,8 @@ export function HowToUpdateView({ onBack }: { onBack: () => void }) {
     }
   };
 
-  const copyButton = (url: string) => (
-    <button type="button" class="how-to__address" aria-label={`Copy ${url}`} onClick={() => void copy(url)}>
+  const copyButton = (url: string, setStatus: (text: string) => void) => (
+    <button type="button" class="how-to__address" aria-label={`Copy ${url}`} onClick={() => void copy(url, setStatus)}>
       {url}
       <img class="how-to__address-icon" src={icons.copy} alt="" />
     </button>
@@ -61,7 +63,10 @@ export function HowToUpdateView({ onBack }: { onBack: () => void }) {
               {openFailed && (
                 <>
                   <span class="how-to__hint">Couldn't open it. Copy it and paste it into the address bar.</span>
-                  {copyButton(EXTENSIONS_URL)}
+                  {copyButton(EXTENSIONS_URL, setExtensionsStatus)}
+                  <p class="how-to__status" role="status" aria-live="polite">
+                    {extensionsStatus}
+                  </p>
                 </>
               )}
             </div>
@@ -80,9 +85,9 @@ export function HowToUpdateView({ onBack }: { onBack: () => void }) {
       <section class="how-to__section">
         <h2 class="how-to__title">Update and restart browser</h2>
         <p class="how-to__text">Copy and paste into the address bar and press Enter.</p>
-        {copyButton(RESTART_URL)}
+        {copyButton(RESTART_URL, setRestartStatus)}
         <p class="how-to__status" role="status" aria-live="polite">
-          {status}
+          {restartStatus}
         </p>
       </section>
 

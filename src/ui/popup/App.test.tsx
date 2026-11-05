@@ -203,6 +203,24 @@ describe('popup home screen during a forced update', () => {
     expect(root.querySelector('.how-to__hint')?.textContent).toContain('paste it into the address bar');
   });
 
+  it('confirms the step-1 fallback copy next to its own button', async () => {
+    vi.spyOn(fakeBrowser.tabs, 'create').mockRejectedValue(new Error('blocked'));
+    vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
+    await openHowTo();
+    await act(() => addressButton('Copy chrome://restart').click());
+    await settle();
+    expect(root.querySelectorAll('[role="status"]')).toHaveLength(1);
+
+    await act(() => addressButton('Open chrome://extensions').click());
+    await settle();
+    await act(() => addressButton('Copy chrome://extensions').click());
+    await settle();
+    const [step1, restart] = [...root.querySelectorAll('[role="status"]')];
+    expect(step1?.closest('.how-to__step')).toBeTruthy();
+    expect(step1?.textContent).toBe('Copied chrome://extensions.');
+    expect(restart?.textContent).toBe('Copied chrome://restart.');
+  });
+
   it('copies chrome://restart and says so', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('navigator', { clipboard: { writeText } });
