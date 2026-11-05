@@ -73,10 +73,14 @@ Built against `@dmarket/p2p-tracker-core` `1.2.0-beta`, which ships the TLSN pro
 - **Messages from other extensions and pages are refused (DMA-813).** Every `runtime.onMessage`
   handler checks that the sender is this extension's own page or content script before it acts.
 - **The Steam credential leaves the device with the extension (DMA-817).** Deactivating, and a
-  DMarket sign-out that lasts, remove the stored Steam web token instead of leaving it in
-  `storage.local`.
-- **`storage.local` is closed to content scripts (DMA-816).** The keys the Steam page needs are
-  mirrored to `storage.session`, which only the worker and the extension's own pages read.
+  DMarket sign-out that lasts, remove the stored Steam web token. The token is kept in
+  `storage.session`, which Chrome holds in memory, so it is not written to disk and is gone when the
+  browser closes; a token an older version left in `storage.local` is removed when the updated
+  extension starts.
+- **`storage.local` and `storage.session` are closed to content scripts (DMA-816).** The Steam page
+  and the dmarket.com bridge ask the worker for the few keys they read and get their changes pushed,
+  so a page renderer can neither read the Steam token nor rewrite the remote config. Firefox, which
+  has no storage access levels, is unchanged.
 - **Error reports no longer carry the dmarket.com device id.** Each report's device id was the site's
   analytics cookie (`dm_did`), which ties a report to the browser's web session. It is now a random
   install id that switching reporting off erases, and the reporter reads no cookies. Reports also scrub
