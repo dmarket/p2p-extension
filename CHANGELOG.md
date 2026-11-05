@@ -19,6 +19,12 @@ Built against `@dmarket/p2p-tracker-core` `1.2.0-beta`, which ships the TLSN pro
 
 ### Added
 
+- **"Update required" in the popup (follow-up to DMA-482).** When this build is below the published
+  `web.minExtensionVersion` and Chrome did not install the update by itself (`restart_required`), the
+  Home tab shows "Update required" in place of the active, paused and onboarding screens; the DMarket
+  and Steam sign-in screens and "Wrong Steam account" stay above it. Trades already in progress keep
+  being tracked. The popup and the presence pong read one shared status. Debug builds can set the
+  minimum on the install (`debug.minExtensionVersion`, a pinned row in the storage panel).
 - **Suspicious Steam offer warnings (DMA-819).** On the sent-offers page and on an offer's own page
   (`/tradeoffer/<id>/`) a banner marks an outgoing offer that gives items away with no DMarket deal
   behind it (yellow, dismissible with "I know this partner") or one whose partner poses as DMarket

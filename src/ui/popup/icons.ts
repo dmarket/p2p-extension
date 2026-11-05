@@ -14,6 +14,7 @@ import warning from '@/assets/icons/warning.svg';
 import badgeCancel from '@/assets/icons/badge-cancel.svg';
 import badgeCheck from '@/assets/icons/badge-check.svg';
 import badgeError from '@/assets/icons/badge-error.svg';
+import badgeUpdate from '@/assets/icons/badge-update.svg';
 import flag from '@/assets/icons/flag.svg';
 import arrowBack from '@/assets/icons/arrow-back.svg';
 import arrowForward from '@/assets/icons/arrow-forward.svg';
@@ -33,6 +34,7 @@ export const icons = {
   badgeCancel,
   badgeCheck,
   badgeError,
+  badgeUpdate,
   flag,
   arrowBack,
   arrowForward,

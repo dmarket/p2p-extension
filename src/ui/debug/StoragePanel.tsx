@@ -5,6 +5,8 @@ import { BLOCKING_KEY } from '@/state/blocking';
 import { KNOWN_KEYS } from '@/ui/debug/storageKeys';
 import { BlockingStatePanel } from '@/ui/debug/BlockingStatePanel';
 import { DemandPanel } from '@/ui/debug/DemandPanel';
+import { ForceUpdatePanel } from '@/ui/debug/ForceUpdatePanel';
+import { DEV_MIN_VERSION_KEY } from '@/config/settings';
 import { SuspiciousOfferPanel } from '@/ui/debug/SuspiciousOfferPanel';
 import { highlight } from '@/ui/debug/format';
 import { redactSecrets } from '@/util/redact';
@@ -326,10 +328,11 @@ export function StoragePanel(): preact.JSX.Element {
             is where the core records whether it satisfied the mark or is sitting on a backoff ladder, which is
             what "the mark was stamped and nothing happened" is diagnosed from. */}
         <DemandPanel value={store['tracker_prove_after']} />
+        <ForceUpdatePanel value={store[DEV_MIN_VERSION_KEY]} />
         <SuspiciousOfferPanel />
         {keys.length === 0 && <div class="muted">browser.storage.local is empty.</div>}
         {keys
-          .filter((k) => k !== BLOCKING_KEY && k !== DEMAND_KEY && k !== 'tracker_prove_after')
+          .filter((k) => k !== BLOCKING_KEY && k !== DEMAND_KEY && k !== 'tracker_prove_after' && k !== DEV_MIN_VERSION_KEY)
           .map((k) => (
             <StorageRow key={k} keyName={k} value={store[k]} />
           ))}

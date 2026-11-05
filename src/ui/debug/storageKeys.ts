@@ -62,6 +62,11 @@ export const KNOWN_KEYS: Record<string, KeyInfo> = {
       'tracker.blockingReason row above. Re-read before the first Tracker.start on every worker spawn, so a ' +
       'simulation survives a respawn. Absent/invalid = nothing simulated.',
   },
+  'debug.minExtensionVersion': {
+    desc:
+      'DEV ONLY. Forced-update minimum that replaces the published web.minExtensionVersion, set from the pinned ' +
+      'row above. A numeric version; absent/invalid = the published minimum applies.',
+  },
   'remoteconfig.instance_id': { desc: 'Firebase-era app_instance_id (UUID). No longer read or written; left over on installs that ran a Firebase build.' },
   'remoteconfig.cache': { desc: 'Served to content scripts by the worker. Cached remote-config document for offline fallback, under the p2p_tracker_config key.' },
   'remoteconfig.fetched_at': { desc: 'Last remote-config answer (epoch ms, a 304 included) — client-side refetch throttle.' },

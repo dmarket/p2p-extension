@@ -29,24 +29,22 @@
 import { getSettings } from '@/config/settings';
 import { isUpdateApplying, scheduleUpdate, type UpdateDeps } from '@/background/update';
 import { extensionVersion } from '@/util/extensionVersion';
-import { compareVersions, numericVersion } from '@/util/version';
+import { numericVersion } from '@/util/version';
+import {
+  parseStoredUpdateState,
+  resolveUpdateStatus,
+  UPDATE_STATE_KEY,
+  type StoredUpdateState,
+  type UpdateState,
+  type UpdateStatus,
+} from '@/state/updateStatus';
 
-export type UpdateState = 'none' | 'checking' | 'applying' | 'restart_required';
+export type { UpdateState, UpdateStatus } from '@/state/updateStatus';
 
-/** `pong.update`. `minVersion` is absent only before the first config document arrives. */
-export interface UpdateStatus {
-  required: boolean;
-  minVersion?: string;
-  state: UpdateState;
-}
+const STATE_KEY = UPDATE_STATE_KEY;
 
-const STATE_KEY = 'update.forced';
-
-interface StoredState {
-  /** The minimum this state was reached for. A different minimum is a new rule and starts over. */
-  min: string;
-  state: Exclude<UpdateState, 'none'>;
-}
+/** The minimum this state was reached for (a different minimum is a new rule and starts over), and the state. */
+type StoredState = StoredUpdateState<Exclude<UpdateState, 'none'>>;
 
 type CheckResult = { status: string; version?: string };
 
@@ -70,16 +68,15 @@ function ownVersion(): string {
 }
 
 function isRequired(min: string | undefined): min is string {
-  return min !== undefined && compareVersions(ownVersion(), min) < 0;
+  return resolveUpdateStatus({ min, own: ownVersion(), stored: undefined }).required;
 }
 
 async function readState(): Promise<StoredState | undefined> {
   try {
-    const value: unknown = (await browser.storage.session.get(STATE_KEY))[STATE_KEY];
-    if (typeof value !== 'object' || value === null) return undefined;
-    const { min, state } = value as Partial<StoredState>;
-    if (typeof min !== 'string') return undefined;
-    return state === 'checking' || state === 'applying' || state === 'restart_required' ? { min, state } : undefined;
+    const stored = parseStoredUpdateState((await browser.storage.session.get(STATE_KEY))[STATE_KEY]);
+    const state = stored?.state;
+    // A state this build does not know (written by another build) reads as no record: the evaluation reruns.
+    return state === 'checking' || state === 'applying' || state === 'restart_required' ? { min: stored!.min, state } : undefined;
   } catch {
     return undefined;
   }
@@ -96,12 +93,10 @@ async function writeState(state: StoredState | undefined): Promise<void> {
 
 /** What `pong.update` says right now. Cheap: one session-storage read, and only when an update is required. */
 export async function getUpdateStatus(min = getSettings().web.minExtensionVersion): Promise<UpdateStatus> {
-  if (!isRequired(min)) return { required: false, ...(min !== undefined ? { minVersion: min } : {}), state: 'none' };
+  if (!isRequired(min)) return resolveUpdateStatus({ min, own: ownVersion(), stored: undefined });
   if (isUpdateApplying()) return { required: true, minVersion: min, state: 'applying' };
-  const stored = await readState();
-  // No state yet for this minimum: an evaluation is about to run (every spawn starts one), so `checking` is
-  // the truthful answer — and a stale `checking` from an evicted worker is re-run by that same evaluation.
-  return { required: true, minVersion: min, state: stored?.min === min ? stored.state : 'checking' };
+  // A stale `checking` from an evicted worker is re-run by the evaluation every spawn starts.
+  return resolveUpdateStatus({ min, own: ownVersion(), stored: await readState() });
 }
 
 /**

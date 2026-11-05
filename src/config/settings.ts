@@ -948,7 +948,31 @@ export async function loadSettings(): Promise<Settings> {
   } catch {
     snapshot = DEFAULTS;
   }
+  if (import.meta.env.DEV) snapshot = await withDevMinVersion(snapshot);
   return snapshot;
+}
+
+/**
+ * DEV ONLY: the debug console's forced-update minimum (`debug.minExtensionVersion`) replaces the published
+ * one, so QA can reach the "Update required" screen without publishing a minimum to stage. Read here, where
+ * the worker and every page take the minimum from, so the pong, the forced-update check and the popup agree.
+ * Key inlined: this module ships in every build, the debug tree does not.
+ */
+export const DEV_MIN_VERSION_KEY = 'debug.minExtensionVersion';
+
+async function withDevMinVersion(s: Settings): Promise<Settings> {
+  try {
+    const min: unknown = (await browser.storage.local.get(DEV_MIN_VERSION_KEY))[DEV_MIN_VERSION_KEY];
+    return isChromeVersion(min) ? { ...s, web: { ...s.web, minExtensionVersion: min } } : s;
+  } catch {
+    return s;
+  }
+}
+
+/** {@link parseSettings} plus the dev-only minimum override; for a document fetched before the snapshot reloads. */
+export async function parseEffectiveSettings(entries: ConfigEntries): Promise<Settings> {
+  const s = parseSettings(entries);
+  return import.meta.env.DEV ? withDevMinVersion(s) : s;
 }
 
 /**
@@ -958,7 +982,8 @@ export async function loadSettings(): Promise<Settings> {
  */
 export function subscribeSettings(onChange?: (s: Settings) => void): () => void {
   return onStorageChanged((changes, area) => {
-    if (area !== STATE_AREA || !(REMOTE_CONFIG_CACHE_KEY in changes)) return;
+    if (area !== STATE_AREA) return;
+    if (!(REMOTE_CONFIG_CACHE_KEY in changes) && !(import.meta.env.DEV && DEV_MIN_VERSION_KEY in changes)) return;
     void loadSettings().then((s) => onChange?.(s));
   });
 }

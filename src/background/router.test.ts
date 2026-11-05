@@ -123,6 +123,30 @@ describe('the presence pong carries the forced-update status', () => {
   });
 });
 
+// Business rule: during a forced update the trades already in progress keep being tracked; only new ones are
+// stopped, and that is the FE's and the backend's job. The extension's own write and wake paths stay open.
+describe('a required update does not stop the trades already in progress', () => {
+  it('still creates a trade and still runs a requested cycle while the update is restart_required', async () => {
+    const { loadSettings } = await import('@/config/settings');
+    const { REMOTE_CONFIG_CACHE_KEY, REMOTE_CONFIG_PARAM } = await import('@/infra/remoteConfig');
+    await fakeBrowser.storage.local.set({
+      [REMOTE_CONFIG_CACHE_KEY]: { [REMOTE_CONFIG_PARAM]: JSON.stringify({ web: { minExtensionVersion: '1.0.7' } }) },
+    });
+    await fakeBrowser.storage.session.set({ 'update.forced': { min: '1.0.7', state: 'restart_required' } });
+    await loadSettings();
+    const bridge = registerBooting();
+    bridge.settle();
+
+    expect(await bridge.reply({ kind: 'presence' })).toMatchObject({ update: { required: true, state: 'restart_required' } });
+    expect(await bridge.reply(CREATE)).toMatchObject({ ok: true, kind: 'create-trade' });
+    expect(await bridge.reply({ kind: 'request-cycle', dealId: 'deal1' })).toEqual({ ok: true, kind: 'request-cycle' });
+    expect(deliverPush).toHaveBeenCalled();
+
+    await fakeBrowser.storage.local.clear();
+    await loadSettings();
+  });
+});
+
 describe('presence pings are the host hook for work that must not wait for a respawn', () => {
   it('calls onPresence on a presence ping, not on writes', async () => {
     const onPresence = vi.fn();

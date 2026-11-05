@@ -37,7 +37,7 @@ import {
   DMARKET_ORIGINS,
   getSettings,
   loadSettings,
-  parseSettings,
+  parseEffectiveSettings,
   subscribeSettings,
   type TrackerOverrides,
 } from '@/config/settings';
@@ -126,7 +126,7 @@ export default defineBackground(() => {
   const onConfigFetched = (entries: ConfigEntries): void => {
     // Read from the document just fetched, not the snapshot: the snapshot refreshes through
     // storage.onChanged, which has not fired yet at this point.
-    void evaluateForceUpdate(parseSettings(entries).web.minExtensionVersion, { recheck: true });
+    void parseEffectiveSettings(entries).then((s) => evaluateForceUpdate(s.web.minExtensionVersion, { recheck: true }));
   };
   const refreshRemoteConfig = (intervalMs = getSettings().web.remoteConfigFetchIntervalMs) => {
     lastConfigCheckAt = Date.now();

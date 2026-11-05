@@ -6,6 +6,9 @@ import { fakeBrowser } from 'wxt/testing/fake-browser';
 import { ACTIVATION_KEY } from '@/state/activation';
 import { BLOCKING_KEY } from '@/state/blocking';
 import { GUARD_VERDICTS_KEY, type OfferVerdicts } from '@/state/offerGuard';
+import { loadSettings } from '@/config/settings';
+import { REMOTE_CONFIG_CACHE_KEY, REMOTE_CONFIG_PARAM } from '@/infra/remoteConfig';
+import { UPDATE_STATE_KEY } from '@/state/updateStatus';
 import { App } from './App';
 
 const VERDICTS: OfferVerdicts = {
@@ -77,5 +80,87 @@ describe('popup home screen and the suspicious-offer row', () => {
     await settle();
     expect(root.querySelector('.home')).toBeTruthy();
     expect(root.querySelector('.offer-alert')).toBeNull();
+  });
+});
+
+describe('popup home screen during a forced update', () => {
+  const { document } = parseHTML('<html><body><div id="root"></div></body></html>');
+  const root = document.getElementById('root')!;
+
+  beforeEach(async () => {
+    vi.stubGlobal('document', document);
+    vi.spyOn(fakeBrowser.runtime, 'getManifest').mockReturnValue({ manifest_version: 3, name: 't', version: '1.0.5', version_name: '1.0.5-beta' });
+    await fakeBrowser.storage.local.set({
+      [ACTIVATION_KEY]: true,
+      [BLOCKING_KEY]: 'NONE',
+      [REMOTE_CONFIG_CACHE_KEY]: { [REMOTE_CONFIG_PARAM]: JSON.stringify({ web: { minExtensionVersion: '1.0.7' } }) },
+    });
+  });
+
+  afterEach(async () => {
+    render(null, root);
+    vi.unstubAllGlobals();
+    await fakeBrowser.storage.local.clear();
+    await loadSettings();
+  });
+
+  async function homeTitle(state?: string, local: Record<string, unknown> = {}): Promise<string | undefined> {
+    if (state !== undefined) await fakeBrowser.storage.session.set({ [UPDATE_STATE_KEY]: { min: '1.0.7', state } });
+    await fakeBrowser.storage.local.set(local);
+    await act(() => render(<App />, root));
+    await settle();
+    return root.querySelector('.screen-loading') ? 'LOADING' : root.querySelector('.home .title')?.textContent?.trim();
+  }
+
+  it.each(['restart_required', 'some_future_state'])('shows "Update required" when the state is %s', async (state) => {
+    expect(await homeTitle(state)).toBe('Update required');
+    expect(root.querySelector('.home .body-text')?.textContent).toBe(
+      'Yours is out of date. Update it from the extensions page or restart your browser.',
+    );
+    // No "How to update?" link in this part: it comes with its own screen.
+    expect(root.querySelector('.home .link-button')).toBeNull();
+  });
+
+  it.each([undefined, 'checking', 'applying'])('keeps the normal screen while the state is %s', async (state) => {
+    expect(await homeTitle(state)).not.toMatch(/Update required|LOADING/);
+  });
+
+  it('keeps the normal screen when this build is at the minimum', async () => {
+    expect(
+      await homeTitle('restart_required', {
+        [REMOTE_CONFIG_CACHE_KEY]: { [REMOTE_CONFIG_PARAM]: JSON.stringify({ web: { minExtensionVersion: '1.0.5' } }) },
+      }),
+    ).not.toMatch(/Update required|LOADING/);
+  });
+
+  it('holds the loading state until the update status is read', async () => {
+    await fakeBrowser.storage.session.set({ [UPDATE_STATE_KEY]: { min: '1.0.7', state: 'restart_required' } });
+    let release = (): void => {};
+    const session = fakeBrowser.storage.session;
+    const get = session.get.bind(session) as (keys: string) => Promise<Record<string, unknown>>;
+    vi.spyOn(session, 'get').mockImplementation(((keys: string) =>
+      keys === UPDATE_STATE_KEY ? new Promise((r) => (release = () => r(get(keys)))) : get(keys)) as never);
+    await act(() => render(<App />, root));
+    await settle();
+    expect(root.querySelector('.screen-loading')).toBeTruthy();
+    release();
+    await settle();
+    expect(root.querySelector('.home .title')?.textContent?.trim()).toBe('Update required');
+  });
+
+  it.each([
+    ['DM_SESSION_MISSING', "You're signed out of DMarket"],
+    ['STEAM_SESSION_MISSING', 'Sign in to Steam to keep tracking'],
+    ['STEAM_ACCOUNT_MISMATCH', 'Wrong Steam account'],
+  ])('lets %s stay above it', async (reason, title) => {
+    expect(await homeTitle('restart_required', { [BLOCKING_KEY]: reason })).toBe(title);
+  });
+
+  it.each([
+    ['the active screen', { [BLOCKING_KEY]: 'NONE' }],
+    ['the paused screen', { [BLOCKING_KEY]: 'DM_CONNECTION_ERROR' }],
+    ['onboarding', { [ACTIVATION_KEY]: false }],
+  ])('replaces %s', async (_name, local) => {
+    expect(await homeTitle('restart_required', local)).toBe('Update required');
   });
 });

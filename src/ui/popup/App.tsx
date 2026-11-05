@@ -2,7 +2,9 @@ import { useState } from 'preact/hooks';
 import { resolveSurface } from '@/state/surface';
 import { useActivation } from '@/ui/hooks/useActivation';
 import { useBlockingReason } from '@/ui/hooks/useBlockingReason';
+import { useUpdateStatus } from '@/ui/hooks/useUpdateStatus';
 import { useVerdicts } from '@/ui/hooks/useVerdicts';
+import { needsUpdateScreen } from '@/state/updateStatus';
 import { Header, type Tab } from './Header';
 import { InactiveScreen } from './screens/InactiveScreen';
 import { ActiveScreen } from './screens/ActiveScreen';
@@ -10,6 +12,7 @@ import { MismatchScreen } from './screens/MismatchScreen';
 import { MissingConnectionScreen } from './screens/MissingConnectionScreen';
 import { ConnectionErrorScreen } from './screens/ConnectionErrorScreen';
 import { SteamSignedOutScreen } from './screens/SteamSignedOutScreen';
+import { UpdateRequiredScreen } from './screens/UpdateRequiredScreen';
 import { InfoScreen } from './screens/InfoScreen';
 import { SuspiciousOffersRow } from './SuspiciousOffersRow';
 
@@ -18,6 +21,7 @@ export function App() {
   const activated = useActivation();
   const reason = useBlockingReason();
   const verdicts = useVerdicts();
+  const update = useUpdateStatus();
 
   // No "re-check now" nudge on open (an earlier design forced a heartbeat per popup view): the
   // persisted blocking reason is kept truthful without it — blocked states never advance the
@@ -33,8 +37,17 @@ export function App() {
   // worker start. `BLOCKED` is the fail-closed bucket (a DMarket server error, or a reason this build does
   // not recognise) and gets the neutral "paused" surface rather than ActiveScreen. The first verdict read is
   // waited for too, so the warning row and the screen under it paint in one frame.
-  const surface = verdicts === undefined ? 'LOADING' : resolveSurface(activated, reason);
+  const surface = verdicts === undefined || update === undefined ? 'LOADING' : resolveSurface(activated, reason);
+  // Forced update: a layer over the shared precedence, popup-only (the icon and the Steam banner keep theirs).
+  // The three sign-in states stay above it — without a session the trades already in progress are not tracked
+  // at all — and it replaces onboarding, the paused screen and the active one: activating or carrying on with
+  // an outdated build is what the update is there to stop. In-progress trades keep being tracked meanwhile.
+  const updateScreen =
+    update !== undefined &&
+    needsUpdateScreen(update) &&
+    (surface === 'NOT_ACTIVATED' || surface === 'BLOCKED' || surface === 'ACTIVE');
   const homeScreen = ((): preact.JSX.Element => {
+    if (updateScreen) return <UpdateRequiredScreen />;
     switch (surface) {
       case 'LOADING':
         return (
