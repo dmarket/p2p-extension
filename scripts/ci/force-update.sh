@@ -76,6 +76,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
+# Dependency code (npm ci's install scripts, vitest) runs without the credentials this job holds: every project
+# variable and the job's contexts reach it, including the bucket key and the admin GITHUB_TOKEN. Same limit as
+# `drop_store_secrets` in the CircleCI config: it clears the child's environment, not the container's.
+without_secrets() {
+  env -u P2P_EXTENSION_DEPLOY_SA_KEY -u GITHUB_TOKEN -u CIRCLE_API_TOKEN -u SLACK_ACCESS_TOKEN \
+    -u CRX_SIGNING_KEY_B64 -u CHROME_SERVICE_ACCOUNT_PRIVATE_KEY -u CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL "$@"
+}
+
 CONFIG='buckets/prod/p2p/extension-config.json'
 NODE_SCRIPT='scripts/ci/force-update.mjs'
 
@@ -253,14 +261,14 @@ cmd_raise() {
   require_version "$target" "the forced version"
 
   # vitest validates the document exactly as buckets/upload.sh does; only this path needs dependencies.
-  npm ci --no-audit --no-fund
+  without_secrets npm ci --no-audit --no-fund
   local live generation outcome attempt rc
   live="$(mktemp)"
   for attempt in 1 2; do
     generation="$(node "$NODE_SCRIPT" gcs-get "$live")"
     outcome="$(node "$NODE_SCRIPT" raise "$live" "$target")"
     cp "$live" "$CONFIG"
-    npx vitest run src/config/bucketConfig.test.ts --reporter=dot
+    without_secrets npx vitest run src/config/bucketConfig.test.ts --reporter=dot
     if [ "$outcome" != raised ]; then
       break
     fi

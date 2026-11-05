@@ -207,7 +207,8 @@ branch, and `hold_release` is the only approval among them; a push anywhere else
 | `WXT_*` build configuration | `build-prod`, `build-debug`, `verify_store` |
 | `CRX_SIGNING_KEY_B64` (the CRX signing key) | `pack_crx` |
 | `CHROME_EXTENSION_ID`, `CHROME_PUBLISHER_ID`, `CHROME_SERVICE_ACCOUNT_*` | `store_preflight`, `upload_to_store` |
-| `P2P_EXTENSION_DEPLOY_SA_KEY`, `DEBUG_BUILD_GCS_URI` | `publish_debug_build` |
+| `P2P_EXTENSION_DEPLOY_SA_KEY` | `publish_debug_build`; `raise_min_version` and `approve_force_update` (paused) |
+| `DEBUG_BUILD_GCS_URI` | `publish_debug_build` |
 
 CircleCI hands project variables to every job on every branch, and `check` and the builds run
 dependency code on every push, so nothing here keeps the signing key and the store credentials apart.

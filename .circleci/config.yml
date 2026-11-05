@@ -128,9 +128,9 @@ version: 2.1
 #
 #   Secrets it needs once re-enabled: CIRCLE_API_TOKEN (a CircleCI PERSONAL token — API v2 accepts no
 #   project token; it expires within a year and dies with its owner's access; the pipelines it starts run
-#   as its owner) and the key that writes p2p/extension-config.json (not P2P_EXTENSION_DEPLOY_SA_KEY,
-#   which is the debug-build upload's key and must not simply be reused). scripts/ci/gcs.mjs signs with
-#   the key, no gcloud needed. Pushing to `main` uses org-global's GITHUB_TOKEN, whose owner is an admin and
+#   as its owner) and P2P_EXTENSION_DEPLOY_SA_KEY, the key devops made for p2p/extension-config.json (the
+#   debug-build upload shares it; force-update.sh keeps it out of `npm ci` and vitest). gcs.mjs signs with
+#   it, no gcloud needed. Pushing to `main` uses org-global's GITHUB_TOKEN, whose owner is an admin and
 #   bypasses the rulesets. Slack goes through the `circleci/slack` orb with the org context `dm-release-notify`
 #   (SLACK_ACCESS_TOKEN + SLACK_DEFAULT_CHANNEL) — the same bot, channel and message shape as every backend
 #   "deployed to prod" notice (see `release_notice`).
