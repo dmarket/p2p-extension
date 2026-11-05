@@ -12,8 +12,10 @@ import { subscribeVerdicts } from '@/state/verdicts';
 //                                build doesn't recognise.
 //   - "inactive" (grey glyph)  — not activated, and nothing above it blocking.
 //   - "active"   (green glyph) — activated and nothing blocking.
-// The inactive set is the manifest default (`public/icon/*.png`), so a fresh, not-yet-activated
-// install shows it before any JS runs; the other two sets live under `public/icon/{active,mismatch}/`.
+// The inactive set (`public/icon/*.png`) is the manifest's `action.default_icon`, so a fresh,
+// not-yet-activated install shows it before any JS runs; the other two sets live under
+// `public/icon/{active,mismatch}/`. The manifest `icons` (extensions page, install dialog) is the
+// active set, set in wxt.config.ts.
 
 const INACTIVE_ICON = {
   16: 'icon/16.png',

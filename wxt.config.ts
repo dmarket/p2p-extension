@@ -122,6 +122,9 @@ const proverBuild = (): string => {
   }
 };
 
+const iconSet = (dir: string) =>
+  Object.fromEntries([16, 32, 48, 128].map((size) => [size, `${dir}/${size}.png`]));
+
 // WXT config — generates the MV3 manifest and drives the Vite build.
 // Non-entrypoint modules live under src/ (srcDir), so the `@/` alias resolves to src/.
 export default defineConfig({
@@ -269,6 +272,11 @@ export default defineConfig({
       name: 'DMarket Trade Tracker BETA',
       description:
         'Tracks your Steam trade offers and verifies P2P trades against your DMarket deals.',
+      // The extensions page, the install dialog and the store take `icons`, so they show the brand (green)
+      // glyph. The toolbar button starts from `action.default_icon`, the grey "not activated" set, and
+      // src/background/icon.ts repaints it from the state; overriding WXT's auto-discovered `icon/*.png`.
+      icons: iconSet('icon/active'),
+      action: { default_icon: iconSet('icon') },
       permissions: [
         'storage',
         'cookies',
