@@ -14,138 +14,41 @@ the README.
 
 ## [Unreleased]
 
-Built against `@dmarket/p2p-tracker-core` `1.2.0-beta`, which ships the TLSN prover from
-`steam-provenance` `v1.0.1` (`3fe3354`).
+Built against `@dmarket/p2p-tracker-core` `1.2.0-beta`.
 
 ### Added
 
-- **"Update required" in the popup (follow-up to DMA-482).** When this build is below the published
-  `web.minExtensionVersion` and Chrome did not install the update by itself (`restart_required`), the
-  Home tab shows "Update required" in place of the active, paused and onboarding screens; the DMarket
-  and Steam sign-in screens and "Wrong Steam account" stay above it. Trades already in progress keep
-  being tracked. The popup and the presence pong read one shared status. Debug builds can set the
-  minimum on the install (`debug.minExtensionVersion`, a pinned row in the storage panel).
-- **"How to update" in the popup (follow-up to DMA-482).** The "How to update?" link on "Update required"
-  opens two ways to get the update now. First, without restarting: a button opens the extensions page
-  (`chrome://extensions`), then turn on Developer mode and click Update; if the browser refuses the tab,
-  the address can be copied instead. Second, restart: `chrome://restart` to copy and paste into the
-  address bar, since an extension cannot open that page itself. Back returns to "Update required" with
-  focus on the link.
-- **Suspicious Steam offer warnings (DMA-819).** On the sent-offers page and on an offer's own page
-  (`/tradeoffer/<id>/`) a banner marks an outgoing offer that gives items away with no DMarket deal
-  behind it (yellow, dismissible with "I know this partner") or one whose partner poses as DMarket
-  (red: an account in `web.knownScamPartners`, or a persona name like "D market"); a received offer
-  from a known scam account that asks for the seller's items is red too. The toolbar icon shows a
-  "!" badge and the popup a line while such an offer is open. Nothing is cancelled or blocked, and
-  nothing reaches Steam Mobile, where offers are confirmed. Verdicts come from the core (DMA-818);
-  an older core leaves only the known-account check. Remote config: `web.offerSelectors`,
-  `web.offerPageAnchorSelector`, `web.knownScamPartners`. Debug builds get "Simulate suspicious
-  offer" in the console.
-  - The popup line is a centred card in a band reserved above the icon on every home screen: it opens
-    together with the screen, never moves it, keeps the Steam Mobile advice, and hides the activity pill
-    while shown.
-  - A received offer from an account whose persona name poses as DMarket is red too once DMarket says
-    it is not one of its bots' offers, with its own copy ("… poses as a DMarket bot"). Remote config:
-    `tracker.receivedOfferNameCheck` (on for stage, where QA tests it; off for prod until QA confirms a
-    live "yes") and `tracker.isTradeOurGraceMs`. Needs the core version that carries both; an older one
-    is not handed them.
-- **Support logs (DMA-678).** The extension keeps the last 24 hours of its own activity on the device:
-  tracker events, trade-proof progress, sign-in and activation changes. Help → Troubleshooting saves it
-  as a file or copies it to the clipboard, so a seller can hand it to support. Before anything is saved,
-  the screen says what the file contains: Steam ID, DMarket account ID and deal ids. Credentials are
-  never written to it, and it leaves the device only if the seller sends the file. Switching error
-  reporting off clears it.
-- **Failed trade proofs are reported, with diagnostics (DMA-516).** When a proof cannot be produced or
-  delivered, the reason goes to the error collector (`core: notary proof failed …`). A proof that fails
-  or times out also reports where it stopped: the stage, how long it waited, the bytes exchanged with
-  the notary and with Steam, the thread count and the prover build, with no account or deal ids. Proofs
-  the backend rejected, suppressed proofs and reports held back for a proof are reported too. Proof
-  reports have their own daily budget (50) and never use up the budget for crash reports. A remote
-  setting, off by default, can end a proof whose notary connection went silent instead of waiting out
-  the deadline.
-- **Forced updates (paused, not active in this release).** The extension can read the oldest version
-  allowed to keep working from the remote configuration, ask Chrome for the update and report where it
-  stands to dmarket.com (`pong.update`). The published configuration sets no minimum and CI does not
-  raise one, so no install is asked to update and `pong.update` reports `required: false`.
-- **Back row in the log export view (DMA-678).** The "‹ Back" text button is now the design's
-  arrow-and-label row, a shared `BackButton` component the How to update screen can reuse. The view's title and
-  "What's inside" heading use the design's 14px semibold style.
-- **Toolbar icon for a required update (follow-up to DMA-482).** While the popup shows "Update required",
-  the toolbar icon is the grey glyph with an orange "↻" badge, chosen by the same rule as the popup. A
-  suspicious offer still takes the badge, as a red "!". The "Update required" screen's warning triangle and
-  update badge are orange (`#FF9634`, the Steam banner's warning colour) instead of red.
-
-### Fixed
-
-- **The "!" badge no longer blinks with two sent-offers tabs open.** A tab loaded before an offer closed
-  still listed it, a fresher one did not, and every verdict a page scan wrote woke both tabs to scan
-  again: one took the warning down, the other gave it back, several times a second until a tab was
-  closed. What a page's own scan writes now reaches that page in its reply only; changes from the core,
-  the user or the published scam list still reach every open trade-offers tab.
-- **A broken offer selector no longer erases the yellow Steam offer warnings (DMA-859).** When
-  `web.offerSelectors.offer` missed the offer blocks on `/tradeoffers/sent/` (a Steam markup change or a
-  bad publish), the empty scan was read as "no open offers" and every yellow verdict was dropped; the
-  core reports an offer once, so the warnings did not come back after the selector was fixed. The page
-  now prunes only when the selector matched every `tradeofferid_` block on it, and an open offer the
-  core already reported (its `tracker_guard_notified` record) gets its warning back the next time the
-  sent page lists it, which also heals installs that lost the warning before this fix.
-- **Closed Steam offers are no longer flagged as suspicious (DMA-849).** Steam keeps recently accepted,
-  canceled and declined offers on `/tradeoffers/sent/`; the page now skips any offer without footer
-  actions (`web.offerSelectors.active`), so a closed offer to a known scam account is neither warned
-  about nor counted in the badge and popup. A partner taken off `web.knownScamPartners` also loses the
-  warnings only the page raised for it, at once instead of after the 24 h TTL.
-- **Messages from other extensions and pages are refused (DMA-813).** Every `runtime.onMessage`
-  handler checks that the sender is this extension's own page or content script before it acts.
-- **The Steam credential leaves the device with the extension (DMA-817).** Deactivating, and a
-  DMarket sign-out that lasts, remove the stored Steam web token. The token is kept in
-  `storage.session`, which Chrome holds in memory, so it is not written to disk and is gone when the
-  browser closes; a token an older version left in `storage.local` is removed when the updated
-  extension starts.
-- **`storage.local` and `storage.session` are closed to content scripts (DMA-816).** The Steam page
-  and the dmarket.com bridge ask the worker for the few keys they read and get their changes pushed,
-  so a page renderer can neither read the Steam token nor rewrite the remote config. Firefox, which
-  has no storage access levels, is unchanged.
-- **Error reports no longer carry the dmarket.com device id.** Each report's device id was the site's
-  analytics cookie (`dm_did`), which ties a report to the browser's web session. It is now a random
-  install id that switching reporting off erases, and the reporter reads no cookies. Reports also scrub
-  deal, offer and trade ids and the query values of bare request paths. The toggle now reads "Send
-  technical error reports", and its tooltip lists everything a report carries.
-- **Updates install without a browser restart.** Chrome installs an update only while the extension
-  is idle, and the document that runs the trade-proof engine kept it from ever being idle, so updates
-  waited until the seller restarted Chrome. The extension now reloads onto a downloaded update as soon
-  as no proof is running.
+- A banner on Steam's sent-offers and offer pages warns about an outgoing offer that gives items away with no
+  DMarket deal, and about offers from known scam accounts or accounts posing as DMarket. New remote-config keys:
+  `web.offerSelectors`, `web.offerPageAnchorSelector`, `web.knownScamPartners`, `tracker.receivedOfferNameCheck`
+  and `tracker.isTradeOurGraceMs` (DMA-819).
+- When Chrome has not installed a required update by itself, the popup shows "Update required" with a "How to
+  update" guide, and the toolbar icon turns grey with an orange "↻" badge. The minimum version comes from the new
+  remote-config key `web.minExtensionVersion`, which is not published yet (DMA-482).
+- Help → Troubleshooting can save the last 24 hours of the extension's activity to a file or copy it, so you can
+  send it to support (DMA-678).
+- Failed trade proofs are now included in error reports (DMA-516).
 
 ### Changed
 
-- **`CreateTrade` from dmarket.com is a trigger, not an order (DMA-814).** The extension takes only
-  `deal_id` from the frame; the core fetches the deal's `create_offer` directive from the backend
-  (`POST /p2p/deals/{id}/create-trade`) and builds the Steam offer from it, so a script on the page
-  can no longer choose the counterparty. `directive_id`, `partner_steam_id`, `asset_ids`,
-  `trade_token` and `linked_steam_id` are accepted and ignored; the page must keep sending them
-  while 1.0.5 and older are installed, since those drop a frame missing any of them. Reply frames
-  and `reason` codes are unchanged. The `ack` arrives after the directive call plus the Steam POST;
-  waiting stops at 30 s with `ack` `failed`/`OTHER` while the create carries on. A deal with no
-  directive gets `failed`/`OTHER` and no Steam write.
-- **Trade proofs run on the `steam-provenance` `1.0.1` prover**, shipped with core `1.1.0-beta`.
-  `1.0.5-beta` ran the `99e090a` build.
-- **Remote configuration comes from the DMarket CDN (DMA-484)** instead of Firebase Remote Config,
-  revalidated hourly by default and with a 15-minute back-off after a failed fetch. The Firebase host
-  permission is removed.
-- **Fewer remotely tunable settings.** Steam base URLs and query-parameter names, the notary protocol
-  names, the Steam profile and game groups, the bridge's extra origins and the trigger debounces are no
-  longer settable remotely; they could not do anything useful and some could widen what the extension
-  accepts.
-- **The extension reports its own version** to dmarket.com (`pong.version`) and to the backend
-  (heartbeat `clientVersion`), instead of the core library's.
+- Remote configuration now comes from the DMarket CDN instead of Firebase, and the Firebase permission is removed
+  (DMA-484).
 
-### Engineering
+### Fixed
 
-- **The debug build reaches the QA autotests without a CircleCI token.** After every green
-  `build-debug` on `main`, CI uploads the debug zip over `latest.zip` in a private stage Cloud Storage
-  bucket (`publish_debug_build`), with the version, commit and build in the object's metadata.
-- **Debug builds start on Stage.** A debug build boots against the Stage environment (API, FE and its
-  own notary) when the build environment configures it, else Dev, else Prod; the debug console's Stage
-  preset is the highlighted one.
+- The "!" badge no longer blinks when two sent-offers tabs are open.
+- Yellow offer warnings no longer disappear when the offer selector stops matching Steam's page (DMA-859).
+- Closed Steam offers are no longer flagged as suspicious (DMA-849).
+- Updates now install without restarting Chrome.
+
+### Security
+
+- The extension ignores messages from other extensions and web pages (DMA-813).
+- Deactivating or signing out of DMarket removes the stored Steam token, which is no longer written to disk
+  (DMA-817).
+- Web pages can no longer read the Steam token or change the extension's remote config (DMA-816).
+- A page on dmarket.com can no longer choose the counterparty of a Steam offer (DMA-814).
+- Error reports no longer carry the dmarket.com analytics id, and they scrub deal, offer and trade ids.
 
 ## [1.0.5-beta] - 2026-09-23
 
