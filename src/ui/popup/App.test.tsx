@@ -119,7 +119,7 @@ describe('popup home screen during a forced update', () => {
     );
     expect(root.querySelector('.home .update-link')?.textContent).toBe('How to update?');
     expect(root.querySelector('.home .update-footer')?.textContent).toBe(
-      'Trades in progress are still tracked; new ones need the latest version.',
+      'Trades in progress are still tracked, but new ones need the latest version',
     );
   });
 
