@@ -15,6 +15,7 @@
 import { installNetLog, logCommand, logLifecycle } from '@/debug/netLog';
 import { logProverConfiguration, registerDebugRouter, type DebugDeps } from '@/debug/router';
 import { API_URL_KEY, FE_URL_KEY } from '@/debug/protocol';
+import { syncDebugFeBridge } from '@/debug/feBridge';
 import { setNotaryTraceSink } from '@/core/notary-trace';
 
 export async function installDebug(deps: DebugDeps): Promise<void> {
@@ -31,6 +32,8 @@ export async function installDebug(deps: DebugDeps): Promise<void> {
   // that could not see anything. `void`: the append is async, the core's callback is not.
   deps.setLifecycleSink((json) => void logLifecycle(json));
   registerDebugRouter(deps);
+  // The page bridge on a console-applied FE: an update or a browser restart can drop the registration.
+  void syncDebugFeBridge();
 
   // Safety net only. background.ts resolves the stored endpoint overrides BEFORE the first
   // Tracker.start (see `bootCore`), so in the normal path this finds nothing to change and does not

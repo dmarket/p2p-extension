@@ -194,8 +194,12 @@ async function answer(
   return handle(request, getHandle);
 }
 
-/** Debug builds also inject the bridge on the dev/stage FE (the `build:manifestGenerated` hook in wxt.config.ts). */
-function devFeOrigins(): string[] {
+/**
+ * Debug builds also inject the bridge on the dev/stage FE (the `build:manifestGenerated` hook in wxt.config.ts)
+ * and on the FE origins the debug console applied (`debug.allowedOrigins`, src/debug/feBridge.ts). The key is a
+ * literal, as in background.ts, so this compile-time-dead branch pulls nothing from src/debug into production.
+ */
+async function devFeOrigins(): Promise<string[]> {
   if (!import.meta.env.DEV) return [];
   const out: string[] = [];
   for (const url of [import.meta.env.WXT_DEV_FE_URL, import.meta.env.WXT_STAGE_FE_URL]) {
@@ -204,6 +208,12 @@ function devFeOrigins(): string[] {
     } catch {
       /* an unparseable .env value adds nothing, as in the manifest hook */
     }
+  }
+  try {
+    const stored = (await browser.storage.local.get('debug.allowedOrigins'))['debug.allowedOrigins'];
+    if (Array.isArray(stored)) for (const o of stored) if (typeof o === 'string') out.push(o.replace(/\/+$/, ''));
+  } catch {
+    /* storage unavailable — the build-time origins still count */
   }
   return out;
 }
@@ -214,15 +224,16 @@ function devFeOrigins(): string[] {
  * context (the Steam content script included) could ask for `create-trade`. `request-cycle` carries no page
  * data and only nudges a cycle, so it needs the id check alone.
  */
-function senderAllowed(request: BridgeRequest, sender: Browser.runtime.MessageSender): boolean {
+async function senderAllowed(request: BridgeRequest, sender: Browser.runtime.MessageSender): Promise<boolean> {
   if (sender.id !== browser.runtime.id) return false;
   if (request.kind === 'request-cycle') return true;
+  let origin: string;
   try {
-    const origin = new URL(sender.tab?.url ?? sender.url ?? '').origin;
-    return [...DMARKET_ORIGINS, ...devFeOrigins()].includes(origin);
+    origin = new URL(sender.tab?.url ?? sender.url ?? '').origin;
   } catch {
     return false;
   }
+  return DMARKET_ORIGINS.includes(origin) || (await devFeOrigins()).includes(origin);
 }
 
 /**
@@ -238,26 +249,28 @@ export function registerBridgeRouter(
 ): void {
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!isBridgeRequest(message)) return undefined;
-    if (!senderAllowed(message, sender)) {
-      sendResponse({ ok: false, error: 'sender not allowed', reason: 'OTHER' } satisfies BridgeResponse);
-      return undefined;
-    }
-    if (message.kind === 'presence') onPresence?.();
-    answer(message, getHandle, bootSettled)
-      .then(sendResponse)
-      .catch((error) => {
-        // Reported as an exception CLASS plus the request kind — never `String(error)`.
-        //
-        // Every argument on this path is page-controlled: `isFrontendMessage` only checks `typeof ===
-        // 'string'`, so a rogue script or an XSS on dmarket.com can put a chosen value into `deal_id`, and it
-        // can resurface inside a failure message. Echoing
-        // that would hand the page a persisted, retried channel into the analytics warehouse, sent from the
-        // extension's own context and invisible to the page itself. It is also charged to a separate, much
-        // smaller daily budget (`fromPage`) so it cannot exhaust the internal one and blind the reporter.
-        const name = error instanceof Error ? error.constructor.name : typeof error;
-        reportError(new Error(`bridge ${message.kind} failed: ${name}`), { fromPage: true });
-        sendResponse({ ok: false, error: String(error) } satisfies BridgeResponse);
-      });
+    void senderAllowed(message, sender).then((allowed) => {
+      if (!allowed) {
+        sendResponse({ ok: false, error: 'sender not allowed', reason: 'OTHER' } satisfies BridgeResponse);
+        return;
+      }
+      if (message.kind === 'presence') onPresence?.();
+      return answer(message, getHandle, bootSettled)
+        .then(sendResponse)
+        .catch((error) => {
+          // Reported as an exception CLASS plus the request kind — never `String(error)`.
+          //
+          // Every argument on this path is page-controlled: `isFrontendMessage` only checks `typeof ===
+          // 'string'`, so a rogue script or an XSS on dmarket.com can put a chosen value into `deal_id`, and it
+          // can resurface inside a failure message. Echoing
+          // that would hand the page a persisted, retried channel into the analytics warehouse, sent from the
+          // extension's own context and invisible to the page itself. It is also charged to a separate, much
+          // smaller daily budget (`fromPage`) so it cannot exhaust the internal one and blind the reporter.
+          const name = error instanceof Error ? error.constructor.name : typeof error;
+          reportError(new Error(`bridge ${message.kind} failed: ${name}`), { fromPage: true });
+          sendResponse({ ok: false, error: String(error) } satisfies BridgeResponse);
+        });
+    });
     return true; // keep the message channel open for the async response
   });
 }

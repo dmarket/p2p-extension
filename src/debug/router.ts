@@ -16,6 +16,7 @@ import { isActivated } from '@/state/activation';
 import { getLinkedSteamId } from '@/state/blocking';
 import { clearLogs, readAllLogs } from '@/debug/sessionLog';
 import { logCommand } from '@/debug/netLog';
+import { syncDebugFeBridge } from '@/debug/feBridge';
 import { lastProofOutcome, recordProofStage, runningProof } from '@/debug/proofState';
 import { blockingStateNote } from '@/debug/blockingStates';
 import { DEMAND_KEY, isDemandArmed, parseDemand } from '@/debug/demandState';
@@ -353,6 +354,7 @@ async function handle(request: DebugRequest, deps: DebugDeps): Promise<DebugResp
       } catch {
         /* invalid FE URL — skip seeding the allow-list */
       }
+      await syncDebugFeBridge(true);
       deps.restart(request.apiUrl, request.feUrl);
       return { ok: true };
     }

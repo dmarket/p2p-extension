@@ -302,6 +302,25 @@ describe('the bridge refuses senders that are not a dmarket tab of this extensio
     expect(await answerFor({ kind: 'request-cycle' }, { id: fakeBrowser.runtime.id })).toMatchObject({ ok: true });
   });
 
+  describe('an FE origin the debug console applied (debug.allowedOrigins)', () => {
+    const APPLIED = { id: fakeBrowser.runtime.id, tab: { url: 'https://main-dmarket.dev.example/ingame-items' } };
+    const record = () => fakeBrowser.storage.local.set({ 'debug.allowedOrigins': ['https://main-dmarket.dev.example'] });
+
+    it('is refused until the console records it', async () => {
+      expect(await answerFor({ kind: 'presence' }, APPLIED)).toEqual(REFUSED);
+      await record();
+      expect(await answerFor({ kind: 'presence' }, APPLIED)).toMatchObject({ ok: true, kind: 'presence' });
+      await fakeBrowser.storage.local.remove('debug.allowedOrigins');
+    });
+
+    it('is refused by a production build even when recorded', async () => {
+      vi.stubEnv('DEV', false);
+      await record();
+      expect(await answerFor(CREATE, APPLIED)).toEqual(REFUSED);
+      await fakeBrowser.storage.local.remove('debug.allowedOrigins');
+    });
+  });
+
   it('create-trade from www.dmarket.com still reaches the core', async () => {
     awaitDirectiveOutcome.mockClear();
     const sender = { id: fakeBrowser.runtime.id, tab: { url: 'https://www.dmarket.com/x' } };
