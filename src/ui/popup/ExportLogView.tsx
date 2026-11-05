@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { buildDiagExport, serializeDiagExport } from '@/infra/diag/export';
+import { BackButton } from './BackButton';
 import { icons } from './icons';
 
 interface ExportLogViewProps {
@@ -53,9 +54,7 @@ export function ExportLogView({ onBack }: ExportLogViewProps) {
 
   return (
     <div class="export">
-      <button type="button" class="link-button export__back" onClick={onBack}>
-        ‹ Back
-      </button>
+      <BackButton onClick={onBack} />
 
       <h2 class="export__title" ref={headingRef} tabIndex={-1}>
         Export log for support

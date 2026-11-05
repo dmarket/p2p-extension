@@ -55,6 +55,8 @@ Built against `@dmarket/p2p-tracker-core` `1.2.0-beta`, which ships the TLSN pro
   allowed to keep working from the remote configuration, ask Chrome for the update and report where it
   stands to dmarket.com (`pong.update`). The published configuration sets no minimum and CI does not
   raise one, so no install is asked to update and `pong.update` reports `required: false`.
+- **Back row in the log export view (DMA-678).** The "‹ Back" text button is now the design's
+  arrow-and-label row, a shared `BackButton` component the How to update screen can reuse.
 
 ### Fixed
 
