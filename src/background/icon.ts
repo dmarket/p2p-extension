@@ -90,7 +90,8 @@ async function applyBadge(verdicts: OfferVerdicts | Promise<OfferVerdicts> = rea
 async function paintBadge(): Promise<void> {
   const colors = flagged ? OFFER_BADGE : UPDATE_BADGE;
   await browser.action.setBadgeBackgroundColor({ color: colors.background });
-  await browser.action.setBadgeTextColor({ color: colors.text });
+  // Chrome 110+; the manifest sets no minimum Chrome, and an older one must still get the badge itself.
+  await browser.action.setBadgeTextColor?.({ color: colors.text });
   await browser.action.setBadgeText({ text: flagged || updateShown ? '!' : '' });
 }
 
