@@ -11,6 +11,7 @@ import glyphRunActive from '@/assets/icons/glyph-run-active.svg';
 import glyphRunMismatch from '@/assets/icons/glyph-run-mismatch.svg';
 import glyphSad from '@/assets/icons/glyph-sad.svg';
 import warning from '@/assets/icons/warning.svg';
+import warningAmber from '@/assets/icons/warning-amber.svg';
 import badgeCancel from '@/assets/icons/badge-cancel.svg';
 import badgeCheck from '@/assets/icons/badge-check.svg';
 import badgeError from '@/assets/icons/badge-error.svg';
@@ -34,6 +35,7 @@ export const icons = {
   glyphRunMismatch,
   glyphSad,
   warning,
+  warningAmber,
   badgeCancel,
   badgeCheck,
   badgeError,

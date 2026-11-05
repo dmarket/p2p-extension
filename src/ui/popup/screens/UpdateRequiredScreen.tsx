@@ -27,7 +27,7 @@ export function UpdateRequiredScreen({
 
       <div class="home__body">
         <h1 class="title">
-          <img class="title__warning" src={icons.warning} alt="" />
+          <img class="title__warning" src={icons.warningAmber} alt="" />
           <span>Update required</span>
         </h1>
         <p class="body-text">Yours is out of date. Update it from the extensions page or restart your browser.</p>
