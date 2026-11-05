@@ -279,7 +279,7 @@ async function offerVerdicts(
   request: OfferVerdictsRequest,
   getHandle: () => TrackerHandle | undefined,
 ): Promise<GuardResponse> {
-  await forgetRetractedScamPartners(getSettings().web.knownScamPartners);
+  await forgetRetractedScamPartners(getSettings().web.knownScamPartners, false);
   if (request.pageComplete) await keepOnlyListed(request.offerIds);
   if (request.listed !== undefined) await restoreReported(request.listed);
   if (request.impersonations !== undefined) await recordPageImpersonations(request.impersonations);

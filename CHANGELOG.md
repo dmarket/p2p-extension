@@ -58,6 +58,11 @@ Built against `@dmarket/p2p-tracker-core` `1.2.0-beta`, which ships the TLSN pro
 
 ### Fixed
 
+- **The "!" badge no longer blinks with two sent-offers tabs open.** A tab loaded before an offer closed
+  still listed it, a fresher one did not, and every verdict a page scan wrote woke both tabs to scan
+  again: one took the warning down, the other gave it back, several times a second until a tab was
+  closed. What a page's own scan writes now reaches that page in its reply only; changes from the core,
+  the user or the published scam list still reach every open trade-offers tab.
 - **A broken offer selector no longer erases the yellow Steam offer warnings (DMA-859).** When
   `web.offerSelectors.offer` missed the offer blocks on `/tradeoffers/sent/` (a Steam markup change or a
   bad publish), the empty scan was read as "no open offers" and every yellow verdict was dropped; the

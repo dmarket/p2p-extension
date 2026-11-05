@@ -1,5 +1,6 @@
 // The service worker's half of the suspicious-offer guard: keeps the latest verdict per Steam offer, sent or
-// received, in `storage.session` (src/state/offerGuard.ts) and tells open trade-offers tabs when it changes.
+// received, in `storage.session` (src/state/offerGuard.ts) and tells open trade-offers tabs when the core, the user
+// or the published scam list changes it. What a page's own scan changes reaches that page in its reply only.
 //
 // Verdicts come from the core's `SuspiciousOutgoingOffers` event (and, in a debug build, from the console's
 // simulation, which sends the same event). The core reports an offer once per level and names in `cleared` the
@@ -52,14 +53,19 @@ export async function readVerdicts(now = Date.now()): Promise<OfferVerdicts> {
 
 let chain: Promise<unknown> = Promise.resolve();
 
-/** Read-modify-write, serialised so two events landing together cannot drop one another. */
-function update(change: (verdicts: OfferVerdicts) => OfferVerdicts, now = Date.now()): Promise<void> {
+/**
+ * Read-modify-write, serialised so two events landing together cannot drop one another. `notify: false` for what a
+ * page's own scan writes: the asking tab reads the result in its reply, and a push would make every open tab scan
+ * again, so two sent pages listing different offers (one loaded before an offer closed) would undo each other's
+ * write forever, the badge blinking with each.
+ */
+function update(change: (verdicts: OfferVerdicts) => OfferVerdicts, now = Date.now(), notify = true): Promise<void> {
   const run = chain.then(async () => {
     const before = await readVerdicts(now);
     const after = change({ ...before });
     if (JSON.stringify(after) === JSON.stringify(before)) return;
     await browser.storage.session.set({ [GUARD_VERDICTS_KEY]: after });
-    await notifyTabs();
+    if (notify) await notifyTabs();
   });
   chain = run.catch(() => {});
   return run;
@@ -188,7 +194,7 @@ export function recordPageImpersonations(offers: readonly ListedOffer[], now = D
           };
     }
     return v;
-  }, now);
+  }, now, false);
 }
 
 /** The value a JSON string holds; `undefined` for anything else. */
@@ -233,7 +239,7 @@ export async function restoreReported(listed: readonly ListedOffer[], now = Date
       };
     }
     return v;
-  }, now);
+  }, now, false);
 }
 
 /** The user knows this partner: drop the give-only warnings of offers sent to it. An impersonation stays. */
@@ -259,17 +265,21 @@ export function keepOnlyListed(offerIds: readonly string[]): Promise<void> {
     x.simulated === undefined &&
     x.direction === 'sent' &&
     (x.fromPage === true || x.level === 'UNLINKED_GIVE_ONLY');
-  return update((v) => keep(v, (id, x) => listed.has(id) || !prunable(x)));
+  return update((v) => keep(v, (id, x) => listed.has(id) || !prunable(x)), Date.now(), false);
 }
 
 /**
  * Drop the impersonations only the page raised whose partner is no longer on the known-scam list: the core never
  * set them, so a retracted entry would otherwise stay red until the TTL. With no published list the page flags
- * nothing, so neither does this.
+ * nothing, so neither does this. `notify: false` when a page's scan runs it (see update).
  */
-export function forgetRetractedScamPartners(knownScamPartners: readonly string[] = []): Promise<void> {
+export function forgetRetractedScamPartners(knownScamPartners: readonly string[] = [], notify = true): Promise<void> {
   const listed = new Set(knownScamPartners);
-  return update((v) => keep(v, (_, x) => x.fromPage !== true || x.simulated !== undefined || listed.has(x.partnerSteamId)));
+  return update(
+    (v) => keep(v, (_, x) => x.fromPage !== true || x.simulated !== undefined || listed.has(x.partnerSteamId)),
+    Date.now(),
+    notify,
+  );
 }
 
 /** Debug console only: remove every simulated verdict. */

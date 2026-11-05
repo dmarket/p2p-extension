@@ -319,6 +319,23 @@ describe('the guard router', () => {
       expect(Object.keys(await readVerdicts())).toEqual(['11']);
     });
 
+    it('wakes no tab for what a page scan wrote, so two sent pages that disagree cannot undo each other forever', async () => {
+      await record([wire('11', FRIEND, 'UNLINKED_GIVE_ONLY')]);
+      await notify({ '11': 'UNLINKED_GIVE_ONLY' });
+      vi.spyOn(fakeBrowser.tabs, 'query').mockResolvedValue([{ id: 7 }, { id: 8 }] as never);
+      const send = vi.spyOn(fakeBrowser.tabs, 'sendMessage').mockResolvedValue(undefined);
+      // Tab 7 was loaded after offer '11' closed, tab 8 before: each write used to make both scan again.
+      await ask({ kind: 'offer-verdicts', offerIds: [], pageComplete: true });
+      expect((await readVerdicts())['11']).toBeUndefined();
+      await ask({ kind: 'offer-verdicts', offerIds: ['11'], pageComplete: true, listed: [sent('11', FRIEND)] });
+      expect((await readVerdicts())['11']).toMatchObject({ level: 'UNLINKED_GIVE_ONLY' });
+      // A page-found impersonation, then the worker dropping it for a partner off its list.
+      await ask({ kind: 'offer-verdicts', offerIds: ['12'], pageComplete: false, impersonations: [{ offerId: '12', partnerSteamId: SCAM, giveCount: 1 }] });
+      await ask({ kind: 'offer-verdicts', offerIds: ['12'], pageComplete: false });
+      expect((await readVerdicts())['12']).toBeUndefined();
+      expect(send).not.toHaveBeenCalled();
+    });
+
     it('refuses a request whose listed offers are not on its page', () => {
       const req = { kind: 'offer-verdicts', offerIds: [], pageComplete: false, listed: [sent('11', FRIEND)] };
       expect(isOfferVerdictsRequest(req)).toBe(false);
