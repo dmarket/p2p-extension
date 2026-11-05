@@ -37,6 +37,11 @@ export function UpdateRequiredScreen({
           </button>
         )}
       </div>
+
+      <div class="update-footer">
+        <img class="update-footer__icon" src={icons.info} alt="" />
+        <span>Trades in progress are still tracked; new ones need the latest version.</span>
+      </div>
     </div>
   );
 }

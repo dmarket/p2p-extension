@@ -90,11 +90,6 @@ export function HowToUpdateView({ onBack }: { onBack: () => void }) {
           {restartStatus}
         </p>
       </section>
-
-      <div class="how-to__footer">
-        <img class="how-to__footer-icon" src={icons.info} alt="" />
-        <span>Trades in progress are still tracked; new ones need the latest version.</span>
-      </div>
     </div>
   );
 }

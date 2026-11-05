@@ -853,7 +853,9 @@ body {
   line-height: 18px;
 }
 
-.how-to__footer {
+/* Update required: pinned to the bottom of the screen and left-aligned, under the centred home column. */
+.update-footer {
+  align-self: stretch;
   margin-top: auto;
   display: flex;
   align-items: center;
@@ -863,7 +865,7 @@ body {
   color: var(--dm-ext-text-secondary);
 }
 
-.how-to__footer-icon {
+.update-footer__icon {
   flex: none;
   width: 20px;
   height: 20px;

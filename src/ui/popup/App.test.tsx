@@ -118,6 +118,9 @@ describe('popup home screen during a forced update', () => {
       'Yours is out of date. Update it from the extensions page or restart your browser.',
     );
     expect(root.querySelector('.home .update-link')?.textContent).toBe('How to update?');
+    expect(root.querySelector('.home .update-footer')?.textContent).toBe(
+      'Trades in progress are still tracked; new ones need the latest version.',
+    );
   });
 
   it.each([undefined, 'checking', 'applying'])('keeps the normal screen while the state is %s', async (state) => {
@@ -183,6 +186,7 @@ describe('popup home screen during a forced update', () => {
     expect(root.querySelector('.offer-alert')).toBeNull();
     const titles = [...root.querySelectorAll('.how-to .subview-title')].map((t) => t.textContent?.trim());
     expect(titles).toEqual(['Update without restarting', 'Update and restart browser']);
+    expect(root.textContent).not.toContain('Trades in progress are still tracked');
     expect(root.textContent).not.toMatch(/reinstall|remove|uninstall/i);
   });
 
