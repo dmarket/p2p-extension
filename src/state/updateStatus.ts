@@ -6,6 +6,7 @@
 // worker itself, and the popup bundle must not pull the reload machinery in.
 
 import { loadSettings, subscribeSettings } from '@/config/settings';
+import type { SurfaceState } from '@/state/surface';
 import { subscribeKey } from '@/state/subscribeKey';
 import { extensionVersion } from '@/util/extensionVersion';
 import { compareVersions, numericVersion } from '@/util/version';
@@ -58,6 +59,15 @@ export function resolveUpdateStatus<S extends string>(input: {
  */
 export function needsUpdateScreen(status: UpdateStatus<string>): boolean {
   return status.required && status.state !== 'checking' && status.state !== 'applying';
+}
+
+/**
+ * Whether the "Update required" layer covers the surface: the popup shows its update screen and the toolbar its
+ * update icon. The three sign-in states stay above it (without a session the trades in progress are not tracked
+ * at all); it replaces onboarding, the paused screen and the active one.
+ */
+export function showsUpdateLayer(status: UpdateStatus<string>, surface: SurfaceState): boolean {
+  return needsUpdateScreen(status) && (surface === 'NOT_ACTIVATED' || surface === 'BLOCKED' || surface === 'ACTIVE');
 }
 
 /**

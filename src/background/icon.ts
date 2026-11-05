@@ -4,6 +4,7 @@ import { resolveSurface } from '@/state/surface';
 import { liveVerdicts, readVerdicts } from '@/background/offerGuard';
 import type { OfferVerdicts } from '@/state/offerGuard';
 import { subscribeVerdicts } from '@/state/verdicts';
+import { getUpdateStatus, showsUpdateLayer, subscribeUpdateStatus, type UpdateStatus } from '@/state/updateStatus';
 
 // Toolbar icon: three glyphs, chosen through the SAME precedence the popup and the Steam banner use
 // (state/surface.ts), so the icon always matches the screen the popup would show:
@@ -12,6 +13,8 @@ import { subscribeVerdicts } from '@/state/verdicts';
 //                                build doesn't recognise.
 //   - "inactive" (grey glyph)  — not activated, and nothing above it blocking.
 //   - "active"   (green glyph) — activated and nothing blocking.
+// On top, the forced-update layer (state/updateStatus.ts `showsUpdateLayer`, shared with the popup) replaces the
+// last three with the grey glyph and an orange "!" badge, exactly when the popup shows "Update required".
 // The inactive set (`public/icon/*.png`) is the manifest's `action.default_icon`, so a fresh,
 // not-yet-activated install shows it before any JS runs; the other two sets live under
 // `public/icon/{active,mismatch}/`. The manifest `icons` (extensions page, install dialog) is the
@@ -46,41 +49,61 @@ const BLOCKED_ICON = {
 // the icon correct immediately on every spawn. This mirror is re-seeded from storage in initIcon() and
 // kept live by subscribeBlockingReason().
 let reason: BlockingReason = 'NONE';
+let update: UpdateStatus<string> = { required: false, state: 'none' };
+// What the badge shows; each is set by its own source and the badge is painted from both.
+let flagged = false;
+let updateShown = false;
+
+// The orange of the popup's "Update required" screen (src/assets/icons/badge-update.svg, warning-amber.svg).
+const UPDATE_BADGE = { background: '#FF9634', text: '#0F0F10' };
+const OFFER_BADGE = { background: '#e5484d', text: '#FFFFFF' };
 
 async function applyIcon(): Promise<void> {
   try {
     // One resolver for all three surfaces — a per-surface copy of the priority is how the icon came to
     // disagree with the popup. `LOADING` is unreachable here: both inputs are always resolved values.
     const surface = resolveSurface(await isActivated(), reason);
+    updateShown = showsUpdateLayer(update, surface);
     const path =
-      surface === 'ACTIVE' ? ACTIVE_ICON : surface === 'NOT_ACTIVATED' ? INACTIVE_ICON : BLOCKED_ICON;
+      updateShown || surface === 'NOT_ACTIVATED' ? INACTIVE_ICON : surface === 'ACTIVE' ? ACTIVE_ICON : BLOCKED_ICON;
     await browser.action.setIcon({ path });
+    await paintBadge();
   } catch (error) {
     console.debug('[dmarket-p2p] icon update failed', error);
   }
 }
 
-// The only badge: "!" while a suspicious outgoing Steam offer is cached (src/background/offerGuard.ts). It sits
-// on top of whichever glyph the state above chose, because an offer waiting for a mobile confirmation matters
-// in every state, and goes once the offer leaves the sent page, the user trusts the partner, or the cache expires.
+// The badge is one "!" slot, two meanings:
+//   - red    — a suspicious outgoing Steam offer is cached (src/background/offerGuard.ts). It wins in every state,
+//              because an offer waiting for a mobile confirmation matters more than anything else here, and goes
+//              once the offer leaves the sent page, the user trusts the partner, or the cache expires;
+//   - orange — the popup shows "Update required" (on the grey glyph, as for a not-activated install).
 async function applyBadge(verdicts: OfferVerdicts | Promise<OfferVerdicts> = readVerdicts()): Promise<void> {
   try {
-    const flagged = Object.keys(await verdicts).length > 0;
-    await browser.action.setBadgeText({ text: flagged ? '!' : '' });
+    flagged = Object.keys(await verdicts).length > 0;
+    await paintBadge();
   } catch (error) {
     console.debug('[dmarket-p2p] badge update failed', error);
   }
 }
 
+async function paintBadge(): Promise<void> {
+  const colors = flagged ? OFFER_BADGE : UPDATE_BADGE;
+  await browser.action.setBadgeBackgroundColor({ color: colors.background });
+  await browser.action.setBadgeTextColor({ color: colors.text });
+  await browser.action.setBadgeText({ text: flagged || updateShown ? '!' : '' });
+}
+
 /**
- * Reflect the activation flag and the tracker's blocking reason on the toolbar icon, and keep both in
- * sync. Call once, synchronously, on every service-worker spawn: it seeds the icon from stored state
- * (activation + blocking reason) and subscribes to changes in either.
+ * Reflect the activation flag, the tracker's blocking reason and the forced-update status on the toolbar icon,
+ * and keep them in sync. Call once, synchronously, on every service-worker spawn: it seeds the icon from stored
+ * state and subscribes to changes in any of the three.
  */
 export function initIcon(): void {
   // Seed the reason from persisted state before painting so a respawn doesn't flash the wrong glyph.
-  void getBlockingReason().then((r) => {
+  void Promise.all([getBlockingReason(), getUpdateStatus()]).then(([r, u]) => {
     reason = r;
+    update = u;
     return applyIcon();
   });
   subscribeActivation(() => void applyIcon());
@@ -88,9 +111,10 @@ export function initIcon(): void {
     reason = r;
     void applyIcon();
   });
-  void browser.action
-    .setBadgeBackgroundColor({ color: '#e5484d' })
-    .catch((error: unknown) => console.debug('[dmarket-p2p] badge update failed', error));
+  subscribeUpdateStatus((u) => {
+    update = u;
+    void applyIcon();
+  });
   void applyBadge();
   subscribeVerdicts((v) => void applyBadge(liveVerdicts(v)));
 }

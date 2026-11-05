@@ -4,7 +4,7 @@ import { useActivation } from '@/ui/hooks/useActivation';
 import { useBlockingReason } from '@/ui/hooks/useBlockingReason';
 import { useUpdateStatus } from '@/ui/hooks/useUpdateStatus';
 import { useVerdicts } from '@/ui/hooks/useVerdicts';
-import { needsUpdateScreen } from '@/state/updateStatus';
+import { showsUpdateLayer } from '@/state/updateStatus';
 import { Header, type Tab } from './Header';
 import { InactiveScreen } from './screens/InactiveScreen';
 import { ActiveScreen } from './screens/ActiveScreen';
@@ -50,14 +50,10 @@ export function App() {
   // not recognise) and gets the neutral "paused" surface rather than ActiveScreen. The first verdict read is
   // waited for too, so the warning row and the screen under it paint in one frame.
   const surface = verdicts === undefined || update === undefined ? 'LOADING' : resolveSurface(activated, reason);
-  // Forced update: a layer over the shared precedence, popup-only (the icon and the Steam banner keep theirs).
-  // The three sign-in states stay above it — without a session the trades already in progress are not tracked
-  // at all — and it replaces onboarding, the paused screen and the active one: activating or carrying on with
-  // an outdated build is what the update is there to stop. In-progress trades keep being tracked meanwhile.
-  const updateScreen =
-    update !== undefined &&
-    needsUpdateScreen(update) &&
-    (surface === 'NOT_ACTIVATED' || surface === 'BLOCKED' || surface === 'ACTIVE');
+  // Forced update: a layer over the shared precedence, shared with the toolbar icon (the Steam banner keeps its
+  // own). Activating or carrying on with an outdated build is what the update is there to stop; in-progress
+  // trades keep being tracked meanwhile.
+  const updateScreen = update !== undefined && showsUpdateLayer(update, surface);
   const homeScreen = ((): preact.JSX.Element => {
     if (updateScreen) {
       if (howTo) {
