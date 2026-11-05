@@ -845,7 +845,7 @@ body {
   height: 16px;
 }
 
-/* Reserved height so the footer does not move when "Copied" appears. */
+/* Reserved height so nothing below shifts when "Copied" appears. */
 .how-to__status {
   min-height: 18px;
   margin: 0;
