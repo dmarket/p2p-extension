@@ -50,10 +50,10 @@ describe('toolbar icon', () => {
     [true, 'NONE'],
     [false, 'NONE'],
     [true, 'DM_CONNECTION_ERROR'],
-  ])('shows the grey icon with an orange "!" over activated=%s reason=%s while an update is required', async (activated, reason) => {
+  ])('shows the grey icon with an orange "↻" over activated=%s reason=%s while an update is required', async (activated, reason) => {
     await start({ activated, reason, update: 'restart_required' });
     expect(lastIcon()).toBe('inactive');
-    expect(lastBadge()).toBe('!');
+    expect(lastBadge()).toBe('↻');
     expect(lastBadgeColor()).toBe('#FF9634');
   });
 

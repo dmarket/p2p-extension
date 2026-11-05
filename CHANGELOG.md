@@ -71,7 +71,7 @@ Built against `@dmarket/p2p-tracker-core` `1.2.0-beta`, which ships the TLSN pro
   arrow-and-label row, a shared `BackButton` component the How to update screen can reuse. The view's title and
   "What's inside" heading use the design's 14px semibold style.
 - **Toolbar icon for a required update (follow-up to DMA-482).** While the popup shows "Update required",
-  the toolbar icon is the grey glyph with an orange "!" badge, chosen by the same rule as the popup. A
+  the toolbar icon is the grey glyph with an orange "↻" badge, chosen by the same rule as the popup. A
   suspicious offer still takes the badge, as a red "!". The "Update required" screen's warning triangle and
   update badge are orange (`#FF9634`, the Steam banner's warning colour) instead of red.
 

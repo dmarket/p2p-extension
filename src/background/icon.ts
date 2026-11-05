@@ -14,7 +14,7 @@ import { getUpdateStatus, showsUpdateLayer, subscribeUpdateStatus, type UpdateSt
 //   - "inactive" (grey glyph)  — not activated, and nothing above it blocking.
 //   - "active"   (green glyph) — activated and nothing blocking.
 // On top, the forced-update layer (state/updateStatus.ts `showsUpdateLayer`, shared with the popup) replaces the
-// last three with the grey glyph and an orange "!" badge, exactly when the popup shows "Update required".
+// last three with the grey glyph and an orange "↻" badge, exactly when the popup shows "Update required".
 // The inactive set (`public/icon/*.png`) is the manifest's `action.default_icon`, so a fresh,
 // not-yet-activated install shows it before any JS runs; the other two sets live under
 // `public/icon/{active,mismatch}/`. The manifest `icons` (extensions page, install dialog) is the
@@ -55,8 +55,8 @@ let flagged = false;
 let updateShown = false;
 
 // The orange of the popup's "Update required" screen (src/assets/icons/badge-update.svg, warning-amber.svg).
-const UPDATE_BADGE = { background: '#FF9634', text: '#0F0F10' };
-const OFFER_BADGE = { background: '#e5484d', text: '#FFFFFF' };
+const UPDATE_BADGE = { background: '#FF9634', text: '#0F0F10', symbol: '↻' };
+const OFFER_BADGE = { background: '#e5484d', text: '#FFFFFF', symbol: '!' };
 
 async function applyIcon(): Promise<void> {
   try {
@@ -73,11 +73,11 @@ async function applyIcon(): Promise<void> {
   }
 }
 
-// The badge is one "!" slot, two meanings:
-//   - red    — a suspicious outgoing Steam offer is cached (src/background/offerGuard.ts). It wins in every state,
-//              because an offer waiting for a mobile confirmation matters more than anything else here, and goes
-//              once the offer leaves the sent page, the user trusts the partner, or the cache expires;
-//   - orange — the popup shows "Update required" (on the grey glyph, as for a not-activated install).
+// The badge is one slot, two meanings:
+//   - red "!"    — a suspicious outgoing Steam offer is cached (src/background/offerGuard.ts). It wins in every state,
+//                because an offer waiting for a mobile confirmation matters more than anything else here, and goes
+//                once the offer leaves the sent page, the user trusts the partner, or the cache expires;
+//   - orange "↻" — the popup shows "Update required" (on the grey glyph, as for a not-activated install).
 async function applyBadge(verdicts: OfferVerdicts | Promise<OfferVerdicts> = readVerdicts()): Promise<void> {
   try {
     flagged = Object.keys(await verdicts).length > 0;
@@ -92,7 +92,7 @@ async function paintBadge(): Promise<void> {
   await browser.action.setBadgeBackgroundColor({ color: colors.background });
   // Chrome 110+; the manifest sets no minimum Chrome, and an older one must still get the badge itself.
   await browser.action.setBadgeTextColor?.({ color: colors.text });
-  await browser.action.setBadgeText({ text: flagged || updateShown ? '!' : '' });
+  await browser.action.setBadgeText({ text: flagged || updateShown ? colors.symbol : '' });
 }
 
 /**
