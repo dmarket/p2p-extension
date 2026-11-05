@@ -56,7 +56,8 @@ Built against `@dmarket/p2p-tracker-core` `1.2.0-beta`, which ships the TLSN pro
   stands to dmarket.com (`pong.update`). The published configuration sets no minimum and CI does not
   raise one, so no install is asked to update and `pong.update` reports `required: false`.
 - **Back row in the log export view (DMA-678).** The "‹ Back" text button is now the design's
-  arrow-and-label row, a shared `BackButton` component the How to update screen can reuse.
+  arrow-and-label row, a shared `BackButton` component the How to update screen can reuse. The view's title and
+  "What's inside" heading use the design's 14px semibold style.
 
 ### Fixed
 
