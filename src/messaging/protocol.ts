@@ -48,6 +48,12 @@ export type CreateTradeFailureReason =
    * Steam Trade Offers page — so the page should send them there rather than retry.
    */
   | 'EXT_NOT_ACTIVATED'
+  /**
+   * A forced update is pending, so the core has paused offer creation and no Steam write was attempted.
+   * Retrying does not help: it clears only once the extension is updated, so the page should show the update
+   * prompt (`pong.update`). A deal whose offer this device already made is not refused; it gets that offer back.
+   */
+  | 'EXT_UPDATE_REQUIRED'
   /** Transport failure reaching Steam. Retryable without a cooldown. */
   | 'NETWORK'
   /** Any other defined error — the tolerant default, never a guess. */
@@ -62,6 +68,7 @@ const CREATE_TRADE_FAILURE_REASONS: Record<CreateTradeFailureReason, true> = {
   LIMIT_OUTGOING: true,
   EXT_NOT_READY: true,
   EXT_NOT_ACTIVATED: true,
+  EXT_UPDATE_REQUIRED: true,
   NETWORK: true,
   OTHER: true,
 };

@@ -179,6 +179,7 @@ const OUTCOMES = [
   [JSON.stringify({ ok: false, status: 'throttled', scope: 'partner', retryAfterSeconds: 30 }), { ok: false, reason: 'LIMIT_COUNTERPARTY' }],
   [JSON.stringify({ ok: false, status: 'throttled', scope: 'global', retryAfterSeconds: 30 }), { ok: false, reason: 'OTHER' }],
   [JSON.stringify({ ok: false, status: 'create_in_flight', duplicate: true }), { ok: false, reason: 'OTHER' }],
+  [JSON.stringify({ ok: false, status: 'creates_paused' }), { ok: false, reason: 'EXT_UPDATE_REQUIRED' }],
   [JSON.stringify({ ok: false, status: 'account_mismatch', linkedSteamId: '1', tokenSteamId: '2' }), { ok: false }],
   // Degrades rather than emitting a half-filled mismatch the page would render with blank ids.
   [JSON.stringify({ ok: false, status: 'account_mismatch' }), { ok: false, reason: 'OTHER' }],

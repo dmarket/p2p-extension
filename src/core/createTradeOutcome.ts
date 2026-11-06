@@ -168,6 +168,12 @@ export function resolveCreateTradeOutcome(json: string): CreateTradeResult {
     case 'failed':
       return { ok: false, status: 'failed', error: error ?? '', reason: mapCoreCause(raw.cause) };
 
+    // The core's creates pause (`setCreatesPaused`, which the host turns on while an update is required): this
+    // create was neither written nor reported. It carries no cause, so it must not reach the `default` arm and
+    // read as an unclassified failure.
+    case 'creates_paused':
+      return { ok: false, status: 'failed', error: '', reason: 'EXT_UPDATE_REQUIRED' };
+
     default:
       // No status (the core's own blank deal_id check, which carries neither status nor cause)
       // or one this build does not know. Mapped all the same, so a future core status that does carry a

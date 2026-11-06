@@ -123,10 +123,12 @@ describe('the presence pong carries the forced-update status', () => {
   });
 });
 
-// Business rule: during a forced update the trades already in progress keep being tracked; only new ones are
-// stopped, and that is the FE's and the backend's job. The extension's own write and wake paths stay open.
+// Business rule: during a forced update the trades already in progress keep being tracked and only new offers are
+// stopped. The stop is the core's (`setCreatesPaused`, src/background/createsPause.ts): the router does not look at
+// the update status, so a deal whose offer this device already made still gets that offer back, and the core's
+// `creates_paused` reaches the page as EXT_UPDATE_REQUIRED (src/core/createTradeOutcome.ts).
 describe('a required update does not stop the trades already in progress', () => {
-  it('still creates a trade and still runs a requested cycle while the update is restart_required', async () => {
+  it('still asks the core to create and still runs a requested cycle while the update is restart_required', async () => {
     const { loadSettings } = await import('@/config/settings');
     const { REMOTE_CONFIG_CACHE_KEY, REMOTE_CONFIG_PARAM } = await import('@/infra/remoteConfig');
     await fakeBrowser.storage.local.set({
@@ -139,6 +141,14 @@ describe('a required update does not stop the trades already in progress', () =>
 
     expect(await bridge.reply({ kind: 'presence' })).toMatchObject({ update: { required: true, state: 'restart_required' } });
     expect(await bridge.reply(CREATE)).toMatchObject({ ok: true, kind: 'create-trade' });
+    expect(awaitDirectiveOutcome).toHaveBeenCalledTimes(1);
+    // The core's refusal comes back inside the result; the router passes it on untouched.
+    awaitDirectiveOutcome.mockResolvedValueOnce({ ok: false, status: 'failed', error: '', reason: 'EXT_UPDATE_REQUIRED' });
+    expect(await bridge.reply(CREATE)).toEqual({
+      ok: true,
+      kind: 'create-trade',
+      result: { ok: false, status: 'failed', error: '', reason: 'EXT_UPDATE_REQUIRED' },
+    });
     expect(await bridge.reply({ kind: 'request-cycle', dealId: 'deal1' })).toEqual({ ok: true, kind: 'request-cycle' });
     expect(deliverPush).toHaveBeenCalled();
 
