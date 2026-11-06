@@ -25,6 +25,8 @@ Built against `@dmarket/p2p-tracker-core` `1.2.0-beta`.
 - When Chrome has not installed a required update by itself, the popup shows "Update required" with a "How to
   update" guide, and the toolbar icon turns grey with an orange "↻" badge. The minimum version comes from the new
   remote-config key `web.minExtensionVersion`, which is not published yet (DMA-482).
+- While a required update is pending, no new trade offers are created, and trades already in progress keep being
+  tracked (DMA-482).
 - Help → Troubleshooting can save the last 24 hours of the extension's activity to a file or copy it, so you can
   send it to support (DMA-678).
 - Failed trade proofs are now included in error reports (DMA-516).
