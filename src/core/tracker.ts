@@ -13,6 +13,7 @@ import {
   startTracker,
   startTrackerWithEvents,
   stopTracker,
+  setCreatesPaused as coreSetCreatesPaused,
   setKnownScamPartners as coreSetKnownScamPartners,
   subscribeActiveTrackingCount as coreSubscribeActiveTrackingCount,
   trackerCoreVersion,
@@ -207,5 +208,15 @@ export const Tracker = {
    */
   setKnownScamPartners(handle: TrackerHandle, steamIds: readonly string[]): void {
     coreSetKnownScamPartners(handle, [...steamIds]);
+  },
+
+  /**
+   * Pause or resume offer creation in the running tracker. While paused it writes no new Steam offer and
+   * reports nothing for one, and `awaitDirectiveOutcome` answers `creates_paused` for it (a deal whose offer
+   * this device already made still gets that offer back). Cancels, trade events, proofs and tracking go on.
+   * In memory only: a new core starts unpaused, so the host sends it again after every start.
+   */
+  setCreatesPaused(handle: TrackerHandle, paused: boolean): void {
+    coreSetCreatesPaused(handle, paused);
   },
 };

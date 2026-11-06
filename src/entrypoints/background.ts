@@ -10,6 +10,7 @@ import { installDevSteamRedirect } from '@/background/dev-steam-redirect';
 import { registerBridgeRouter, registerOfferGuardRouter } from '@/background/router';
 import { recordSuspiciousOffers, type SuspiciousOffersFrame } from '@/background/offerGuard';
 import { applyKnownScamPartners, forwardKnownScamPartners } from '@/background/knownScamPartners';
+import { applyCreatesPause, forwardCreatesPause } from '@/background/createsPause';
 import { registerStateMirror } from '@/background/stateMirror';
 import { injectContentScriptsOnSessionStart, registerContentScriptInjection } from '@/background/inject-content-scripts';
 import { reconcileSteamSession, registerRefreshTriggers } from '@/background/refresh';
@@ -375,6 +376,8 @@ export default defineBackground(() => {
     // Before the boot cycle runs (the core starts it on a later tick): a check without the published list
     // would clear the warnings that rest on it.
     applyKnownScamPartners(started);
+    // Same moment, same reason: a create this boot cycle asks for must already meet the pause.
+    applyCreatesPause(started);
     currentApiUrl = apiUrl;
     currentFeUrl = feUrl;
     // Mirror the core's live active-tracking count into session storage so the popup's "Activity on
@@ -624,6 +627,7 @@ export default defineBackground(() => {
     // Subscribed before the start, so a first-install document that outlives the budgeted wait and lands while the
     // core is starting reaches it: a listener added after that write would never hear of it.
     forwardKnownScamPartners(() => handle);
+    forwardCreatesPause(() => handle);
     await lifecycle.reconcile({ force: await claimSessionStart() });
     // A real change writes the cache → the subscription below fires and reconciles onto the running
     // core (diff-guarded, so an unchanged fetch is a no-op). Already in flight; see above.
