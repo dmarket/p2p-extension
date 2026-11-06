@@ -395,23 +395,33 @@ jobs:
   release:
     executor: node
     steps:
-      # No install_deps: this job needs node, git and curl only. scripts/verify-build.mjs has no
-      # dependencies for exactly this reason.
-      - checkout
-      - attach_workspace:
-          at: .
-      - run:
-          name: Resolve the version and decide whether this is a release
-          command: bash scripts/ci/release.sh resolve
-      - run:
-          name: Guard — CHANGELOG section and the production privilege surface
-          command: bash scripts/ci/release.sh guard
-      - run:
-          name: Tag
-          command: bash scripts/ci/release.sh tag
-      - run:
-          name: GitHub Release + assets
-          command: bash scripts/ci/release.sh publish
+    - checkout
+    - attach_workspace:
+        at: .
+    - run:
+        name: Resolve the version and decide whether this is a release
+        command: |
+          bash .circleci/release-writer.sh -- bash -euo pipefail \<<'NATIVE_RELEASE_COMMAND'
+          bash scripts/ci/release.sh resolve
+          NATIVE_RELEASE_COMMAND
+    - run:
+        name: Guard — CHANGELOG section and the production privilege surface
+        command: |
+          bash .circleci/release-writer.sh -- bash -euo pipefail \<<'NATIVE_RELEASE_COMMAND'
+          bash scripts/ci/release.sh guard
+          NATIVE_RELEASE_COMMAND
+    - run:
+        name: Tag
+        command: |
+          bash .circleci/release-writer.sh -- bash -euo pipefail \<<'NATIVE_RELEASE_COMMAND'
+          bash scripts/ci/release.sh tag
+          NATIVE_RELEASE_COMMAND
+    - run:
+        name: GitHub Release + assets
+        command: |
+          bash .circleci/release-writer.sh -- bash -euo pipefail \<<'NATIVE_RELEASE_COMMAND'
+          bash scripts/ci/release.sh publish
+          NATIVE_RELEASE_COMMAND
 
   # Signs the released zip into a CRX3. No approval: this is the artifact step. Runs `npm ci`-free like
   # `release` — scripts/ci/pack-crx.mjs and verify-build.mjs have no dependencies precisely so these
@@ -421,29 +431,35 @@ jobs:
   pack_crx:
     executor: node
     steps:
-      - checkout
-      - run:
-          name: Fetch the released package
-          command: bash scripts/ci/pack-crx.sh fetch
-      - run:
-          name: Verify the package before signing it
-          command: bash scripts/ci/pack-crx.sh verify
-      - run:
-          name: Sign it into a CRX3
-          command: bash scripts/ci/pack-crx.sh pack
-      - run:
-          name: Attach the .crx to the GitHub Release
-          command: bash scripts/ci/pack-crx.sh attach
-      - store_artifacts:
-          path: artifacts/store
-      - persist_to_workspace:
-          root: .
-          paths:
-            - artifacts/store
+    - checkout
+    - run:
+        name: Fetch the released package
+        command: |
+          bash .circleci/release-writer.sh -- bash -euo pipefail \<<'NATIVE_RELEASE_COMMAND'
+          bash scripts/ci/pack-crx.sh fetch
+          NATIVE_RELEASE_COMMAND
+    - run:
+        name: Verify the package before signing it
+        command: |
+          bash .circleci/release-writer.sh -- bash -euo pipefail \<<'NATIVE_RELEASE_COMMAND'
+          bash scripts/ci/pack-crx.sh verify
+          NATIVE_RELEASE_COMMAND
+    - run:
+        name: Sign it into a CRX3
+        command: bash scripts/ci/pack-crx.sh pack
+    - run:
+        name: Attach the .crx to the GitHub Release
+        command: |
+          bash .circleci/release-writer.sh -- bash -euo pipefail \<<'NATIVE_RELEASE_COMMAND'
+          bash scripts/ci/pack-crx.sh attach
+          NATIVE_RELEASE_COMMAND
+    - store_artifacts:
+        path: artifacts/store
+    - persist_to_workspace:
+        root: .
+        paths:
+        - artifacts/store
 
-  # Rehearses the upload against the live store, read-only, before the real one. Same job body as the
-  # upload minus the writes, so a wrong id, a service account that was never added under Developer
-  # Dashboard -> Account, or a version the store would reject fails HERE, with nothing sent.
   store_preflight:
     executor: node
     steps:
@@ -568,10 +584,13 @@ jobs:
   delete_release_branch:
     executor: node
     steps:
-      - checkout
-      - run:
-          name: Delete the release branch
-          command: bash scripts/ci/delete-release-branch.sh
+    - checkout
+    - run:
+        name: Delete the release branch
+        command: |
+          bash .circleci/release-writer.sh -- bash -euo pipefail \<<'NATIVE_RELEASE_COMMAND'
+          bash scripts/ci/delete-release-branch.sh
+          NATIVE_RELEASE_COMMAND
 
 workflows:
   ci:
@@ -642,8 +661,7 @@ workflows:
       - release:
           requires:
             - hold_release
-          context:
-            - org-global
+          context: ["release-writer", "org-global"]
           filters: *release_branches
       # The store path continues in THIS workflow rather than in a second one triggered by the tag
       # `release` pushes. Two reasons, and the first is the one that shows:
@@ -665,8 +683,7 @@ workflows:
       - pack_crx:
           requires:
             - release
-          context:
-            - org-global
+          context: ["release-writer", "org-global"]
           filters: *release_branches
       - store_preflight:
           requires:
@@ -679,8 +696,7 @@ workflows:
       - delete_release_branch:
           requires:
             - upload_to_store
-          context:
-            - org-global
+          context: ["release-writer", "org-global"]
           filters: *release_branches
       # STORE WATCH + FORCED UPDATE are paused: `watch_store_release`, `hold_force_update` and
       # `approve_force_update` are not wired in. See the header for what to restore.

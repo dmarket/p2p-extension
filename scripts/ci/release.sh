@@ -15,7 +15,7 @@
 #
 # Environment:
 #   REPO_SLUG      owner/repo (set by the executor in .circleci/config.yml)
-#   GITHUB_TOKEN   contents:write — needed by `tag` and `publish` only
+#   RELEASE_TOKEN   contents:write — needed by `tag` and `publish` only
 #   CIRCLE_BRANCH  the release branch (`release/vX.Y.Z`); its version must match package.json's
 #   BASH_ENV       CircleCI's per-job env file, sourced before every step
 set -euo pipefail
@@ -175,18 +175,18 @@ diagnose_push_denied() {
 
 tag() {
   releasing || { skip; return 0; }
-  : "${GITHUB_TOKEN:?GITHUB_TOKEN must be set (org-wide context org-global)}"
+  : "${RELEASE_TOKEN:?RELEASE_TOKEN must be set (scoped release-writer context)}"
 
   # A value pasted into a CI form can arrive with a trailing newline, which lands inside the push URL
   # and is rejected as a bad credential — a 403 with no hint. Tokens never contain whitespace, so
   # trimming is safe; it is announced rather than silent so the stored value gets fixed.
   local trimmed
-  trimmed="$(printf '%s' "$GITHUB_TOKEN" | tr -d '[:space:]')"
-  if [ "$trimmed" != "$GITHUB_TOKEN" ]; then
-    echo "WARNING: GITHUB_TOKEN had surrounding whitespace — trimming it for this run, but fix the" >&2
+  trimmed="$(printf '%s' "$RELEASE_TOKEN" | tr -d '[:space:]')"
+  if [ "$trimmed" != "$RELEASE_TOKEN" ]; then
+    echo "WARNING: RELEASE_TOKEN had surrounding whitespace — trimming it for this run, but fix the" >&2
     echo "         value stored in the org-global context." >&2
-    GITHUB_TOKEN="$trimmed"
-    AUTH="Authorization: Bearer ${GITHUB_TOKEN}"
+    RELEASE_TOKEN="$trimmed"
+    AUTH="Authorization: Bearer ${RELEASE_TOKEN}"
   fi
 
   git config user.name "circleci-bot"
@@ -198,7 +198,7 @@ tag() {
     git tag -a "$TAG" -m "Release $TAG"
   fi
   # Tolerate losing a race to a parallel pipeline: the tag existing is the desired end state.
-  if ! git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${REPO_SLUG}.git" "$TAG"; then
+  if ! git push "https://github.com/${REPO_SLUG}.git" "$TAG"; then
     if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
       echo "$TAG already on the remote — another pipeline won the race."
     else
@@ -283,7 +283,7 @@ resolve_release_id() {
 
 publish() {
   releasing || { skip; return 0; }
-  : "${GITHUB_TOKEN:?GITHUB_TOKEN must be set (org-wide context org-global)}"
+  : "${RELEASE_TOKEN:?RELEASE_TOKEN must be set (scoped release-writer context)}"
 
   # ONLY the production build is published. The debug bundle stays in the `build-debug` job's Artifacts
   # tab: it is not what ships, and it inlines the internal WXT_DEV_* hostnames that were deliberately
@@ -320,7 +320,7 @@ publish() {
   echo "Release $TAG published: https://github.com/${REPO_SLUG}/releases/tag/${TAG}"
 }
 
-AUTH="Authorization: Bearer ${GITHUB_TOKEN:-}"
+AUTH="Authorization: Bearer ${RELEASE_TOKEN:-}"
 
 case "$CMD" in
   resolve) resolve ;;

@@ -22,7 +22,7 @@
 #
 # Environment:
 #   REPO_SLUG            owner/repo (set by the executor in .circleci/config.yml)
-#   GITHUB_TOKEN         contents:write — read the Release, attach the .crx (context org-global)
+#   RELEASE_TOKEN         contents:write — read the Release, attach the .crx (context org-global)
 #   RELEASE_TAG          the tag to package, e.g. v1.0.1 — resolved below from CIRCLE_TAG when a tag
 #                        pipeline runs this, otherwise from package.json (the release job in the same
 #                        workflow has just tagged exactly that version)
@@ -37,7 +37,7 @@ CMD="${1:-}"
 : "${BASH_ENV:=/tmp/bash_env}"
 
 API="https://api.github.com/repos/${REPO_SLUG}"
-AUTH="Authorization: Bearer ${GITHUB_TOKEN:-}"
+AUTH="Authorization: Bearer ${RELEASE_TOKEN:-}"
 # Downloads and the unpacked tree; deliberately NOT the working directory — scripts/verify-build.mjs
 # reads package.json from the CHECKOUT, so this job must stay there.
 WORK="${WORK:-/tmp/deploy}"
@@ -65,7 +65,7 @@ fi
 
 # ── fetch ─────────────────────────────────────────────────────────────────────────────────────────
 fetch() {
-  : "${GITHUB_TOKEN:?GITHUB_TOKEN must be set (org-wide context org-global)}"
+  : "${RELEASE_TOKEN:?RELEASE_TOKEN must be set (scoped release-writer context)}"
   : "${RELEASE_TAG:?RELEASE_TAG could not be resolved — no CIRCLE_TAG and no package.json version}"
 
   # Report every missing signing/store variable at once, by NAME, so one failed run tells the operator
@@ -155,7 +155,7 @@ pack() {
 
 # ── attach ────────────────────────────────────────────────────────────────────────────────────────
 attach() {
-  : "${GITHUB_TOKEN:?GITHUB_TOKEN must be set (org-wide context org-global)}"
+  : "${RELEASE_TOKEN:?RELEASE_TOKEN must be set (scoped release-writer context)}"
 
   # Always attached, unconditionally: the .crx IS the signed release artifact, and it is the exact
   # bytes the store will receive, so the Release is where it belongs whether or not the upload that
