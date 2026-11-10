@@ -14,7 +14,7 @@ the README.
 
 ## [Unreleased]
 
-Built against `@dmarket/p2p-tracker-core` `1.2.0-beta`.
+Built against `@dmarket/p2p-tracker-core` `1.3.0-beta`.
 
 ### Added
 
