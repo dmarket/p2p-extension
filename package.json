@@ -58,5 +58,8 @@
   "allowScripts": {
     "esbuild": true,
     "fsevents": true
+  },
+  "overrides": {
+    "minimatch": "^11.0.1"
   }
 }
