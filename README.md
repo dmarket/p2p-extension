@@ -199,8 +199,12 @@ branch, and `hold_release` is the only approval among them; a push anywhere else
 
 ### Secrets
 
-`GITHUB_TOKEN` comes from the org-wide `org-global` context, listed on `release`, `pack_crx` and
-`delete_release_branch`. Everything else is a project-level environment variable:
+Every write to this repository goes through the `release-writer` context: `.circleci/release-writer.sh`
+mints a GitHub App token scoped to this repository (contents: write) for the one step that needs it, in
+`release`, `pack_crx`, `delete_release_branch` and `propose_min_version`. None of those jobs runs
+`npm ci`, and none may: the App key reaches every step of a job that lists the context. `GITHUB_TOKEN`
+from the org-wide `org-global` context has read access only; `propose_min_version` uses it to open its
+pull request. Everything else is a project-level environment variable:
 
 | Variables | Used by |
 |---|---|
@@ -284,9 +288,9 @@ circleci pipeline run --project gh/dmarket/p2p-extension --branch main --param v
 ### Watching the store, and forcing an update
 
 > **Paused.** None of this runs today: the `ci` workflow does not include `watch_store_release`,
-> `hold_force_update` or `approve_force_update`, so a release creates no schedule and never parks "On
-> Hold". The `.circleci/config.yml` header says what to restore to turn it back on. The rest of this
-> section describes how it works once re-enabled.
+> `hold_force_update`, `approve_force_update` or `propose_min_version`, so a release creates no schedule and
+> never parks "On Hold". The `.circleci/config.yml` header says what to restore to turn it back on. The rest
+> of this section describes how it works once re-enabled.
 
 Every release that reaches `upload_to_store` gets a CircleCI schedule, `store-release-<version>`, created
 through the API and polling Chrome's update server every 30 min on `main`. Once the store actually serves
@@ -302,6 +306,14 @@ once the version is served **and** the approval is given, by whichever comes sec
 store was faster still works. Leaving the approval alone is the normal answer: the pipeline then stays
 "On Hold". Waiting for the update server is also what makes the extension's single update check find the
 build instead of being throttled for hours.
+
+The raise is two jobs. The raise job publishes the live document; it runs `npm ci` and vitest, so it holds
+no GitHub credential. `propose_min_version` then installs nothing, reads the raise job's result from the
+workspace as plain data, and proposes the same minimum to git as a pull request into `main`: the
+`release-writer` App pushes `config/min-extension-<version>`, which changes only the minimum line of
+`main`'s file, and org-global's `GITHUB_TOKEN` opens the pull request. Nothing in CI pushes to `main`; a
+human reviews and merges it. The Slack notice links the pull request. If GitHub refuses to open it, the
+notice says so with a link to open it by hand, and the job fails after the notice.
 
 A push whose version is already tagged releases nothing, so re-pushing a release branch is safe;
 `[skip release]` in the commit message skips it explicitly. `main` still runs `check` and both builds

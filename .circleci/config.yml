@@ -94,14 +94,14 @@ version: 2.1
 #   and says this in its output.
 #
 # STORE WATCH + FORCED UPDATE (scripts/ci/force-update.sh) — PAUSED.
-#   None of it runs today: the three `ci` entries that start it (`watch_store_release`, `hold_force_update`,
-#   `approve_force_update`) are removed, so no release creates a schedule or parks "On Hold". The job
+#   None of it runs today: the `ci` workflow does not include `watch_store_release`, `hold_force_update`,
+#   `approve_force_update` or `propose_min_version`, so no release creates a schedule or parks "On Hold". The job
 #   definitions, the pipeline parameters and the `store_watch` / `store_release` / `store_release_forced`
-#   workflows stay; without the watch job nothing starts them. To turn it back on, re-add those three entries
-#   after `upload_to_store` in `ci` (all `filters: *release_branches`; `hold_force_update` is
-#   `type: approval`; `approve_force_update` requires it and takes contexts `org-global` + `dm-release-notify`),
-#   set CIRCLE_API_TOKEN, and publish `web.minExtensionVersion` again (buckets/*, src/config/bucketConfig.test.ts).
-#   The description below is how it works once re-enabled.
+#   workflows stay; without the watch job nothing starts them. To turn it back on, add those four entries after
+#   `upload_to_store` in `ci` (all `filters: *release_branches`; `hold_force_update` is `type: approval`;
+#   `approve_force_update` requires it; `propose_min_version` requires `approve_force_update` and takes contexts
+#   `release-writer`, `org-global` and `dm-release-notify`) and set CIRCLE_API_TOKEN. The description below is
+#   how it works once re-enabled.
 #
 #   Every release that reaches `upload_to_store` gets `watch_store_release`, which creates a CircleCI schedule
 #   `store-release-<version>` through API v2 — every 30 min on `main`, the version, a 45-day deadline and this
@@ -121,17 +121,25 @@ version: 2.1
 #   AND the approval is given, by whichever happens second — `raise_min_version` when the approval came first,
 #   `approve_force_update` when the store was faster than the approver. Both are idempotent.
 #
+#   The raise publishes the live document first, then `propose_min_version` proposes the same minimum to git as a
+#   pull request into `main`: the `release-writer` GitHub App pushes `config/min-extension-<version>` (only the
+#   minimum line of `main`'s file changes), and org-global's GITHUB_TOKEN opens the pull request — the App holds
+#   no pull-request permission, and nothing in CI may push to `main` past its review rule. A human merges it.
+#   Two jobs, not one: the raise runs `npm ci` and vitest, and
+#   the App key must never share a job with dependency code, so it lives only in the propose job, which installs
+#   nothing and gets the raise's outcome through the workspace as validated data.
+#
 #   Leaving `hold_force_update` unapproved is the normal "not forced" answer; the release pipeline then stays
 #   "On Hold" rather than green, and that is the only cost. Neither `watch_store_release` nor
 #   `approve_force_update` checks the release branch out — `delete_release_branch` may already have removed
 #   it — they clone `main` instead.
 #
-#   Secrets it needs once re-enabled: CIRCLE_API_TOKEN (a CircleCI PERSONAL token — API v2 accepts no
-#   project token; it expires within a year and dies with its owner's access; the pipelines it starts run
-#   as its owner) and P2P_EXTENSION_DEPLOY_SA_KEY, the key devops made for p2p/extension-config.json (the
-#   debug-build upload shares it; force-update.sh keeps it out of `npm ci` and vitest). gcs.mjs signs with
-#   it, no gcloud needed. Pushing to `main` uses org-global's GITHUB_TOKEN, whose owner is an admin and
-#   bypasses the rulesets. Slack goes through the `circleci/slack` orb with the org context `dm-release-notify`
+#   Secrets it needs: CIRCLE_API_TOKEN (a CircleCI PERSONAL token — API v2 accepts no project token; it
+#   expires within a year and dies with its owner's access; the pipelines it starts run as its owner) and
+#   P2P_EXTENSION_DEPLOY_SA_KEY, the key devops made for p2p/extension-config.json (the debug-build upload
+#   shares it; force-update.sh keeps it, and every other secret, out of `npm ci` and vitest). gcs.mjs signs
+#   with it, no gcloud needed. The branch is pushed through .circleci/release-writer.sh (context
+#   `release-writer`); the pull request is opened with org-global's GITHUB_TOKEN. Slack goes through the `circleci/slack` orb with the org context `dm-release-notify`
 #   (SLACK_ACCESS_TOKEN + SLACK_DEFAULT_CHANNEL) — the same bot, channel and message shape as every backend
 #   "deployed to prod" notice (see `release_notice`).
 #
@@ -140,14 +148,16 @@ version: 2.1
 #   files, and wxt.config.ts's manifest hooks read `process.env.WXT_*` directly. So plain environment
 #   variables are enough.
 #
-# SECRETS — project environment variables, plus `org-global` for GITHUB_TOKEN.
+# SECRETS — project environment variables, plus three org contexts: `org-global` (GITHUB_TOKEN),
+#   `release-writer` (the GitHub App that writes to this repository) and `dm-release-notify` (Slack).
 #   Every other secret and build setting is a PROJECT-level environment variable (Project Settings ->
 #   Environment Variables): CRX_SIGNING_KEY_B64 (base64 of the RSA private key registered under Verified
 #   CRX Uploads), CHROME_EXTENSION_ID, CHROME_PUBLISHER_ID, CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL,
-#   CHROME_SERVICE_ACCOUNT_PRIVATE_KEY, P2P_EXTENSION_DEPLOY_SA_KEY and DEBUG_BUILD_GCS_URI (the debug-build
-#   upload), and the WXT_* build configuration: WXT_COLLECTOR_URL derives a host permission that MUST be in
-#   the first published build, and WXT_DEV_*/WXT_STAGE_* point the debug artifact at the internal endpoints.
-#   No other context exists for this project, so no job below lists one.
+#   CHROME_SERVICE_ACCOUNT_PRIVATE_KEY, P2P_EXTENSION_DEPLOY_SA_KEY (the config bucket object and the
+#   debug-build upload), DEBUG_BUILD_GCS_URI, CIRCLE_API_TOKEN (the store watch; see STORE WATCH), and the
+#   WXT_* build configuration: WXT_COLLECTOR_URL derives a host permission that MUST be in the first
+#   published build, and WXT_DEV_*/WXT_STAGE_* point the debug artifact at the internal endpoints. No
+#   project-scoped context exists; the jobs below list only the three org contexts.
 #
 #   CircleCI hands project variables to EVERY job on every branch, `check` and both builds included, and
 #   those jobs run dependency code on every push (dependabot branches live in this repo, not in a fork).
@@ -158,23 +168,30 @@ version: 2.1
 #   credentials for `store_preflight` and `upload_to_store`; the bucket key for `publish_debug_build`; the
 #   WXT_* settings for the builds and `verify_store`.
 #
-#   context `org-global`                -> `release`, `pack_crx`, `delete_release_branch`. Supplies
-#     GITHUB_TOKEN. This is the org-wide context the dmarket org already maintains for every repo (per
-#     @dmytro.tkachuk, 2026-09-02), so there is no project-scoped GitHub context: a second GITHUB_TOKEN
-#     would be a second thing to rotate. It is SHARED and BROAD (any job in any project of the org can
-#     read it) and NOT verified to carry `contents: write` on dmarket/p2p-extension; if it does not, the
-#     first `release` run fails at the tag push and `scripts/ci/release.sh` says which of four causes it
-#     is (`diagnose_push_denied`) — read that before asking anyone for a new token.
+#   context `org-global`                -> `release`, `pack_crx`, `delete_release_branch`, `propose_min_version`.
+#     Supplies GITHUB_TOKEN, the org-wide token the dmarket org maintains for every repo (per
+#     @dmytro.tkachuk, 2026-09-02). SHARED and BROAD (any job in any project of the org can read it). Since
+#     DEVOPS-320 its owner, `dmserviceaccount`, has READ access to this repository (checked 2026-11-11):
+#     repository writes go through `release-writer` below. `propose_min_version` uses it only to open the
+#     forced-update pull request, which GitHub allows any member of the organisation in a public repository.
+#   context `release-writer`            -> `release`, `pack_crx`, `delete_release_branch`, `propose_min_version`.
+#     A GitHub App token scoped to this repository with contents: write, minted per step by
+#     .circleci/release-writer.sh; every write to the repository goes through it. None of these jobs runs
+#     `npm ci`, and none may: RELEASE_WRITER_PRIVATE_KEY reaches every step of a job that lists the context. It
+#     cannot bypass the review rule on `main`, so the forced-update raise pushes a branch, not `main`.
 #   context `dm-release-notify`         -> the Slack notice jobs (paused, see above).
 #
 #   No CWS_* switches in project settings: the upload's behaviour switches are CLI flags on the job's own
 #   command, not state.
 #
 #   BELT AND BRACES: `check`, both builds and `verify_store` start with `drop_store_secrets`, which
-#   `unset`s the store, signing and bucket variables for every later step of the job (through $BASH_ENV,
-#   the same mechanism scripts/ci/release.sh uses to export across steps). It is a mitigation, not a
-#   boundary: it removes the variables from the shells and processes the steps start, but not from the
-#   container's own process environment.
+#   `unset`s the store, signing, bucket and CircleCI API variables for every later step of the job (through
+#   $BASH_ENV, the same mechanism scripts/ci/release.sh uses to export across steps); the forced-update raise
+#   jobs drop the same set before their `npm ci` but keep the bucket key, which they write the config with.
+#   CIRCLE_API_TOKEN is on the list because a personal token can set project variables (NODE_OPTIONS, say)
+#   that would then run inside the release-writer jobs. It is a mitigation, not a boundary: it removes the
+#   variables from the shells and processes the steps start, but not from the container's own process
+#   environment.
 #
 #   FORKS: Project Settings -> Advanced must keep "Build forked pull requests" and "Pass secrets to builds
 #   from forked pull requests" OFF, "Only build pull requests" as chosen, and — since this config is the
@@ -273,14 +290,25 @@ commands:
   # First step of every job that runs dependency code (`check`, the builds, `verify_store`): removes the store,
   # signing and bucket variables from every later step's environment. See "BELT AND BRACES" in the header.
   drop_store_secrets:
+    parameters:
+      keep_bucket_key:
+        description: Keep P2P_EXTENSION_DEPLOY_SA_KEY — the forced-update raise jobs write the config with it.
+        type: boolean
+        default: false
     steps:
       - run:
-          name: Drop store and signing secrets from this job
+          name: Drop store, signing and CircleCI API secrets from this job
           command: |
             for v in CHROME_EXTENSION_ID CHROME_PUBLISHER_ID CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL \
-                     CHROME_SERVICE_ACCOUNT_PRIVATE_KEY CRX_SIGNING_KEY_B64 P2P_EXTENSION_DEPLOY_SA_KEY; do
+                     CHROME_SERVICE_ACCOUNT_PRIVATE_KEY CRX_SIGNING_KEY_B64 CIRCLE_API_TOKEN; do
               echo "unset $v" >> "$BASH_ENV"
             done
+      - unless:
+          condition: << parameters.keep_bucket_key >>
+          steps:
+            - run:
+                name: Drop the bucket key from this job
+                command: echo "unset P2P_EXTENSION_DEPLOY_SA_KEY" >> "$BASH_ENV"
 
   # A release-channel notice in the backend's shape (dmarket/p2p `notify`): headline, quoted commit, one context
   # line, a View Job button. `force-update.sh notice-env` writes the text (JSON-escaped) to $BASH_ENV, like the
@@ -290,14 +318,10 @@ commands:
       kind:
         description: served | expired | raised
         type: string
-      script:
-        description: Path to force-update.sh — `repo/scripts/…` in the jobs that clone `main` instead of checking out.
-        type: string
-        default: scripts/ci/force-update.sh
     steps:
       - run:
           name: Prepare the release notice
-          command: bash << parameters.script >> notice-env << parameters.kind >>
+          command: bash scripts/ci/force-update.sh notice-env << parameters.kind >>
       - slack/notify:
           event: pass
           custom: |
@@ -506,17 +530,28 @@ jobs:
           command: git clone -q --depth 50 "https://github.com/${REPO_SLUG}.git" repo && bash repo/scripts/ci/force-update.sh watch
 
   # After `hold_force_update` is approved. Raises the minimum now if the store already serves the release; otherwise
-  # leaves it to the watch, which reads this approval when the version is served.
+  # halts and leaves it to the watch, which reads this approval when the version is served. Clones `main` rather
+  # than checking out: the release branch may already be deleted. A raise job: it runs `npm ci`, so it carries no
+  # context — the App key that pushes the branch lives only in `propose_min_version`, which follows it.
   approve_force_update:
     executor: node
     steps:
       - run:
-          name: Raise the minimum now if the store already serves the release
-          command: git clone -q "https://github.com/${REPO_SLUG}.git" repo && bash repo/scripts/ci/force-update.sh approve
-      # Reached only when it raised: otherwise the step above halts the job.
-      - release_notice:
-          kind: raised
-          script: repo/scripts/ci/force-update.sh
+          name: Clone main
+          command: git clone -q "https://github.com/${REPO_SLUG}.git" .
+      - run:
+          name: Go on only if the store already serves the release
+          command: bash scripts/ci/force-update.sh approve
+      # `approve` was the last step that needed CIRCLE_API_TOKEN; `raise` runs dependency code.
+      - drop_store_secrets:
+          keep_bucket_key: true
+      - run:
+          name: Raise web.minExtensionVersion in the live prod config
+          command: bash scripts/ci/force-update.sh raise
+      - persist_to_workspace:
+          root: .
+          paths:
+            - force-update
 
   # Every 30 min from a `store-release-<version>` schedule: one GET while waiting; when served, starts the
   # `store_release` pipeline and deletes the schedule. Holds no Slack, GitHub or Cloud Storage credential.
@@ -551,17 +586,56 @@ jobs:
       - release_notice:
           kind: << pipeline.parameters.store_release_outcome >>
 
+  # The other raise job, in the `store_release` pipeline when the release was forced. Same rule as above: `npm ci`
+  # runs here, so no context; the state goes to `propose_min_version` through the workspace.
   raise_min_version:
     executor: node
     environment: *store_release_env
     steps:
+      - drop_store_secrets:
+          keep_bucket_key: true
       - checkout
       - run:
-          name: Raise web.minExtensionVersion in the prod config
+          name: Raise web.minExtensionVersion in the live prod config
           command: bash scripts/ci/force-update.sh raise
-      # Reached only when it raised: an already-raised document halts the job above.
+      - persist_to_workspace:
+          root: .
+          paths:
+            - force-update
+
+  # After either raise job: proposes the raised minimum to `main` as a pull request and announces it. Installs
+  # nothing and runs only code from its own clone of `main` — the workspace (attached outside the clone) brings the
+  # raise job's state.json, which `load` accepts as plain values only — because this is the job that holds the
+  # release-writer App key. Steps pass state through $BASH_ENV; see scripts/ci/force-update.sh.
+  propose_min_version:
+    executor: node
+    environment:
+      # The version this pipeline is about, to check the raise job's state against (empty in a release pipeline,
+      # where the branch name says it).
+      PIPELINE_WATCH_VERSION: << pipeline.parameters.store_watch_version >>
+    steps:
+      - run:
+          name: Clone main
+          command: git clone -q "https://github.com/${REPO_SLUG}.git" .
+      - attach_workspace:
+          at: /tmp/workspace
+      - run:
+          name: Load what the raise job did
+          command: bash scripts/ci/force-update.sh load /tmp/workspace/force-update/state.json
+      - run:
+          name: Push the raised minimum on a branch
+          command: |
+            bash .circleci/release-writer.sh -- bash -euo pipefail \<<'NATIVE_RELEASE_COMMAND'
+            bash scripts/ci/force-update.sh branch
+            NATIVE_RELEASE_COMMAND
+      - run:
+          name: Open the pull request into main
+          command: bash scripts/ci/force-update.sh pr
       - release_notice:
           kind: raised
+      - run:
+          name: Fail if the pull request was not opened
+          command: bash scripts/ci/force-update.sh finish
 
   # Is the package in the store the one we built? Rebuilds the tag and compares it with what Chrome gets from the
   # public update server (scripts/ci/verify-store.sh). Drops the store and signing credentials first; the WXT_*
@@ -698,8 +772,8 @@ workflows:
             - upload_to_store
           context: ["release-writer", "org-global"]
           filters: *release_branches
-      # STORE WATCH + FORCED UPDATE are paused: `watch_store_release`, `hold_force_update` and
-      # `approve_force_update` are not wired in. See the header for what to restore.
+      # STORE WATCH + FORCED UPDATE are paused: `watch_store_release`, `hold_force_update`, `approve_force_update`
+      # and `propose_min_version` are not wired in. See the header for what to restore.
 
   store_watch:
     when:
@@ -728,10 +802,11 @@ workflows:
         - equal: [served, << pipeline.parameters.store_release_outcome >>]
         - << pipeline.parameters.force_update >>
     jobs:
-      - raise_min_version:
-          context:
-            - org-global
-            - dm-release-notify
+      - raise_min_version
+      - propose_min_version:
+          requires:
+            - raise_min_version
+          context: ["release-writer", "org-global", "dm-release-notify"]
 
   # Manual: is the package the store serves the one we built from the release tag? Not part of `ci` — store review
   # takes hours to weeks, so a job after `upload_to_store` would only ever report "not live yet", and an approval

@@ -14,10 +14,19 @@
 //   schedule <version>           create the CircleCI schedule that watches for <version> (replacing one for an
 //                                older version; a no-op when one for this version or newer exists). The
 //                                release it belongs to comes from RELEASE_* (see scheduleFromEnv)
-//   approved <workflow-id>       print `yes` when that workflow's `hold_force_update` was approved, else `no`
+//   approved <workflow-id>       print `yes` when `hold_force_update` was approved in any workflow of that
+//                                workflow's pipeline (a rerun of the release workflow makes a new one), else `no`
+//   watching <version>           print `yes` when a store-release schedule watches <version> or a newer one
 //   trigger <outcome> <force> <served>
 //                                start the `store_release` pipeline: outcome `served|expired`, force `yes|no`
 //   unschedule <schedule-id>     delete that schedule — the watch's last act
+//   state-write <file> <outcome> write what the raise job hands to the propose job (version, served version,
+//                                outcome `raised|unchanged`, and the release for the notice, from the environment)
+//   state-read <file> [version]  validate that file (and that it is about <version>, when given) and print it as
+//                                NAME=value lines for $BASH_ENV
+//   pull-request <branch> <version> [served]
+//                                open the pull request that carries a raised config from <branch> into `main`, or
+//                                find the one already open; prints `created <url>` or `kept <url>`
 //
 // THE SCHEDULE. Every release that reaches the store creates its own schedule trigger (every 30 min, branch
 // `main`) through the CircleCI API v2, carrying the version, a deadline and the release pipeline's workflow id
@@ -40,6 +49,16 @@
 // the bucket is shared with the frontend. The upload carries `ifGenerationMatch`, so a publish that landed
 // after the download is never overwritten; and the same `Cache-Control` / `Content-Type` as buckets/upload.sh.
 //
+// THE PULL REQUEST. The raised minimum goes back to git as a pull request into `main`, never as a push to it:
+// `main` takes no change without a review, and nothing in CI may bypass that. force-update.sh pushes the branch
+// with the `release-writer` GitHub App (contents: write, no pull-request permission), and this script opens the
+// pull request with org-global's GITHUB_TOKEN — read access to the repository, but its owner is a member of the
+// organisation, which is what GitHub asks of whoever opens a pull request in an organisation's public repository.
+//
+// TWO JOBS. The raise runs `npm ci` and vitest; the App key must never share a job with dependency code. So the
+// raise job writes a small state file (`state-write`) to the workspace, and the propose job, which installs
+// nothing, reads it back through `state-read`, which accepts plain data only.
+//
 // THE KEY. A service-account key made by devops, in the project env var `P2P_EXTENSION_DEPLOY_SA_KEY`; the client
 // that signs with it lives in gcs.mjs (no gcloud). This script never names any object but the one above; the same
 // account also uploads the debug build (publish-debug-build.mjs).
@@ -56,6 +75,12 @@
 //   RELEASE_ACTOR          schedule: the release it watches for (the job sets them from CIRCLE_*)
 //   STORE_WATCH_VERSION,
 //   STORE_WATCH_UNTIL      trigger: the watched version and deadline, forwarded with the RELEASE_* above
+//   GITHUB_TOKEN           pull-request: org-global's token (read access, owner in the organisation)
+//   STORE_WATCH_VERSION,
+//   STORE_SERVED_VERSION,
+//   RELEASE_LABEL, RELEASE_SHA, RELEASE_ACTOR,
+//   CIRCLE_BRANCH, CIRCLE_SHA1, CIRCLE_USERNAME
+//                          state-write: the raised version and the release it belongs to
 //
 // Exit codes: 0 ok · 1 HTTP/transport/bad input · 2 usage or missing credentials · 3 the upload lost a race
 // (the object's generation moved since it was read).
@@ -75,6 +100,7 @@ export const FORCE_APPROVAL_JOB = 'hold_force_update';
 /** How long a release may wait for the store before its schedule gives up. Review can take a month. */
 export const SCHEDULE_LIFETIME_DAYS = 45;
 const CIRCLE_API = 'https://circleci.com/api/v2';
+const GITHUB_API = 'https://api.github.com';
 const EXIT = { OK: 0, HTTP: 1, USAGE: 2, RACE: 3 };
 
 /** A numeric Chrome version, the only form this pipeline handles (`1.0.6`, never `1.0.6-beta`). */
@@ -274,6 +300,24 @@ export async function deleteSchedule({ token, id, fetch: f = fetch }) {
  * workflow without the job all read as not approved — forcing is opt-in.
  */
 export async function forceApproved({ token, workflowId, job = FORCE_APPROVAL_JOB, fetch: f = fetch }) {
+  const { pipeline_id: pipelineId } = await circle(f, token, 'GET', `/workflow/${encodeURIComponent(workflowId)}`);
+  if (!pipelineId) return workflowApproved({ token, workflowId, job, fetch: f });
+  // Every workflow of the release pipeline: "Rerun workflow from failed" puts the hold and the watch in different
+  // ones, and the approval counts wherever it was given.
+  let page;
+  do {
+    const query = page ? `?page-token=${encodeURIComponent(page)}` : '';
+    const data = await circle(f, token, 'GET', `/pipeline/${encodeURIComponent(pipelineId)}/workflow${query}`);
+    for (const workflow of data.items ?? []) {
+      if (await workflowApproved({ token, workflowId: workflow.id, job, fetch: f })) return true;
+    }
+    page = data.next_page_token;
+  } while (page);
+  return false;
+}
+
+/** Whether `job` was approved in that one workflow. */
+async function workflowApproved({ token, workflowId, job, fetch: f }) {
   let page;
   do {
     const query = page ? `?page-token=${encodeURIComponent(page)}` : '';
@@ -307,12 +351,147 @@ export async function triggerPipeline({ token, slug, parameters, fetch: f = fetc
   return data.number;
 }
 
+/** Whether a store-release schedule watches `version` or a newer one (whose serve covers it). */
+export async function isWatched({ token, slug, version, fetch: f = fetch }) {
+  const schedules = await listWatchSchedules({ token, slug, fetch: f });
+  return schedules.some((s) => compareVersions(s.version, version) >= 0);
+}
+
+// ── The hand-off from the raise job to the propose job ───────────────────────────────────────────
+
+const STATE_FIELDS = {
+  version: (v) => isChromeVersion(v),
+  served: (v) => v === '' || isChromeVersion(v),
+  outcome: (v) => v === 'raised' || v === 'unchanged',
+  label: (v) => /^[0-9A-Za-z.-]{0,40}$/.test(v),
+  sha: (v) => /^[0-9a-f]{0,40}$/.test(v),
+  actor: (v) => /^[0-9A-Za-z._-]{0,64}$/.test(v),
+};
+
+/** What the raise job hands on: the raised version and the release it belongs to, from the job's environment. */
+export function raiseState({ outcome, env = process.env }) {
+  const pick = (k) => (env[k] ?? '').trim();
+  const state = {
+    version: pick('STORE_WATCH_VERSION'),
+    served: pick('STORE_SERVED_VERSION'),
+    outcome,
+    label: pick('RELEASE_LABEL') || pick('CIRCLE_BRANCH').replace(/^release\/v/, ''),
+    sha: pick('RELEASE_SHA') || pick('CIRCLE_SHA1'),
+    actor: pick('RELEASE_ACTOR') || pick('CIRCLE_USERNAME'),
+  };
+  return parseRaiseState(JSON.stringify(state));
+}
+
+/**
+ * Read the raise job's state back. It crossed from a job that ran dependency code to one that holds the App key,
+ * so only these fields, each in its plain shape, get through — nothing in it can become shell.
+ */
+export function parseRaiseState(text) {
+  let doc;
+  try {
+    doc = JSON.parse(text);
+  } catch {
+    throw new Error('the raise state is not JSON');
+  }
+  const state = {};
+  for (const [field, valid] of Object.entries(STATE_FIELDS)) {
+    const value = doc?.[field] ?? '';
+    if (typeof value !== 'string' || !valid(value)) throw new Error(`the raise state has an invalid ${field}: ${JSON.stringify(value)}`);
+    state[field] = value;
+  }
+  return state;
+}
+
+/** The state as NAME=value lines for force-update.sh, which exports them for the job's later steps. */
+export function stateExports(state) {
+  return [
+    `STORE_WATCH_VERSION=${state.version}`,
+    `STORE_SERVED_VERSION=${state.served}`,
+    `RAISE_OUTCOME=${state.outcome}`,
+    `RELEASE_LABEL=${state.label}`,
+    `RELEASE_SHA=${state.sha}`,
+    `RELEASE_ACTOR=${state.actor}`,
+  ];
+}
+
+// ── The pull request into main ───────────────────────────────────────────────────────────────────
+
+function githubToken(env = process.env) {
+  const token = (env.GITHUB_TOKEN ?? '').trim();
+  if (!token) throw new UsageError('GITHUB_TOKEN must be set (org-wide context org-global)');
+  return token;
+}
+
+async function github(f, token, method, path, body) {
+  const res = await f(`${GITHUB_API}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new HttpError(`GitHub ${method} ${path}`, res.status, text.slice(0, 500));
+  return text ? JSON.parse(text) : {};
+}
+
+/** Where to open the pull request by hand when the API refuses to. */
+export function compareUrl(slug, branch) {
+  return `https://github.com/${slug}/compare/main...${branch}?expand=1`;
+}
+
+/** The title and body of the pull request that carries a raised minimum into `main`. */
+export function pullRequestContent({ version, served }) {
+  return {
+    title: `config(prod): require extension ${version}`,
+    body: [
+      `A forced release raised \`web.minExtensionVersion\` to \`${version}\` in the live prod config` +
+        (served ? ` once Chrome's update server served ${served}.` : '.'),
+      '',
+      'The live document is already published. This sets the same minimum in `buckets/prod/p2p/extension-config.json`;',
+      'nothing else in the file changes.',
+      '',
+      'Opened by `scripts/ci/force-update.sh`.',
+    ].join('\n'),
+  };
+}
+
+/**
+ * Open the pull request from `branch` into `main`, or return the one already open for that branch — the two
+ * paths that raise (`approve` and the store watch) can both get here for one release, even at the same moment:
+ * a 422 on the create means the other one won, and its pull request is returned. Resolves to
+ * `{ outcome: 'created' | 'kept', url }`.
+ */
+export async function ensurePullRequest({ token, slug, branch, version, served, fetch: f = fetch }) {
+  const owner = slug.split('/')[0];
+  const head = encodeURIComponent(`${owner}:${branch}`);
+  const findOpen = async () => {
+    const open = await github(f, token, 'GET', `/repos/${slug}/pulls?state=open&base=main&head=${head}`);
+    return Array.isArray(open) && open.length > 0 ? open[0].html_url : null;
+  };
+  const existing = await findOpen();
+  if (existing) return { outcome: 'kept', url: existing };
+  const { title, body } = pullRequestContent({ version, served });
+  try {
+    const created = await github(f, token, 'POST', `/repos/${slug}/pulls`, { title, body, head: branch, base: 'main' });
+    return { outcome: 'created', url: created.html_url };
+  } catch (e) {
+    const raced = e instanceof HttpError && e.status === 422 ? await findOpen() : null;
+    if (raced) return { outcome: 'kept', url: raced };
+    throw e;
+  }
+}
+
 // ── CLI ───────────────────────────────────────────────────────────────────────────────────────────
 
 const USAGE =
   'usage: force-update.mjs served | raise <file> <version> | gcs-get <file> | gcs-put <file> <generation>' +
   ' | schedule <version> | approved <workflow-id> | trigger <served|expired> <yes|no> <served-version>' +
-  ' | unschedule <schedule-id>';
+  ' | unschedule <schedule-id> | watching <version> | state-write <file> <outcome> | state-read <file> [version]' +
+  ' | pull-request <branch> <version> [served]';
 
 function repoSlug() {
   const slug = process.env.REPO_SLUG;
@@ -372,6 +551,29 @@ async function main() {
       const parameters = storeReleaseParameters({ outcome: args[0], force: args[1] === 'yes', served: args[2] });
       const number = await triggerPipeline({ token: circleToken(), slug: repoSlug(), parameters });
       console.log(`Started pipeline ${number}: ${JSON.stringify(parameters)}`);
+      return EXIT.OK;
+    }
+    if (cmd === 'pull-request' && (args.length === 2 || args.length === 3)) {
+      const [branch, version, served = ''] = args;
+      if (!isChromeVersion(version)) throw new UsageError(`not a numeric extension version: ${JSON.stringify(version)}`);
+      const result = await ensurePullRequest({ token: githubToken(), slug: repoSlug(), branch, version, served });
+      console.log(`${result.outcome} ${result.url}`);
+      return EXIT.OK;
+    }
+    if (cmd === 'state-write' && args.length === 2) {
+      writeFileSync(args[0], `${JSON.stringify(raiseState({ outcome: args[1] }))}\n`);
+      return EXIT.OK;
+    }
+    if (cmd === 'state-read' && (args.length === 1 || args.length === 2)) {
+      const state = parseRaiseState(readFileSync(args[0], 'utf8'));
+      if (args[1] && state.version !== args[1]) {
+        throw new Error(`the raise state is about ${state.version}, this pipeline about ${args[1]}`);
+      }
+      console.log(stateExports(state).join('\n'));
+      return EXIT.OK;
+    }
+    if (cmd === 'watching' && args.length === 1) {
+      console.log((await isWatched({ token: circleToken(), slug: repoSlug(), version: args[0] })) ? 'yes' : 'no');
       return EXIT.OK;
     }
     if (cmd === 'unschedule' && args.length === 1) {
