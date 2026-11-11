@@ -49,8 +49,9 @@ const FIRST_UPDATE_AWARE_VERSION = '1.0.6';
 /**
  * Not a tuning deviation: the minimum is an operational value the force-update pipeline raises on every
  * forced release (scripts/ci/force-update.sh), so pinning it next to the deviations would fail every such
- * commit. It is also optional — forced updates are paused, and no minimum means none is enforced — so it is
- * exempt from the completeness check too. Checked on its own below instead.
+ * commit. It is also optional — no minimum means no forced update is in effect, which is the state until the
+ * first release someone approves as forced — so it is exempt from the completeness check too. Checked on its own
+ * below instead.
  */
 const OPERATIONAL = new Set(['web.minExtensionVersion']);
 

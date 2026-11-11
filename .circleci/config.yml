@@ -30,8 +30,9 @@ version: 2.1
 #   nothing and still parked a workflow "On Hold" forever). `main` keeps running `check` and both
 #   builds, it just cannot release.
 #
-#   `hold_release` is the ONLY approval on the path: after it the release is tagged, packaged and
-#   submitted to the Chrome Web Store unattended, and `delete_release_branch` then deletes the branch
+#   `hold_release` is the ONLY approval on the path to the store: after it the release is tagged, packaged and
+#   submitted to the Chrome Web Store unattended (`hold_force_update`, after the upload, is a separate and
+#   optional decision, see STORE WATCH), and `delete_release_branch` then deletes the branch
 #   (scripts/ci/delete-release-branch.sh). The branch is never merged back — it carries nothing `main`
 #   lacks, because the bump went through `main` first — and the released commit stays reachable from
 #   its tag. A branch whose push released nothing is kept.
@@ -93,16 +94,7 @@ version: 2.1
 #   `upload_to_store`'s preflight refuses a non-increasing version (exit 3) before uploading anything,
 #   and says this in its output.
 #
-# STORE WATCH + FORCED UPDATE (scripts/ci/force-update.sh) — PAUSED.
-#   None of it runs today: the `ci` workflow does not include `watch_store_release`, `hold_force_update`,
-#   `approve_force_update` or `propose_min_version`, so no release creates a schedule or parks "On Hold". The job
-#   definitions, the pipeline parameters and the `store_watch` / `store_release` / `store_release_forced`
-#   workflows stay; without the watch job nothing starts them. To turn it back on, add those four entries after
-#   `upload_to_store` in `ci` (all `filters: *release_branches`; `hold_force_update` is `type: approval`;
-#   `approve_force_update` requires it; `propose_min_version` requires `approve_force_update` and takes contexts
-#   `release-writer`, `org-global` and `dm-release-notify`) and set CIRCLE_API_TOKEN. The description below is
-#   how it works once re-enabled.
-#
+# STORE WATCH + FORCED UPDATE (scripts/ci/force-update.sh).
 #   Every release that reaches `upload_to_store` gets `watch_store_release`, which creates a CircleCI schedule
 #   `store-release-<version>` through API v2 — every 30 min on `main`, the version, a 45-day deadline and this
 #   release's workflow id as pipeline parameters — and nothing else, because store review takes anywhere from
@@ -180,7 +172,7 @@ version: 2.1
 #     .circleci/release-writer.sh; every write to the repository goes through it. None of these jobs runs
 #     `npm ci`, and none may: RELEASE_WRITER_PRIVATE_KEY reaches every step of a job that lists the context. It
 #     cannot bypass the review rule on `main`, so the forced-update raise pushes a branch, not `main`.
-#   context `dm-release-notify`         -> the Slack notice jobs (paused, see above).
+#   context `dm-release-notify`         -> the Slack notice jobs (store watch, see above).
 #
 #   No CWS_* switches in project settings: the upload's behaviour switches are CLI flags on the job's own
 #   command, not state.
@@ -773,8 +765,28 @@ workflows:
             - upload_to_store
           context: ["release-writer", "org-global"]
           filters: *release_branches
-      # STORE WATCH + FORCED UPDATE are paused: `watch_store_release`, `hold_force_update`, `approve_force_update`
-      # and `propose_min_version` are not wired in. See the header for what to restore.
+      # Every release that reached the store is watched until Chrome serves it; see STORE WATCH in the header.
+      - watch_store_release:
+          requires:
+            - upload_to_store
+          filters: *release_branches
+      # Optional: approve only for a release every seller must move to. The ONLY place a release is forced — the
+      # deferred pipelines read this approval's state. After `upload_to_store`, because forcing a version that was
+      # never submitted means nothing. Left alone, it keeps the pipeline "On Hold"; that is the normal answer.
+      - hold_force_update:
+          type: approval
+          requires:
+            - upload_to_store
+          filters: *release_branches
+      - approve_force_update:
+          requires:
+            - hold_force_update
+          filters: *release_branches
+      - propose_min_version:
+          requires:
+            - approve_force_update
+          context: ["release-writer", "org-global", "dm-release-notify"]
+          filters: *release_branches
 
   store_watch:
     when:
@@ -811,7 +823,7 @@ workflows:
 
   # Manual: is the package the store serves the one we built from the release tag? Not part of `ci` — store review
   # takes hours to weeks, so a job after `upload_to_store` would only ever report "not live yet", and an approval
-  # there would park every release "On Hold" (this config's one approval is `hold_release`). Start it once the
+  # there would park every release "On Hold" a second time (it already waits on `hold_force_update`). Start it once the
   # release is live (the pipeline must run on `main`):
   #   circleci pipeline run --project gh/dmarket/p2p-extension --branch main --param verify_store_tag=v1.0.6-beta
   # (`--definition-id` is prompted for, or pass the project's pipeline definition UUID).

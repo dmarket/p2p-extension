@@ -111,10 +111,11 @@ a generation precondition, so a change someone else published after the diff is 
 `web.minExtensionVersion` is the oldest version allowed to keep working (numeric, e.g. `1.0.6`). An
 install below it asks Chrome for the update once, reloads onto it when Chrome has it, and reports its
 progress to dmarket.com in the presence `pong` as `update: { required, minVersion, state }` — the page
-renders that and compares nothing itself. **Paused:** the published documents carry no minimum, so no
-install is asked to update, and CI does not raise one (see below). `config:upload:*` refuses to publish a
-document that would lower the live minimum (`ALLOW_LOWER_MIN=1` lowers it on purpose): a forced raise
-reaches git as a pull request, and until it is merged the file here lags behind.
+renders that and compares nothing itself. The published documents carry no minimum until a release is
+forced; CI then raises it in the live document and opens a pull request that brings
+`buckets/prod/p2p/extension-config.json` level with it (see below). Until that pull request is merged,
+`config:upload:*` refuses to publish a document that would lower the live minimum (`ALLOW_LOWER_MIN=1`
+lowers it on purpose).
 
 Two things are compiled in rather than configured, because their absence is silent and expensive: the
 DMarket API and FE origins, and the production notary URL. So a production build arms the real TLSN
@@ -198,6 +199,9 @@ A push to `release/vX.Y.Z` adds the release chain to that same pipeline, so one 
 pipeline: `hold_release` (approval) → `release` (tag + GitHub Release with the zip) → `pack_crx` →
 `store_preflight` → `upload_to_store` → `delete_release_branch`. Those six exist only on a release
 branch, and `hold_release` is the only approval among them; a push anywhere else runs the three jobs above and nothing more.
+After `upload_to_store` the release pipeline also gets `watch_store_release` and a second, optional
+approval, `hold_force_update` (see [Watching the store, and forcing an update](#watching-the-store-and-forcing-an-update)).
+Leaving it unapproved is the normal answer; the pipeline then stays "On Hold".
 
 ### Secrets
 
@@ -213,7 +217,8 @@ pull request. Everything else is a project-level environment variable:
 | `WXT_*` build configuration | `build-prod`, `build-debug`, `verify_store` |
 | `CRX_SIGNING_KEY_B64` (the CRX signing key) | `pack_crx` |
 | `CHROME_EXTENSION_ID`, `CHROME_PUBLISHER_ID`, `CHROME_SERVICE_ACCOUNT_*` | `store_preflight`, `upload_to_store` |
-| `P2P_EXTENSION_DEPLOY_SA_KEY` | `publish_debug_build`; `raise_min_version` and `approve_force_update` (paused) |
+| `P2P_EXTENSION_DEPLOY_SA_KEY` | `publish_debug_build`, `raise_min_version`, `approve_force_update` |
+| `CIRCLE_API_TOKEN` (a CircleCI personal token) | `watch_store_release`, `poll_store_release` |
 | `DEBUG_BUILD_GCS_URI` | `publish_debug_build` |
 
 CircleCI hands project variables to every job on every branch, and `check` and the builds run
@@ -253,7 +258,8 @@ anything that exists only on it is lost from `main`.
 4. Branch off the merged `main` as `release/vX.Y.Z` (e.g. `release/v1.0.1`), with no commits of its
    own. The release jobs run **only** on branches matching that pattern, and the version in the name
    must equal step 2's — `release` fails before tagging if they disagree.
-5. Push the branch, then **approve `hold_release`** in CircleCI. That is the only click: the build is
+5. Push the branch, then **approve `hold_release`** in CircleCI. That is the only click a release needs
+   (approve `hold_force_update` only to force the update; otherwise leave it): the build is
    then tagged, published, signed and submitted to the Chrome Web Store, and `delete_release_branch`
    removes the branch at the end. A push that released nothing (tag already there, `[skip release]`,
    snapshot core) keeps its branch.
@@ -288,11 +294,6 @@ circleci pipeline run --project gh/dmarket/p2p-extension --branch main --param v
 ```
 
 ### Watching the store, and forcing an update
-
-> **Paused.** None of this runs today: the `ci` workflow does not include `watch_store_release`,
-> `hold_force_update`, `approve_force_update` or `propose_min_version`, so a release creates no schedule and
-> never parks "On Hold". The `.circleci/config.yml` header says what to restore to turn it back on. The rest
-> of this section describes how it works once re-enabled.
 
 Every release that reaches `upload_to_store` gets a CircleCI schedule, `store-release-<version>`, created
 through the API and polling Chrome's update server every 30 min on `main`. Once the store actually serves
