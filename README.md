@@ -112,7 +112,9 @@ a generation precondition, so a change someone else published after the diff is 
 install below it asks Chrome for the update once, reloads onto it when Chrome has it, and reports its
 progress to dmarket.com in the presence `pong` as `update: { required, minVersion, state }` — the page
 renders that and compares nothing itself. **Paused:** the published documents carry no minimum, so no
-install is asked to update, and CI does not raise one (see below).
+install is asked to update, and CI does not raise one (see below). `config:upload:*` refuses to publish a
+document that would lower the live minimum (`ALLOW_LOWER_MIN=1` lowers it on purpose): a forced raise
+reaches git as a pull request, and until it is merged the file here lags behind.
 
 Two things are compiled in rather than configured, because their absence is silent and expensive: the
 DMarket API and FE origins, and the production notary URL. So a production build arms the real TLSN

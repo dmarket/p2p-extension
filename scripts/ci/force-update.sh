@@ -81,7 +81,8 @@
 # GitHub App (context `release-writer`, contents: write and nothing else, so it cannot open the pull request); the
 # pull request is opened with org-global's GITHUB_TOKEN, whose owner has read access but is a member of the
 # organisation, which is all GitHub asks of whoever opens one. Until it is merged, git lags behind the live
-# document. The pull request changes `main`'s file by that one line only; whatever else differs between git and the live document is left to
+# document, and buckets/upload.sh refuses to publish a document that would lower the live minimum. The pull request
+# changes `main`'s file by that one line only; whatever else differs between git and the live document is left to
 # whoever publishes it.
 #
 # Environment:

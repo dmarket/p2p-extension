@@ -9,6 +9,7 @@ import {
   isWatched,
   gcsPut,
   listWatchSchedules,
+  loweredMinimum,
   parseRaiseState,
   parseServedVersion,
   raiseMinimum,
@@ -69,6 +70,23 @@ describe('raising the minimum', () => {
   it('refuses a label suffix and a document without a `web` group', () => {
     expect(() => raiseMinimum(DOC, '1.0.7-beta')).toThrow(/numeric/);
     expect(() => raiseMinimum('{"tracker":{}}', '1.0.7')).toThrow(/web/);
+  });
+});
+
+describe('publishing over a raised minimum (buckets/upload.sh)', () => {
+  const doc = (min) => JSON.stringify({ tracker: {}, web: min === undefined ? {} : { minExtensionVersion: min } });
+
+  it('refuses a document that drops or lowers the live minimum — the merge of its PR has not happened yet', () => {
+    expect(loweredMinimum(doc('1.0.7'), doc(undefined))).toEqual({ live: '1.0.7', local: null });
+    expect(loweredMinimum(doc('1.0.7'), doc('1.0.6'))).toEqual({ live: '1.0.7', local: '1.0.6' });
+    expect(loweredMinimum(doc('1.0.7'), doc('1.0.6-beta'))).toEqual({ live: '1.0.7', local: null });
+  });
+
+  it('lets an equal or higher minimum through, and anything over a live document with none', () => {
+    expect(loweredMinimum(doc('1.0.7'), doc('1.0.7'))).toBeNull();
+    expect(loweredMinimum(doc('1.0.7'), doc('1.1.0'))).toBeNull();
+    expect(loweredMinimum(doc(undefined), doc(undefined))).toBeNull();
+    expect(loweredMinimum('not json', doc(undefined))).toBeNull();
   });
 });
 

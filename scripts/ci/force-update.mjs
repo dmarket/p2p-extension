@@ -27,6 +27,9 @@
 //   pull-request <branch> <version> [served]
 //                                open the pull request that carries a raised config from <branch> into `main`, or
 //                                find the one already open; prints `created <url>` or `kept <url>`
+//   lowered-minimum <live> <local>
+//                                exit 4 when publishing <local> over <live> would lower the live minimum
+//                                (buckets/upload.sh refuses that), 0 when it keeps it
 //
 // THE SCHEDULE. Every release that reaches the store creates its own schedule trigger (every 30 min, branch
 // `main`) through the CircleCI API v2, carrying the version, a deadline and the release pipeline's workflow id
@@ -83,7 +86,7 @@
 //                          state-write: the raised version and the release it belongs to
 //
 // Exit codes: 0 ok · 1 HTTP/transport/bad input · 2 usage or missing credentials · 3 the upload lost a race
-// (the object's generation moved since it was read).
+// (the object's generation moved since it was read) · 4 the publish would lower the live minimum.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -101,7 +104,7 @@ export const FORCE_APPROVAL_JOB = 'hold_force_update';
 export const SCHEDULE_LIFETIME_DAYS = 45;
 const CIRCLE_API = 'https://circleci.com/api/v2';
 const GITHUB_API = 'https://api.github.com';
-const EXIT = { OK: 0, HTTP: 1, USAGE: 2, RACE: 3 };
+const EXIT = { OK: 0, HTTP: 1, USAGE: 2, RACE: 3, LOWERS: 4 };
 
 /** A numeric Chrome version, the only form this pipeline handles (`1.0.6`, never `1.0.6-beta`). */
 export function isChromeVersion(v) {
@@ -142,6 +145,27 @@ export function raiseMinimum(text, version) {
   if (isChromeVersion(current) && compareVersions(current, version) >= 0) return { text, raised: false, current };
   doc.web.minExtensionVersion = version;
   return { text: `${JSON.stringify(doc, null, 2)}\n`, raised: true, current };
+}
+
+/**
+ * The minimum a publish of `localText` over `liveText` would lower, or `null` when it keeps it. A forced raise
+ * reaches git as a pull request, so until that is merged the file in git lags behind the live document, and
+ * publishing it would quietly lift the forced update. A live document with no minimum, or one that does not
+ * parse, has nothing to lower.
+ */
+export function loweredMinimum(liveText, localText) {
+  const minimum = (text) => {
+    try {
+      const v = JSON.parse(text)?.web?.minExtensionVersion;
+      return isChromeVersion(v) ? v : null;
+    } catch {
+      return null;
+    }
+  };
+  const live = minimum(liveText);
+  if (!live) return null;
+  const local = minimum(localText);
+  return local && compareVersions(local, live) >= 0 ? null : { live, local };
 }
 
 // ── Cloud Storage ─────────────────────────────────────────────────────────────────────────────────
@@ -452,7 +476,8 @@ export function pullRequestContent({ version, served }) {
         (served ? ` once Chrome's update server served ${served}.` : '.'),
       '',
       'The live document is already published. This sets the same minimum in `buckets/prod/p2p/extension-config.json`;',
-      'nothing else in the file changes.',
+      'nothing else in the file changes. Until it is merged, `buckets/upload.sh prod` refuses to publish a document',
+      'that would lower the live minimum.',
       '',
       'Opened by `scripts/ci/force-update.sh`.',
     ].join('\n'),
@@ -491,7 +516,7 @@ const USAGE =
   'usage: force-update.mjs served | raise <file> <version> | gcs-get <file> | gcs-put <file> <generation>' +
   ' | schedule <version> | approved <workflow-id> | trigger <served|expired> <yes|no> <served-version>' +
   ' | unschedule <schedule-id> | watching <version> | state-write <file> <outcome> | state-read <file> [version]' +
-  ' | pull-request <branch> <version> [served]';
+  ' | pull-request <branch> <version> [served] | lowered-minimum <live> <local>';
 
 function repoSlug() {
   const slug = process.env.REPO_SLUG;
@@ -575,6 +600,12 @@ async function main() {
     if (cmd === 'watching' && args.length === 1) {
       console.log((await isWatched({ token: circleToken(), slug: repoSlug(), version: args[0] })) ? 'yes' : 'no');
       return EXIT.OK;
+    }
+    if (cmd === 'lowered-minimum' && args.length === 2) {
+      const lowered = loweredMinimum(readFileSync(args[0], 'utf8'), readFileSync(args[1], 'utf8'));
+      if (!lowered) return EXIT.OK;
+      console.error(`web.minExtensionVersion is ${lowered.live} live and ${lowered.local ?? 'absent'} here.`);
+      return EXIT.LOWERS;
     }
     if (cmd === 'unschedule' && args.length === 1) {
       await deleteSchedule({ token: circleToken(), id: args[0] });

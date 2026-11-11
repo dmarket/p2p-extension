@@ -125,7 +125,8 @@ version: 2.1
 #   pull request into `main`: the `release-writer` GitHub App pushes `config/min-extension-<version>` (only the
 #   minimum line of `main`'s file changes), and org-global's GITHUB_TOKEN opens the pull request — the App holds
 #   no pull-request permission, and nothing in CI may push to `main` past its review rule. A human merges it.
-#   Two jobs, not one: the raise runs `npm ci` and vitest, and
+#   Until then buckets/upload.sh refuses to publish a document that would lower the live minimum, so a manual
+#   publish from `main` cannot lift the forced update. Two jobs, not one: the raise runs `npm ci` and vitest, and
 #   the App key must never share a job with dependency code, so it lives only in the propose job, which installs
 #   nothing and gets the raise's outcome through the workspace as validated data.
 #
