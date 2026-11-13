@@ -155,11 +155,12 @@ declare module '@dmarket/p2p-tracker-core-domain' {
       paramTradeOfferId?: string,
       paramGetSentOffers?: string,
       paramActiveOnly?: string,
+      paramTimeHistoricalCutoff?: string,
       paramGetDescriptions?: string,
       paramMaxTrades?: string,
       paramSteamIds?: string,
       paramSteamId?: string,
-      // Positions 20-25 are core-only tunables the remote-config overlay does not expose (own-inventory
+      // Positions 21-26 are core-only tunables the remote-config overlay does not expose (own-inventory
       // paging, the notification read). They are declared because `copy()` is POSITIONAL: reaching
       // `paramGetReceivedOffers` means passing them, and a signature that stopped at `paramSteamId`
       // would put the new value on `inventoryPageCount`.

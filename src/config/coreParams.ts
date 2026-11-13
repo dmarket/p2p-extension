@@ -47,6 +47,7 @@ export type CoreOnlyEndpointParam =
   | 'paramTradeOfferId'
   | 'paramGetSentOffers'
   | 'paramActiveOnly'
+  | 'paramTimeHistoricalCutoff'
   | 'paramGetDescriptions'
   | 'paramMaxTrades'
   | 'paramSteamIds'
@@ -260,11 +261,12 @@ export const STEAM_ENDPOINTS_ORDER = [
   'paramTradeOfferId',
   'paramGetSentOffers',
   'paramActiveOnly',
+  'paramTimeHistoricalCutoff',
   'paramGetDescriptions',
   'paramMaxTrades',
   'paramSteamIds',
   'paramSteamId',
-  // Slots 20-25: core-only, named for documentation. An overrides object never carries these keys, so
+  // Slots 21-26: core-only, named for documentation. An overrides object never carries these keys, so
   // they read as "keep the core default" — they are listed because the parameter after them is exposed.
   'inventoryPageCount',
   'inventoryMaxPages',
