@@ -96,6 +96,12 @@ export const KNOWN_KEYS: Record<string, KeyInfo> = {
       'itself: a different refresh token in the jar means a different fingerprint, so nothing has to clear it — and a ' +
       'force tick deliberately does NOT, since our own cookie write would then disarm the guard.',
   },
+  loop_marketplace_access_refused: {
+    desc:
+      '"<fingerprint>|<epoch-millis>" of the DMarket ACCESS token the server last answered with a 401 (fingerprint, ' +
+      'NOT the token). For 15 minutes from that time the core never sends that token again, so a session revoked on ' +
+      'the server costs no heartbeats across worker respawns. A different access token in the jar clears it.',
+  },
   loop_marketplace_refreshed_at_ms: {
     desc:
       'Epoch-millis of this client\'s last completed DMarket token refresh (string) — the rotation rate limit. Every ' +
