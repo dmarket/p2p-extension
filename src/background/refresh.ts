@@ -136,6 +136,9 @@ export function registerRefreshTriggers(
   // resolved at event time (remote override or the compiled default) so they always track whatever the
   // running core is reading; watched by NAME only, never their value or origin.
   browser.cookies.onChanged.addListener((change) => {
+    // A WebKit browser that hosts Chrome extensions calls this listener with no argument (crash reports
+    // against 1.0.6: `undefined is not an object (evaluating 't.removed')`). Nothing to read, so nothing to nudge.
+    if (!change?.cookie) return;
     // Drop the removal half of an OVERWRITE, and only that. Chrome implements a cookie update as
     // remove-then-write and emits two events — `{removed: true, cause: 'overwrite'}` then
     // `{removed: false, cause: 'explicit'}` — so without this filter every rotation costs two nudges, which is
