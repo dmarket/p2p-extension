@@ -71,6 +71,16 @@ describe('parseSettings — document shape', () => {
   });
 });
 
+describe('tracker.notary.mode, the remote MPC/proxy switch', () => {
+  it('accepts only the core wire values', () => {
+    const mode = (value: unknown) => parse({ tracker: { notary: { mode: value } } }).tracker.notary?.mode;
+    expect(mode('proxy')).toBe('proxy');
+    expect(mode('mpc')).toBe('mpc');
+    // Anything else would throw in the core's NotaryConfig constructor and stop the tracker from starting.
+    for (const bad of ['PROXY', 'egress', 'direct', '', 1, true, null]) expect(mode(bad)).toBeUndefined();
+  });
+});
+
 // Two mechanisms, one outcome, and the difference is worth knowing when reading a failure here:
 // `CoreOnlyNotaryParam` fields are off `NotaryOverrides` and so have no NOTARY_SCHEMA entry at all —
 // `pickGroup` iterates the schema, so nothing looks at them — while `rootStorePem` keeps an entry with a
@@ -85,8 +95,8 @@ describe('the never-remotely-settable notary fields', () => {
           offerRead: { serverName: 'evil.example', pathTemplate: '/x?t={token}' },
           historyRead: { serverName: 'evil.example', pathTemplate: '/y?t={token}' },
           rootStorePem: '-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----',
-          // Debug-console only: a published `proxy` would switch every install off MPC.
-          mode: 'proxy',
+          // Debug-console only: published alone it could pair `egress` with the default `mpc`, which the core
+          // refuses by throwing.
           transport: 'egress',
           maxRecvData: 8192,
         },
@@ -97,7 +107,6 @@ describe('the never-remotely-settable notary fields', () => {
     expect('offerRead' in notary).toBe(false); // …and the anchors are gone, not undefined-but-present
     expect('historyRead' in notary).toBe(false);
     expect('rootStorePem' in notary).toBe(false);
-    expect('mode' in notary).toBe(false);
     expect('transport' in notary).toBe(false);
   });
 

@@ -99,8 +99,8 @@ export default defineBackground(() => {
   // that variable is replaced wholesale whenever Remote Config publishes: folding it in would let an
   // unrelated publish silently drop the operator's override mid-session.
   let debugNotaryUrl: string | null | undefined;
-  // Dev-only issuance mode + transport from the debug console (`undefined` = never set, so the core keeps
-  // `mpc`/`direct`). Merged at start like the notary URL.
+  // Dev-only issuance mode + transport from the debug console (`undefined` = never set, so a published
+  // `tracker.notary.mode` applies, else the core's `mpc`/`direct`). Merged at start like the notary URL.
   let debugIssuance: { mode: 'mpc' | 'proxy'; transport: 'direct' | 'egress' } | undefined;
   // Dev-only blocking-state simulation, from the debug console (src/debug/simulate.ts resolves which
   // config makes which state real; this side only holds and merges the result). Kept out of

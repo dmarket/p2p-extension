@@ -315,12 +315,15 @@ export interface NotaryOverrides {
    */
   rootStorePem?: string;
   /**
-   * Issuance protocol and notary transport. `egress` needs `proxy`, and then `notaryUrl` is the Cloudflare
-   * Worker rather than the notary; the core refuses any other pairing. Set only from the debug console, so
-   * both keep a `rejectAlways` validator in NOTARY_SCHEMA: `proxy` against a notary that has it disabled fails
-   * every proof, with no fallback to MPC.
+   * Issuance protocol, publishable as `tracker.notary.mode`. `proxy` against a notary that has it disabled fails
+   * every proof, with no fallback to MPC; the rollback is publishing `mpc`. The debug console outranks a publish.
    */
   mode?: NotaryMode;
+  /**
+   * Notary transport. `egress` needs `proxy`, and then `notaryUrl` is the Cloudflare Worker rather than the
+   * notary; the core refuses any other pairing. Set only from the debug console, so it keeps a `rejectAlways`
+   * validator in NOTARY_SCHEMA: with only `mode` publishable, remote config cannot produce an invalid pair.
+   */
   transport?: NotaryTransport;
   /**
    * Response bytes preprocessed for **online** decryption; everything past it is decrypted deferred.
@@ -531,6 +534,9 @@ const leadingSlashPath: Validator = (v) =>
 
 const boolean: Validator = (v) => (typeof v === 'boolean' ? v : undefined);
 
+/** Exactly the core's wire values: anything else (`"PROXY"` too) would throw in `NotaryConfig.init`. */
+const notaryMode: Validator = (v) => (v === 'mpc' || v === 'proxy' ? v : undefined);
+
 /** A regex string that compiles AND exposes at least one capture group (the core reads group 1). */
 const regexWithGroup: Validator = (v) => {
   if (typeof v !== 'string' || v === '') return undefined;
@@ -672,7 +678,7 @@ const NOTARY_SCHEMA = {
   maxSentData: int(1),
   maxRecvData: int(1),
   threadCount: int(1),
-  // Refused rather than validated, like `mode`/`transport` below:
+  // Refused rather than validated, like `transport` below:
   // every other unpublishable parameter of this group is off `NotaryOverrides` altogether and so has no entry
   // (see `CoreOnlyNotaryParam`). `rootStorePem` cannot follow them, because the extension itself sets it —
   // from a dev-only build-time variable — so the type has to keep it and only the remote channel closes here.
@@ -681,8 +687,9 @@ const NOTARY_SCHEMA = {
   // `api.steampowered.com` and attest it. The verifier checks the chain against its own roots, so such a proof
   // is rejected downstream — defence in depth, not a reason to put the anchor on a config channel.
   rootStorePem: rejectAlways,
-  // Debug-console only (see `NotaryOverrides.mode`): a published `proxy` would switch every install off MPC.
-  mode: rejectAlways,
+  // The remote switch from MPC to proxy issuance, for every install on a build that reads it. `transport` stays
+  // debug-console only (see `NotaryOverrides.transport`).
+  mode: notaryMode,
   transport: rejectAlways,
   // The two the order was extended to reach. Both are `int(1)`: a zero online budget is not "disable the
   // preprocessing", it is a budget that cannot hold one record — the shape of the deterministic

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { TrackerConfig } from '@dmarket/p2p-tracker-core-domain';
 import { buildTrackerConfig } from '@/core/config';
-import type { TrackerOverrides } from '@/config/settings';
+import { parseSettings, type TrackerOverrides } from '@/config/settings';
+import { REMOTE_CONFIG_PARAM } from '@/infra/remoteConfig';
 
 // Positional-semantics tests against the REAL installed core (the vitest alias resolves
 // `@dmarket/p2p-tracker-core-domain` to the same compiled .mjs the build uses, so class identity and
@@ -172,6 +173,18 @@ describe('buildTrackerConfig — one sentinel per group lands on its declared fi
     expect(cfg.notary.mode).toBe('proxy');
     expect(cfg.notary.transport).toBe('egress');
     expect(cfg.notary.sentBudgetMarginPercent).toBe(defaults().notary.sentBudgetMarginPercent); // slot 18
+  });
+
+  it('a published tracker.notary.mode reaches the core; a bad one builds on mpc instead of throwing', () => {
+    const published = (mode: unknown) => {
+      // `maxRecvData` keeps the group non-empty, so a refused mode still builds a config to read.
+      const doc = JSON.stringify({ tracker: { notary: { mode, transport: 'egress', maxRecvData: 8192 } } });
+      return build(parseSettings({ [REMOTE_CONFIG_PARAM]: doc }).tracker);
+    };
+    const proxy = published('proxy');
+    expect(proxy.notary.mode).toBe('proxy');
+    expect(proxy.notary.transport).toBe('direct'); // a published transport is refused
+    expect(published('PROXY').notary.mode).toBe('mpc');
   });
 
   it('steamEndpoints.bulkOfferThreshold (slot 10) and a path field', () => {

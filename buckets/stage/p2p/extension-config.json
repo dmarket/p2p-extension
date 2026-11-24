@@ -40,6 +40,9 @@
       "tokenRefreshPath": "/marketplace-api/v1/refresh-token",
       "deferRefreshWhileSiteTabOpen": false
     },
+    "notary": {
+      "mode": "mpc"
+    },
     "steamEndpoints": {
       "getTradeOfferPath": "/IEconService/GetTradeOffer/v1/",
       "getTradeOffersPath": "/IEconService/GetTradeOffers/v1/",

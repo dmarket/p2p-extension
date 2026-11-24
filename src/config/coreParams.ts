@@ -244,7 +244,7 @@ export const NOTARY_ORDER = [
   // counter-example: same shape of knob, refused, because no failure mode makes reaching it urgent.
   'sentBudgetMarginPercent',
   // Slots 19-20: the issuance protocol (`mpc` | `proxy`) and the notary transport (`direct` | `egress`).
-  // Set only from the debug console for now; see their entries in NOTARY_SCHEMA.
+  // `mode` from remote config or the debug console, `transport` from the console only; see NOTARY_SCHEMA.
   'mode',
   'transport',
 ] as const satisfies readonly (keyof NotaryOverrides | CoreOnlyNotaryParam)[];

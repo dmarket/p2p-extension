@@ -35,6 +35,8 @@ Built against `@dmarket/p2p-tracker-core` `1.3.0-beta`.
 
 - Remote configuration now comes from the DMarket CDN instead of Firebase, and the Firebase permission is removed
   (DMA-484).
+- Trade proofs can be switched from MPC to proxy issuance remotely. New remote-config key: `tracker.notary.mode`
+  (`mpc` by default, or `proxy`) (DMA-1061).
 
 ### Fixed
 

@@ -352,7 +352,10 @@ export interface NotaryIssuance {
   transport: NotaryTransport;
 }
 export const DEFAULT_ISSUANCE: NotaryIssuance = { mode: 'mpc', transport: 'direct' };
-/** Dev-only issuance override, stored as {@link NotaryIssuance}. ABSENT ⇒ the core's own `mpc`/`direct`. */
+/**
+ * Dev-only issuance override, stored as {@link NotaryIssuance}. ABSENT ⇒ a published `tracker.notary.mode`,
+ * else the core's own `mpc`/`direct`. PRESENT ⇒ it outranks the publish.
+ */
 export const NOTARY_ISSUANCE_KEY = 'debug.notaryIssuance';
 /** Where egress goes: the Cloudflare Worker frontend on p2p-wss-proxy, not the notary itself. */
 export const EGRESS_WORKER_URL = 'wss://p2p-wss-proxy.dmarket.com/notary/egress/v1';

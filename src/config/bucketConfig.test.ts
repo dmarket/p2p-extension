@@ -20,12 +20,15 @@ const read = (env: 'prod' | 'stage'): Json =>
   JSON.parse(readFileSync(`buckets/${env}/p2p/extension-config.json`, 'utf8')) as Json;
 
 /**
- * Fields a file may leave out, and why. The whole `notary` group: its knobs are rollback levers for the prover,
- * published only when one is needed. `notaryUrl` must stay out of the stage file in any case — a published
- * value outranks the dev notary a debug build carries (`resolveNotaryUrl`) — and `maxRecvRecordsOnline`
- * defaults to `null` (keep the prover's own default), which has no number to publish in its place.
+ * Fields a file may leave out, and why. The `notary` group bar `mode`: its knobs are rollback levers for the
+ * prover, published only when one is needed. `notaryUrl` must stay out of the stage file in any case — a
+ * published value outranks the dev notary a debug build carries (`resolveNotaryUrl`) — and
+ * `maxRecvRecordsOnline` defaults to `null` (keep the prover's own default), which has no number to publish in
+ * its place. `mode` is listed so the MPC/proxy switch is visible; a file set to `proxy` needs a DEVIATIONS entry.
  */
-const NOTARY_OMITTED = PUBLISHABLE_TRACKER_FIELDS.notary.map((key) => `tracker.notary.${key}`);
+const NOTARY_OMITTED = PUBLISHABLE_TRACKER_FIELDS.notary
+  .filter((key) => key !== 'mode')
+  .map((key) => `tracker.notary.${key}`);
 const OMITTED: Record<'prod' | 'stage', string[]> = { prod: NOTARY_OMITTED, stage: NOTARY_OMITTED };
 
 /** Deliberate differences from the compiled defaults. Change these together with the files. */
