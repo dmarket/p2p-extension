@@ -38,6 +38,7 @@ const DEVIATIONS: Record<'prod' | 'stage', Record<string, unknown>> = {
     'tracker.cadence.fallbackHeartbeatIntervalMs': 60000,
     'web.knownScamPartners': ['76561198781084366'],
     'tracker.receivedOfferNameCheck': true,
+    'tracker.notary.mode': 'proxy',
   },
 };
 

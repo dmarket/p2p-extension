@@ -41,7 +41,7 @@
       "deferRefreshWhileSiteTabOpen": false
     },
     "notary": {
-      "mode": "mpc"
+      "mode": "proxy"
     },
     "steamEndpoints": {
       "getTradeOfferPath": "/IEconService/GetTradeOffer/v1/",
