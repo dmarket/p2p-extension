@@ -85,6 +85,9 @@ describe('the never-remotely-settable notary fields', () => {
           offerRead: { serverName: 'evil.example', pathTemplate: '/x?t={token}' },
           historyRead: { serverName: 'evil.example', pathTemplate: '/y?t={token}' },
           rootStorePem: '-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----',
+          // Debug-console only: a published `proxy` would switch every install off MPC.
+          mode: 'proxy',
+          transport: 'egress',
           maxRecvData: 8192,
         },
       },
@@ -94,6 +97,8 @@ describe('the never-remotely-settable notary fields', () => {
     expect('offerRead' in notary).toBe(false); // …and the anchors are gone, not undefined-but-present
     expect('historyRead' in notary).toBe(false);
     expect('rootStorePem' in notary).toBe(false);
+    expect('mode' in notary).toBe(false);
+    expect('transport' in notary).toBe(false);
   });
 
   it('drops the position-only slots that stand between rootStorePem and the budget knobs', () => {

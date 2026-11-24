@@ -99,6 +99,9 @@ export default defineBackground(() => {
   // that variable is replaced wholesale whenever Remote Config publishes: folding it in would let an
   // unrelated publish silently drop the operator's override mid-session.
   let debugNotaryUrl: string | null | undefined;
+  // Dev-only issuance mode + transport from the debug console (`undefined` = never set, so the core keeps
+  // `mpc`/`direct`). Merged at start like the notary URL.
+  let debugIssuance: { mode: 'mpc' | 'proxy'; transport: 'direct' | 'egress' } | undefined;
   // Dev-only blocking-state simulation, from the debug console (src/debug/simulate.ts resolves which
   // config makes which state real; this side only holds and merges the result). Kept out of
   // `currentOverrides` for the same reason as the notary URL.
@@ -346,6 +349,7 @@ export default defineBackground(() => {
     // nothing.
     const notaryUrl = resolveNotaryUrl(o.notary?.notaryUrl, debugNotaryUrl);
     if (notaryUrl !== o.notary?.notaryUrl) o = { ...o, notary: { ...o.notary, notaryUrl } };
+    if (debugIssuance) o = { ...o, notary: { ...o.notary, ...debugIssuance } };
     // Dev-only fixture CA for the proven read's TLS chain, from a build-time variable rather than remote
     // config: it is a trust anchor, and a published one plus control of the byte pipe would let the prover
     // accept a forged api.steampowered.com and attest it. `import.meta.env.DEV` is a compile-time constant,
@@ -580,6 +584,7 @@ export default defineBackground(() => {
           'debug.apiBaseUrl',
           'debug.feUrl',
           'debug.notaryUrl',
+          'debug.notaryIssuance',
           'debug.simulation',
           'debug.demand',
         ]);
@@ -595,6 +600,7 @@ export default defineBackground(() => {
         // leaves `debugNotaryUrl` undefined, which is what lets a published value (and only then the build
         // default) through — see the precedence in `trackerOverrides()`.
         if (typeof notary === 'string') debugNotaryUrl = notary || null;
+        debugIssuance = (await import('@/debug/protocol')).parseIssuance(stored['debug.notaryIssuance']);
         // The blocking-state simulator, before the first start for a second reason as well: this call is
         // what installs its fetch rails, and one of them exists to stop the core's Steam session mint from
         // rotating a real session — which the boot cycle can reach.
@@ -664,8 +670,13 @@ export default defineBackground(() => {
           // started with, so this reports a remote-config notary as well as a debug one. Reading
           // `debugNotaryUrl` alone made the console claim "no-op prover" for a perfectly configured core.
           getNotaryUrl: () => trackerOverrides().notary?.notaryUrl ?? null,
-          setNotaryUrl: (url) => {
+          getNotaryIssuance: () => ({
+            mode: trackerOverrides().notary?.mode ?? 'mpc',
+            transport: trackerOverrides().notary?.transport ?? 'direct',
+          }),
+          setNotary: (url, issuance) => {
             debugNotaryUrl = url;
+            debugIssuance = issuance;
             // The prover is selected once, when the loop is built, so a running core cannot be switched
             // over in place — restarting against the SAME endpoints is what rebuilds it.
             restartWith(currentApiUrl, currentFeUrl);

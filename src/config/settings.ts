@@ -296,6 +296,9 @@ export interface SteamEndpointsOverrides {
   bulkOfferThreshold?: number;
 }
 
+export type NotaryMode = 'mpc' | 'proxy';
+export type NotaryTransport = 'direct' | 'egress';
+
 export interface NotaryOverrides {
   maxConcurrency?: number;
   /** Redirects the prover at another notary. Not nullable: see `resolveNotaryUrl` for what a clear does. */
@@ -311,6 +314,14 @@ export interface NotaryOverrides {
    * that have no local setter either are gone from this interface entirely — see `CoreOnlyNotaryParam`).
    */
   rootStorePem?: string;
+  /**
+   * Issuance protocol and notary transport. `egress` needs `proxy`, and then `notaryUrl` is the Cloudflare
+   * Worker rather than the notary; the core refuses any other pairing. Set only from the debug console, so
+   * both keep a `rejectAlways` validator in NOTARY_SCHEMA: `proxy` against a notary that has it disabled fails
+   * every proof, with no fallback to MPC.
+   */
+  mode?: NotaryMode;
+  transport?: NotaryTransport;
   /**
    * Response bytes preprocessed for **online** decryption; everything past it is decrypted deferred.
    *
@@ -661,7 +672,7 @@ const NOTARY_SCHEMA = {
   maxSentData: int(1),
   maxRecvData: int(1),
   threadCount: int(1),
-  // The ONE key here that is refused rather than validated, and the only reason `rejectAlways` still exists:
+  // Refused rather than validated, like `mode`/`transport` below:
   // every other unpublishable parameter of this group is off `NotaryOverrides` altogether and so has no entry
   // (see `CoreOnlyNotaryParam`). `rootStorePem` cannot follow them, because the extension itself sets it —
   // from a dev-only build-time variable — so the type has to keep it and only the remote channel closes here.
@@ -670,6 +681,9 @@ const NOTARY_SCHEMA = {
   // `api.steampowered.com` and attest it. The verifier checks the chain against its own roots, so such a proof
   // is rejected downstream — defence in depth, not a reason to put the anchor on a config channel.
   rootStorePem: rejectAlways,
+  // Debug-console only (see `NotaryOverrides.mode`): a published `proxy` would switch every install off MPC.
+  mode: rejectAlways,
+  transport: rejectAlways,
   // The two the order was extended to reach. Both are `int(1)`: a zero online budget is not "disable the
   // preprocessing", it is a budget that cannot hold one record — the shape of the deterministic
   // `record layer error` a 32 B value produced, arrived at from the other direction.

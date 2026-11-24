@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { ENVIRONMENTS, type DescribeResult } from '@/debug/protocol';
+import { DEFAULT_ISSUANCE, EGRESS_WORKER_URL, ENVIRONMENTS, type DescribeResult, type NotaryIssuance } from '@/debug/protocol';
 import { sendDebug } from '@/ui/debug/messaging';
 
 /**
@@ -12,15 +12,25 @@ import { sendDebug } from '@/ui/debug/messaging';
  * (src/config/notaryUrl.ts), over a published `tracker.notary.notaryUrl` and the build's compiled default
  * under that. Setting it redirects the prover at another notary, which is what a test substrate needs;
  * emptying it drops back to a publish, or to the core's own default when there is none.
+ *
+ * The issuance select sits next to it and is applied by the same button: proxy + egress needs the Worker URL
+ * in the notary field, so the two change together.
  */
+const ISSUANCES: ReadonlyArray<{ label: string; value: NotaryIssuance }> = [
+  { label: 'mpc', value: { mode: 'mpc', transport: 'direct' } },
+  { label: 'proxy', value: { mode: 'proxy', transport: 'direct' } },
+  { label: 'proxy + egress', value: { mode: 'proxy', transport: 'egress' } },
+];
+const issuanceKey = (i: NotaryIssuance): string => `${i.mode}/${i.transport}`;
 export function SettingsBar(): preact.JSX.Element {
   const [apiUrl, setApiUrl] = useState('');
   const [feUrl, setFeUrl] = useState('');
   const [notaryUrl, setNotaryUrl] = useState('');
+  const [issuance, setIssuance] = useState<string>(issuanceKey(DEFAULT_ISSUANCE));
   // Shapes borrowed from DescribeResult rather than re-declared: `notaryUrl` differs only in being '' rather
   // than null, because it backs a text input.
-  const [running, setRunning] = useState<Pick<DescribeResult, 'apiUrl' | 'feUrl' | 'prover'> & { notaryUrl: string }>(
-    { apiUrl: '', feUrl: '', notaryUrl: '', prover: 'noop' },
+  const [running, setRunning] = useState<Pick<DescribeResult, 'apiUrl' | 'feUrl' | 'prover'> & { notaryUrl: string; issuance: string }>(
+    { apiUrl: '', feUrl: '', notaryUrl: '', prover: 'noop', issuance: issuanceKey(DEFAULT_ISSUANCE) },
   );
   const [busy, setBusy] = useState(false);
 
@@ -31,7 +41,14 @@ export function SettingsBar(): preact.JSX.Element {
           setApiUrl(r.apiUrl);
           setFeUrl(r.feUrl);
           setNotaryUrl(r.notaryUrl ?? '');
-          setRunning({ apiUrl: r.apiUrl, feUrl: r.feUrl, notaryUrl: r.notaryUrl ?? '', prover: r.prover });
+          setIssuance(issuanceKey(r.issuance));
+          setRunning({
+            apiUrl: r.apiUrl,
+            feUrl: r.feUrl,
+            notaryUrl: r.notaryUrl ?? '',
+            prover: r.prover,
+            issuance: issuanceKey(r.issuance),
+          });
         }
       })
       .catch(() => {});
@@ -54,7 +71,8 @@ export function SettingsBar(): preact.JSX.Element {
   const applyNotary = (): void => {
     const url = notaryUrl.trim();
     setBusy(true);
-    void sendDebug({ type: 'debug:set-notary', notaryUrl: url })
+    const chosen = ISSUANCES.find((i) => issuanceKey(i.value) === issuance)?.value ?? DEFAULT_ISSUANCE;
+    void sendDebug({ type: 'debug:set-notary', notaryUrl: url, issuance: chosen })
       // Re-describe rather than echo the URL back optimistically: whether a URL actually yields the real
       // prover is the core's answer (it also needs a host delegate), and this control exists to tell the
       // operator which prover is live — so it must not assert one it only hopes for.
@@ -64,7 +82,7 @@ export function SettingsBar(): preact.JSX.Element {
   };
 
   const dirty = apiUrl.trim() !== running.apiUrl || feUrl.trim() !== running.feUrl;
-  const notaryDirty = notaryUrl.trim() !== running.notaryUrl;
+  const notaryDirty = notaryUrl.trim() !== running.notaryUrl || issuance !== running.issuance;
 
   const prefill = (apiUrl: string, feUrl: string): void => {
     setApiUrl(apiUrl);
@@ -121,6 +139,18 @@ export function SettingsBar(): preact.JSX.Element {
           placeholder="wss://…/provenance/v1/ — empty = the core's default"
           onInput={(e) => setNotaryUrl((e.target as HTMLInputElement).value)}
         />
+      </label>
+      <label>
+        Issuance{' '}
+        <select
+          value={issuance}
+          title={`proxy + egress: put the Worker URL in the notary field, ${EGRESS_WORKER_URL}. No fallback to mpc.`}
+          onChange={(e) => setIssuance((e.target as HTMLSelectElement).value)}
+        >
+          {ISSUANCES.map((i) => (
+            <option value={issuanceKey(i.value)}>{i.label}</option>
+          ))}
+        </select>
       </label>
       <button onClick={applyNotary} disabled={busy || !notaryDirty}>
         apply notary

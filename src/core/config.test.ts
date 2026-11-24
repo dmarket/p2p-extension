@@ -51,6 +51,9 @@ interface ConfigView {
     maxRecvDataOnline: number;
     onlineBudgetMarginPercent: number;
     maxRecvRecordsOnline: number | null;
+    sentBudgetMarginPercent: number;
+    mode: string;
+    transport: string;
   };
   steamEndpoints: {
     historyMaxTrades: number;
@@ -160,6 +163,15 @@ describe('buildTrackerConfig — one sentinel per group lands on its declared fi
     // own contract default. A default of `0` here would instead publish a budget that cannot hold one record.
     expect(defaults().notary.maxRecvRecordsOnline).toBeNull();
     expect(build({ notary: { maxRecvDataOnline: 2048 } }).notary.maxRecvRecordsOnline).toBeNull();
+  });
+
+  it('notary.mode (slot 19) and notary.transport (slot 20)', () => {
+    expect(defaults().notary.mode).toBe('mpc');
+    expect(defaults().notary.transport).toBe('direct');
+    const cfg = build({ notary: { mode: 'proxy', transport: 'egress' } });
+    expect(cfg.notary.mode).toBe('proxy');
+    expect(cfg.notary.transport).toBe('egress');
+    expect(cfg.notary.sentBudgetMarginPercent).toBe(defaults().notary.sentBudgetMarginPercent); // slot 18
   });
 
   it('steamEndpoints.bulkOfferThreshold (slot 10) and a path field', () => {

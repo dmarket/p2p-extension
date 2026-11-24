@@ -39,6 +39,11 @@ import {
   FE_URL_KEY,
   isDebugRequest,
   NOTARY_URL_KEY,
+  NOTARY_ISSUANCE_KEY,
+  DEFAULT_ISSUANCE,
+  parseIssuance,
+  EGRESS_WORKER_URL,
+  type NotaryIssuance,
   TICK_ALARM_NAME,
   type DebugRequest,
   type DebugResponse,
@@ -62,8 +67,13 @@ export interface DebugDeps {
    * the tracker was actually started with, not from the debug key alone — see `DescribeResult.notaryUrl`.
    */
   getNotaryUrl: () => string | null;
-  /** Point the notary at [url] (or `null` to drop back to a publish / the core's default) and restart. */
-  setNotaryUrl: (url: string | null) => void;
+  /** The issuance the tracker was started with. */
+  getNotaryIssuance: () => NotaryIssuance;
+  /**
+   * Point the notary at [url] (or `null` to drop back to a publish / the core's default), set the issuance
+   * mode and transport, and restart.
+   */
+  setNotary: (url: string | null, issuance: NotaryIssuance) => void;
   /**
    * Apply the blocking-state simulator's core-config overrides (`null` = none) and restart the core.
    *
@@ -184,11 +194,14 @@ const resolveProver = (): ProverKind => (supportsOffscreenProver() ? 'tlsn' : 'n
  * core without a spawn, so this states the configuration as of the last spawn, not necessarily as of the next
  * proof. Closing that needs a dev-gated hook out of `reconcileOverrides`.
  */
+const issuanceLabel = (i: NotaryIssuance): string => `${i.mode}/${i.transport}`;
+
 export function logProverConfiguration(deps: DebugDeps): void {
   const notaryUrl = deps.getNotaryUrl();
   void logCommand(
     NOTARY_TRACE_EVENT,
     `session: prover=${resolveProver()} notaryUrl=${notaryUrl ?? "(core's own default)"} ` +
+      `issuance=${issuanceLabel(deps.getNotaryIssuance())} ` +
       `proofTimeoutMs=${getSettings().web.notaryProofTimeoutMs} ` +
       // The inner bound, and the one a misfire would show up as: proofs failing in ~25 s with a "wedged"
       // line rather than at the deadline. `0` here means that watch is switched off.
@@ -212,6 +225,7 @@ async function handle(request: DebugRequest, deps: DebugDeps): Promise<DebugResp
         feUrl,
         notaryUrl,
         prover: resolveProver(),
+        issuance: deps.getNotaryIssuance(),
         lastProof: lastProofOutcome() ?? null,
         // …and whether one is running as this poll is answered. Without it the pill above, which describes a
         // finished proof, was the only proof state the console had — so the 17 s a healthy proof takes read
@@ -363,7 +377,10 @@ async function handle(request: DebugRequest, deps: DebugDeps): Promise<DebugResp
       // Trimmed here rather than in the page so a stored value is always either a usable URL or absent —
       // the boot path reads this key directly and does no validation of its own.
       const url = request.notaryUrl.trim() || null;
-      await browser.storage.local.set({ [NOTARY_URL_KEY]: url ?? '' });
+      // Validated here too: the core's NotaryConfig constructor throws on egress without proxy, and that
+      // throw would stop the tracker from starting at all.
+      const issuance = parseIssuance(request.issuance) ?? DEFAULT_ISSUANCE;
+      await browser.storage.local.set({ [NOTARY_URL_KEY]: url ?? '', [NOTARY_ISSUANCE_KEY]: issuance });
       await logCommand(
         'SetNotary',
         url === null
@@ -371,7 +388,15 @@ async function handle(request: DebugRequest, deps: DebugDeps): Promise<DebugResp
           : `notary set to ${url}; the core restarts and selects the real prover. Proofs run in the offscreen document — open its own DevTools (chrome://extensions → Inspect views: offscreen.html) for the MPC stack.`,
         'info',
       );
-      deps.setNotaryUrl(url);
+      if (issuance.mode !== 'mpc') {
+        await logCommand(
+          'SetNotary',
+          `issuance ${issuanceLabel(issuance)}: no fallback to MPC, so every proof fails if the notary has this mode disabled.` +
+            (issuance.transport === 'egress' ? ` With egress the notary URL must be the Worker, ${EGRESS_WORKER_URL}, not the notary.` : ''),
+          'info',
+        );
+      }
+      deps.setNotary(url, issuance);
       return { ok: true };
     }
 

@@ -109,7 +109,7 @@ declare module '@dmarket/p2p-tracker-core-domain' {
     // in step with the core by scripts/check-core-params.mjs — `tsc` compares against this file, not the
     // package.
     //
-    // The signature runs to slot 18. It mirrors the installed `.d.mts` exactly — `sentBudgetMarginPercent`
+    // The signature runs to slot 20. It mirrors the installed `.d.mts` exactly — `sentBudgetMarginPercent`
     // was declared ahead of its publish for a while, registered in `PENDING` in
     // scripts/check-core-params.mjs, and that entry retired itself at `.186`.
     copy(
@@ -135,6 +135,8 @@ declare module '@dmarket/p2p-tracker-core-domain' {
       onlineBudgetMarginPercent?: never,
       maxRecvRecordsOnline?: number,
       sentBudgetMarginPercent?: number,
+      mode?: 'mpc' | 'proxy',
+      transport?: 'direct' | 'egress',
     ): NotaryConfig;
   }
 

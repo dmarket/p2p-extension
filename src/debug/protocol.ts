@@ -14,6 +14,7 @@
 
 import { configuredInternalEnvironments, PROD_ENVIRONMENT } from '@/config/defaultEnvironment';
 import type { BlockingReason } from '@/core/tracker';
+import type { NotaryMode, NotaryTransport } from '@/config/settings';
 import type { DemandInjection } from '@/debug/demandState';
 import type { OfferDirection, OfferLevel } from '@/state/offerGuard';
 import type { SimulationState } from '@/debug/simulationState';
@@ -115,7 +116,7 @@ export type DebugRequest =
   | { type: 'debug:refresh-config' }
   | { type: 'debug:set-endpoints'; apiUrl: string; feUrl: string }
   /** Empty string = clear the override, dropping back to a publish or the core's own default. */
-  | { type: 'debug:set-notary'; notaryUrl: string }
+  | { type: 'debug:set-notary'; notaryUrl: string; issuance: NotaryIssuance }
   /**
    * Arm/disarm the blocking-state simulations (src/debug/simulate.ts).
    *
@@ -200,6 +201,8 @@ export interface DescribeResult {
    * drift from the core's choice without one of those two changing.
    */
   prover: ProverKind;
+  /** The issuance protocol and transport the core was started with (`mpc`/`direct` unless the console set them). */
+  issuance: NotaryIssuance;
   /**
    * What last happened to a proof in this worker, or `null` if no proof frame has arrived yet.
    *
@@ -342,6 +345,27 @@ export const FE_URL_KEY = 'debug.feUrl';
  * (src/config/notaryUrl.ts) owns that table.
  */
 export const NOTARY_URL_KEY = 'debug.notaryUrl';
+
+/** The two `NotaryConfig` fields that pick how a proof is issued; the core accepts `egress` only with `proxy`. */
+export interface NotaryIssuance {
+  mode: NotaryMode;
+  transport: NotaryTransport;
+}
+export const DEFAULT_ISSUANCE: NotaryIssuance = { mode: 'mpc', transport: 'direct' };
+/** Dev-only issuance override, stored as {@link NotaryIssuance}. ABSENT ⇒ the core's own `mpc`/`direct`. */
+export const NOTARY_ISSUANCE_KEY = 'debug.notaryIssuance';
+/** Where egress goes: the Cloudflare Worker frontend on p2p-wss-proxy, not the notary itself. */
+export const EGRESS_WORKER_URL = 'wss://p2p-wss-proxy.dmarket.com/notary/egress/v1';
+
+/** Accepts only the pairings the core's `NotaryConfig` constructor accepts; anything else is `undefined`. */
+export function parseIssuance(value: unknown): NotaryIssuance | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const { mode, transport } = value as Record<string, unknown>;
+  if (mode !== 'mpc' && mode !== 'proxy') return undefined;
+  if (transport !== 'direct' && transport !== 'egress') return undefined;
+  if (transport === 'egress' && mode !== 'proxy') return undefined;
+  return { mode, transport };
+}
 // Dev-only extra origins the page bridge accepts + pushes to, beyond the two prod dmarket origins.
 // Seeded from the FE origin whenever the debug console applies an endpoint (settings-driven, so dev
 // FE links are configurable rather than hardcoded). Read by the content-script bridge + the SW push.
