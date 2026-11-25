@@ -14,6 +14,8 @@ the README.
 
 ## [Unreleased]
 
+## [1.0.7-beta] - 2026-11-25
+
 Built against `@dmarket/p2p-tracker-core` `1.4.0-beta`.
 
 ### Changed
@@ -197,6 +199,7 @@ every build of a given release is reproducible.
   `appVersion`. Production deployment is a separate, approval-gated job, a stub until there is a
   store listing to publish to.
 
+[1.0.7-beta]: https://github.com/dmarket/p2p-extension/compare/v1.0.6-beta...v1.0.7-beta
 [1.0.6-beta]: https://github.com/dmarket/p2p-extension/compare/v1.0.5-beta...v1.0.6-beta
 [1.0.5-beta]: https://github.com/dmarket/p2p-extension/compare/v1.0.4-beta...v1.0.5-beta
 [1.0.4-beta]: https://github.com/dmarket/p2p-extension/compare/v1.0.3-beta...v1.0.4-beta
