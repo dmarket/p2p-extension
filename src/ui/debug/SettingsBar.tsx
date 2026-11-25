@@ -1,5 +1,14 @@
 import { useEffect, useState } from 'preact/hooks';
-import { DEFAULT_ISSUANCE, EGRESS_WORKER_URL, ENVIRONMENTS, type DescribeResult, type NotaryIssuance } from '@/debug/protocol';
+import { PROD_ENVIRONMENT } from '@/config/defaultEnvironment';
+import { DEFAULT_NOTARY_URL } from '@/config/notaryUrl';
+import {
+  DEFAULT_ISSUANCE,
+  EGRESS_WORKER_URL,
+  ENVIRONMENTS,
+  STAGE_EGRESS_WORKER_URL,
+  type DescribeResult,
+  type NotaryIssuance,
+} from '@/debug/protocol';
 import { sendDebug } from '@/ui/debug/messaging';
 
 /**
@@ -145,7 +154,16 @@ export function SettingsBar(): preact.JSX.Element {
         <select
           value={issuance}
           title={`proxy + egress: put the Worker URL in the notary field, ${EGRESS_WORKER_URL}. No fallback to mpc.`}
-          onChange={(e) => setIssuance((e.target as HTMLSelectElement).value)}
+          onChange={(e) => {
+            const key = (e.target as HTMLSelectElement).value;
+            setIssuance(key);
+            // Stage/Dev only. Prod has one notary URL serving both direct modes, so the field stays as typed.
+            // `proxy` (direct) dials the target from the notary, so it uses the same notary URL as mpc;
+            // only `proxy + egress` goes through the p2p-wss-proxy Worker frontend.
+            const onProd = apiUrl.trim() === PROD_ENVIRONMENT.apiUrl && feUrl.trim() === PROD_ENVIRONMENT.feUrl;
+            if (onProd) return;
+            setNotaryUrl(key === issuanceKey(ISSUANCES[2]!.value) ? STAGE_EGRESS_WORKER_URL : DEFAULT_NOTARY_URL);
+          }}
         >
           {ISSUANCES.map((i) => (
             <option value={issuanceKey(i.value)}>{i.label}</option>

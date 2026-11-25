@@ -359,6 +359,8 @@ export const DEFAULT_ISSUANCE: NotaryIssuance = { mode: 'mpc', transport: 'direc
 export const NOTARY_ISSUANCE_KEY = 'debug.notaryIssuance';
 /** Where egress goes: the Cloudflare Worker frontend on p2p-wss-proxy, not the notary itself. */
 export const EGRESS_WORKER_URL = 'wss://p2p-wss-proxy.dmarket.com/notary/egress/v1';
+/** Stage counterpart of {@link EGRESS_WORKER_URL}; the host is the stage p2p-wss-proxy, the path is the prod one. */
+export const STAGE_EGRESS_WORKER_URL = 'wss://p2p-wss-proxy-stage.dmarket.com/notary/egress/v1';
 
 /** Accepts only the pairings the core's `NotaryConfig` constructor accepts; anything else is `undefined`. */
 export function parseIssuance(value: unknown): NotaryIssuance | undefined {
