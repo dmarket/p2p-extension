@@ -16,6 +16,20 @@ the README.
 
 Built against `@dmarket/p2p-tracker-core` `1.4.0-beta`.
 
+### Changed
+
+- Trade proofs can be switched from MPC to proxy issuance remotely. New remote-config key: `tracker.notary.mode`
+  (`mpc` by default, or `proxy`) (DMA-1061).
+
+### Fixed
+
+- Trade tracking works again after the Steam update of November 24, which left sellers showing as offline
+  (DMA-1070).
+
+## [1.0.6-beta] - 2026-11-10
+
+Built against `@dmarket/p2p-tracker-core` `1.3.0-beta`.
+
 ### Added
 
 - A banner on Steam's sent-offers and offer pages warns about an outgoing offer that gives items away with no
@@ -35,13 +49,9 @@ Built against `@dmarket/p2p-tracker-core` `1.4.0-beta`.
 
 - Remote configuration now comes from the DMarket CDN instead of Firebase, and the Firebase permission is removed
   (DMA-484).
-- Trade proofs can be switched from MPC to proxy issuance remotely. New remote-config key: `tracker.notary.mode`
-  (`mpc` by default, or `proxy`) (DMA-1061).
 
 ### Fixed
 
-- Trade tracking works again after the Steam update of November 24, which left sellers showing as offline
-  (DMA-1070).
 - The "!" badge no longer blinks when two sent-offers tabs are open.
 - Yellow offer warnings no longer disappear when the offer selector stops matching Steam's page (DMA-859).
 - Closed Steam offers are no longer flagged as suspicious (DMA-849).
@@ -187,6 +197,7 @@ every build of a given release is reproducible.
   `appVersion`. Production deployment is a separate, approval-gated job, a stub until there is a
   store listing to publish to.
 
+[1.0.6-beta]: https://github.com/dmarket/p2p-extension/compare/v1.0.5-beta...v1.0.6-beta
 [1.0.5-beta]: https://github.com/dmarket/p2p-extension/compare/v1.0.4-beta...v1.0.5-beta
 [1.0.4-beta]: https://github.com/dmarket/p2p-extension/compare/v1.0.3-beta...v1.0.4-beta
 [1.0.3-beta]: https://github.com/dmarket/p2p-extension/compare/v1.0.2-beta...v1.0.3-beta
