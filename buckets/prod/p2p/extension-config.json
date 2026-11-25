@@ -53,8 +53,6 @@
       "bulkOfferThreshold": 1
     },
     "steamScrape": {
-      "tokenRegex": "data-loyalty_webapi_token=\"&quot;([a-zA-Z0-9_.\\-]+)&quot;",
-      "steamIdRegex": "g_steamID\\s*=\\s*\"(\\d+)\"",
       "steamSessionCookieName": "steamLoginSecure",
       "steamSessionIdCookieName": "sessionid"
     },

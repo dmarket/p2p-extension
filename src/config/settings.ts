@@ -28,6 +28,7 @@ import {
   TRACKER_ORDER,
   type CoreOnlyEndpointParam,
   type CoreOnlyNotaryParam,
+  type CoreOnlySteamScrapeParam,
 } from '@/config/coreParams';
 import { STEAM_INTEGRATION, type AntiCsrfEndpoint } from '@/config/steam';
 import {
@@ -280,8 +281,6 @@ export interface CredentialOverrides {
 }
 
 export interface SteamScrapeOverrides {
-  tokenRegex?: string;
-  steamIdRegex?: string;
   steamSessionCookieName?: string;
   steamSessionIdCookieName?: string;
 }
@@ -537,18 +536,6 @@ const boolean: Validator = (v) => (typeof v === 'boolean' ? v : undefined);
 /** Exactly the core's wire values: anything else (`"PROXY"` too) would throw in `NotaryConfig.init`. */
 const notaryMode: Validator = (v) => (v === 'mpc' || v === 'proxy' ? v : undefined);
 
-/** A regex string that compiles AND exposes at least one capture group (the core reads group 1). */
-const regexWithGroup: Validator = (v) => {
-  if (typeof v !== 'string' || v === '') return undefined;
-  try {
-    // Appending `|` makes an empty match succeed; the match array length minus the full match = groups.
-    const groups = new RegExp(`${v}|`).exec('')!.length - 1;
-    return groups >= 1 ? v : undefined;
-  } catch {
-    return undefined;
-  }
-};
-
 /** wss:// (or ws://) URL — notary transport; not host_permissions-gated. */
 const wssUrl: Validator = (v) => {
   if (typeof v !== 'string' || v === '') return undefined;
@@ -655,11 +642,9 @@ const MARKETPLACE_SCRAPE_SCHEMA = {
 } satisfies Schema<'cookieName' | 'refreshCookieName' | 'tokenRefreshPath' | 'deferRefreshWhileSiteTabOpen'>;
 
 const STEAM_SCRAPE_SCHEMA = {
-  tokenRegex: regexWithGroup,
-  steamIdRegex: regexWithGroup,
   steamSessionCookieName: nonEmptyStr,
   steamSessionIdCookieName: nonEmptyStr,
-} satisfies Schema<(typeof STEAM_SCRAPE_ORDER)[number]>;
+} satisfies Schema<Exclude<(typeof STEAM_SCRAPE_ORDER)[number], CoreOnlySteamScrapeParam>>;
 
 // The core-only slots are excluded: they exist in the order only to hold their position.
 const STEAM_ENDPOINTS_SCHEMA = {

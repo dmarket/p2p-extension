@@ -288,12 +288,20 @@ export const STEAM_ENDPOINTS_ORDER = [
   'targetedTradeReadsPerCycle',
 ] as const satisfies readonly (keyof SteamEndpointsOverrides | CoreOnlyEndpointParam)[];
 
+/**
+ * `SteamScrapeConfig` slots the core no longer reads (DMA-1070): Steam stopped putting the Web API token in the
+ * steamcommunity.com homepage on 2026-11-24, and the core now takes it from the `steamLoginSecure` cookie. Kept in
+ * STEAM_SCRAPE_ORDER for position only, so the cookie names after them stay addressable; not publishable, because a
+ * knob that changes nothing would invite "fixing" the next Steam change with a regex.
+ */
+export type CoreOnlySteamScrapeParam = 'tokenRegex' | 'steamIdRegex';
+
 export const STEAM_SCRAPE_ORDER = [
   'tokenRegex',
   'steamIdRegex',
   'steamSessionCookieName',
   'steamSessionIdCookieName',
-] as const satisfies readonly (keyof SteamScrapeOverrides)[];
+] as const satisfies readonly (keyof SteamScrapeOverrides | CoreOnlySteamScrapeParam)[];
 
 /**
  * `TrackerConfig` parameters the overlay does not expose, named in TRACKER_ORDER for position only.

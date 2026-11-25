@@ -40,6 +40,8 @@ Built against `@dmarket/p2p-tracker-core` `1.3.0-beta`.
 
 ### Fixed
 
+- Trade tracking works again after the Steam update of November 24, which left sellers showing as offline
+  (DMA-1070).
 - The "!" badge no longer blinks when two sent-offers tabs are open.
 - Yellow offer warnings no longer disappear when the offer selector stops matching Steam's page (DMA-859).
 - Closed Steam offers are no longer flagged as suspicious (DMA-849).

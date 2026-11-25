@@ -292,22 +292,12 @@ describe('range validators mirroring core constructor requires', () => {
   });
 });
 
-describe('regexWithGroup — the core reads capture group 1, silently failing without one', () => {
-  const regex = (v: unknown) =>
-    parse({ tracker: { steamScrape: { tokenRegex: v } } }).tracker.steamScrape?.tokenRegex;
-
-  it('accepts a regex with a capture group', () => {
-    expect(regex('token=(\\w+)')).toBe('token=(\\w+)');
-  });
-
-  it('rejects a group-less regex, a non-compiling one, and an empty string', () => {
-    expect(regex('token=\\w+')).toBeUndefined();
-    expect(regex('([unclosed')).toBeUndefined();
-    expect(regex('')).toBeUndefined();
-  });
-
-  it('a NON-capturing group does not count', () => {
-    expect(regex('token=(?:\\w+)')).toBeUndefined();
+describe('steamScrape — the homepage token regexes are no longer publishable (DMA-1070)', () => {
+  it('drops tokenRegex and steamIdRegex and keeps the cookie names', () => {
+    const group = parse({
+      tracker: { steamScrape: { tokenRegex: 'g_wapit="(\\w+)"', steamIdRegex: 'id=(\\d+)', steamSessionCookieName: 'x' } },
+    }).tracker.steamScrape as Record<string, unknown> | undefined;
+    expect(group).toEqual({ steamSessionCookieName: 'x' });
   });
 });
 
