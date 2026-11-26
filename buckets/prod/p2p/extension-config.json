@@ -116,6 +116,7 @@
       "maxPerDayProof": 50,
       "fpCooldownMs": 1800000,
       "suppressSubstrings": []
-    }
+    },
+    "minExtensionVersion": "1.0.7"
   }
 }

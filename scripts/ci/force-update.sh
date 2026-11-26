@@ -25,7 +25,7 @@
 #             otherwise halts the job — the watch will read the approval when the store serves the version — but
 #             fails instead when no watch waits for it (`watch_store_release` failed, or the watch expired).
 #
-#   The raise is TWO jobs, so the App key that pushes the branch never shares a job with dependency code:
+#   The raise is TWO jobs, so the App key that pushes to `main` never shares a job with dependency code:
 #
 #   raise     The raise job (`raise_min_version` in the `store_release` pipeline, `approve_force_update` after
 #             `approve`). Runs `npm ci` and vitest without secrets, raises the minimum in the LIVE document
@@ -33,27 +33,24 @@
 #             force-update/state.json (version, outcome `raised|unchanged`, the release) for the workspace.
 #             Touches no git remote and holds no GitHub credential.
 #
-#   The propose job (`propose_min_version`, contexts release-writer + org-global + dm-release-notify) installs
-#   nothing and runs only code from its own clone of `main`; the workspace brings it data, never code:
+#   The push job (`push_min_version`, contexts release-writer + dm-release-notify) installs nothing and runs
+#   only code from its own clone of `main`; the workspace brings it data, never code:
 #
 #   load <file>
 #             Validates the raise job's state (force-update.mjs `state-read`: plain values only, and about this
 #             pipeline's version) and exports it through $BASH_ENV. Halts when there is none — `approve` halted
 #             before raising.
 #
-#   branch    Runs inside .circleci/release-writer.sh. Raises the minimum in `main`'s own copy of the document —
+#   push      Runs inside .circleci/release-writer.sh. Raises the minimum in `main`'s own copy of the document —
 #             only that line changes, so a config change merged to `main` but not yet published is never undone —
-#             and pushes it as `config/min-extension-<version>`. Nothing when `main` already requires the
-#             version; reuses the branch when it exists or when the other path pushed it first. Exports
-#             CONFIG_BRANCH (empty for nothing).
+#             and pushes that one commit straight to `main`, reading `main` again and retrying when another push
+#             landed first (3 attempts). Nothing when `main` already requires the version. Exports
+#             CONFIG_COMMIT_URL for the notice. The run whose raise changed the live document announces (the upload
+#             is pinned to the generation it read, so exactly one of the two paths does); the other halts. When
+#             `main` keeps refusing the push, the announcing run exports CONFIG_PUSH_FAILED, lets the notice go out
+#             and fails in `finish`; the other run fails at once.
 #
-#   pr        Opens the pull request from CONFIG_BRANCH into `main` (or finds the open one) with org-global's
-#             GITHUB_TOKEN and exports CONFIG_PR_URL for the notice. Announces when this run CREATED the pull
-#             request — exactly one of the two paths does, and a re-run after a failed propose still does — or
-#             when the minimum was raised and `main` already required it; halts otherwise. When the API refuses,
-#             logs the compare link, lets the notice go out first and fails the job in `finish`.
-#
-#   finish    Fails the job when `pr` could not open the pull request.
+#   finish    Fails the job when `push` could not update `main`.
 #
 #   notice-env <served|expired|raised>
 #             The text of a release-channel notice, exported through $BASH_ENV for the `slack/notify` step that
@@ -62,8 +59,8 @@
 #             `dm-release-notify`). Values are JSON-escaped: the orb substitutes them into a JSON body.
 #
 # A job with nothing to announce HALTS (`circleci-agent step halt`): `approve` while the store does not serve the
-# version yet (and a watch still waits for it — otherwise it fails), `load` when nothing was raised, and `pr` when
-# this run opened no pull request. The halted job is green and its notice step never runs.
+# version yet (and a watch still waits for it — otherwise it fails), `load` when nothing was raised, and `push` when
+# the other run raised the live document. The halted job is green and its notice step never runs.
 #
 # THE APPROVAL LIVES IN THE RELEASE PIPELINE. The deferred pipelines never decide whether a release is forced;
 # they read the approval job's state through the API.
@@ -75,15 +72,13 @@
 # build means that one call finds it. It is also the moment users actually get the release, which is what the
 # Slack notice announces — not the dashboard's "approved".
 #
-# GIT CATCHES UP THROUGH A PULL REQUEST. The live document is patched rather than replaced — whatever was published
-# stays — and the result goes back to git as a pull request into `main`, never as a push to it: `main` takes no
-# change without a review, and no CI credential may bypass that. The branch is pushed by the `release-writer`
-# GitHub App (context `release-writer`, contents: write and nothing else, so it cannot open the pull request); the
-# pull request is opened with org-global's GITHUB_TOKEN, whose owner has read access but is a member of the
-# organisation, which is all GitHub asks of whoever opens one. Until it is merged, git lags behind the live
-# document, and buckets/upload.sh refuses to publish a document that would lower the live minimum. The pull request
-# changes `main`'s file by that one line only; whatever else differs between git and the live document is left to
-# whoever publishes it.
+# GIT CATCHES UP THROUGH A PUSH TO `main`. The live document is patched rather than replaced — whatever was
+# published stays — and the same one-line raise goes to `main` as a commit pushed by the `release-writer` GitHub App
+# (context `release-writer`, contents: write). `main`'s ruleset "pull request + review + CI" must list that App as
+# a bypass actor; without it GitHub refuses the push with a rule violation, the job fails after the notice, and git
+# lags behind the live document until someone adds the line by hand. Meanwhile buckets/upload.sh refuses to publish
+# a document that would lower the live minimum. The commit changes `main`'s file by that one line only; whatever
+# else differs between git and the live document is left to whoever publishes it.
 #
 # Environment:
 #   REPO_SLUG               owner/repo (the executor sets it)
@@ -99,16 +94,14 @@
 #   RELEASE_LABEL,
 #   RELEASE_SHA,
 #   RELEASE_ACTOR           poll: the schedule's pipeline parameters and its own id (the job sets them)
-#   STORE_SERVED_VERSION    raise / branch / pr: what the update server served when the watch fired
+#   STORE_SERVED_VERSION    raise / push: what the update server served when the watch fired
 #   P2P_EXTENSION_DEPLOY_SA_KEY
 #                           raise: the service-account key for the one bucket object (see scripts/ci/force-update.mjs)
-#   RELEASE_TOKEN           branch: set by .circleci/release-writer.sh (context release-writer), which also
+#   RELEASE_TOKEN           push: set by .circleci/release-writer.sh (context release-writer), which also
 #                           supplies it to git as the credential for this repository
-#   GITHUB_TOKEN            pr: org-global's token, to open the pull request
 #   RAISE_OUTCOME,
-#   CONFIG_BRANCH,
-#   CONFIG_PR_URL,
-#   CONFIG_PR_FAILED        branch / pr / finish / notice-env: what `load` and the previous steps exported
+#   CONFIG_COMMIT_URL,
+#   CONFIG_PUSH_FAILED      push / finish / notice-env: what `load` and the previous steps exported
 #   FORCE_UPDATE            notice-env: `true` when the release was forced (the `store_release` pipeline parameter)
 #   BASH_ENV                notice-env: where the notice is exported (CircleCI sets it)
 set -euo pipefail
@@ -118,7 +111,7 @@ cd "$(dirname "$0")/../.."
 # variable and the job's contexts reach it, including the bucket key. Same limit as `drop_store_secrets` in the
 # CircleCI config: it clears the child's environment, not the container's, and what the child writes to disk or to
 # $BASH_ENV still reaches the job's later steps. That is why the job that runs it holds no GitHub credential and
-# hands the propose job data only (`load`).
+# hands the push job data only (`load`).
 without_secrets() {
   env -u P2P_EXTENSION_DEPLOY_SA_KEY -u GITHUB_TOKEN -u CIRCLE_API_TOKEN -u SLACK_ACCESS_TOKEN \
     -u RELEASE_WRITER_PRIVATE_KEY -u RELEASE_TOKEN -u GH_TOKEN \
@@ -264,10 +257,10 @@ cmd_notice_env() {
     raised)
       headline=':warning: *Forced update* applied for *p2p-extension*'
       quote="web.minExtensionVersion is now $target: older installs are asked to update."
-      if [ "${CONFIG_PR_FAILED:-}" = 1 ]; then
-        quote="$quote The config PR could not be opened: <${CONFIG_PR_URL}|open it here>."
-      elif [ -n "${CONFIG_PR_URL:-}" ]; then
-        quote="$quote Merge the <${CONFIG_PR_URL}|config PR> to bring git level with it."
+      if [ "${CONFIG_PUSH_FAILED:-}" = 1 ]; then
+        quote="$quote main was not updated: set it in buckets/prod/p2p/extension-config.json by hand."
+      elif [ -n "${CONFIG_COMMIT_URL:-}" ]; then
+        quote="$quote <${CONFIG_COMMIT_URL}|Committed to main>."
       fi
       version="$release"
       ;;
@@ -316,7 +309,7 @@ cmd_raise() {
   done
 
   # Already raised (by the other path, or a re-run): nothing new to publish, but git may still lag behind, so the
-  # propose job runs either way; its `pr` step decides whether there is anything to announce.
+  # push job runs either way; its `push` step decides whether there is anything to announce.
   [ "$outcome" = raised ] || echo "The live document already requires $target or newer; nothing to publish."
   mkdir -p "$(dirname "$STATE")"
   node "$NODE_SCRIPT" state-write "$STATE" "$outcome"
@@ -342,75 +335,55 @@ cmd_load() {
   echo
 }
 
-cmd_branch() {
+cmd_push() {
   : "${STORE_WATCH_VERSION:?STORE_WATCH_VERSION must be set (force-update.sh load)}"
-  local target="$STORE_WATCH_VERSION" served="${STORE_SERVED_VERSION:-}" branch proposed
+  local target="$STORE_WATCH_VERSION" served="${STORE_SERVED_VERSION:-}" proposed tree attempt result=failed sha
   require_version "$target" "the forced version"
-  branch="config/min-extension-$target"
   proposed="$(mktemp)"
-  git fetch -q origin main
-  # main's own copy with only the minimum raised: a change merged to main but not yet published stays as it is.
-  git show "FETCH_HEAD:$CONFIG" > "$proposed"
-  if [ "$(node "$NODE_SCRIPT" raise "$proposed" "$target")" = unchanged ]; then
-    echo "main already requires $target or newer; nothing to propose."
-    export_env CONFIG_BRANCH ''
-    return 0
-  fi
-  if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
-    echo "$branch already exists (an earlier run, or the other path); reusing it."
-    export_env CONFIG_BRANCH "$branch"
-    return 0
-  fi
-  git checkout -q -B "$branch" FETCH_HEAD
-  cp "$proposed" "$CONFIG"
-  git add -- "$CONFIG"
-  git -c user.name=circleci-bot -c user.email=ci@dmarket.com \
-    commit -q -m "config(prod): require extension $target — the store serves ${served:-it}"
-  if ! git push -q origin "$branch"; then
-    # The other path may have pushed the same branch a moment ago: then reuse it rather than fail.
-    git ls-remote --exit-code --heads origin "$branch" >/dev/null || {
-      echo "ERROR: could not push $branch." >&2
-      exit 1
-    }
-    echo "$branch appeared while this run was pushing it; reusing it."
-  else
-    echo "Pushed $branch."
-  fi
-  export_env CONFIG_BRANCH "$branch"
-}
-
-cmd_pr() {
-  : "${STORE_WATCH_VERSION:?STORE_WATCH_VERSION must be set (force-update.sh load)}"
-  local target="$STORE_WATCH_VERSION" branch="${CONFIG_BRANCH:-}" announce=no result url rc=0
-  if [ -n "$branch" ]; then
-    result="$(node "$NODE_SCRIPT" pull-request "$branch" "$target" "${STORE_SERVED_VERSION:-}")" || rc=$?
-    if [ "$rc" -eq 0 ]; then
-      url="${result#* }"
-      # The run that opens the pull request announces. Exactly one of the two paths creates it, so a raise and
-      # its notice can sit in different jobs without a second notice; a re-run that opens it for an earlier
-      # raise still announces.
-      [ "${result%% *}" = created ] && announce=yes
-      echo "Pull request (${result%% *}): $url"
-    else
-      url="$(node --input-type=module -e "
-        import { compareUrl } from './scripts/ci/force-update.mjs';
-        console.log(compareUrl(process.argv[1], process.argv[2]));
-      " "$REPO_SLUG" "$branch")"
-      echo "ERROR: could not open the pull request from $branch; open it by hand: $url" >&2
-      # The branch is new to main, so this is news either way: announce it, then fail in `finish`.
-      announce=yes
-      export_env CONFIG_PR_FAILED 1
+  for attempt in 1 2 3; do
+    git fetch -q origin main
+    # main's own copy with only the minimum raised: a change merged to main but not yet published stays as it is.
+    git show "FETCH_HEAD:$CONFIG" > "$proposed"
+    if [ "$(node "$NODE_SCRIPT" raise "$proposed" "$target")" = unchanged ]; then
+      echo "main already requires $target or newer; nothing to push."
+      result=unchanged
+      break
     fi
-    export_env CONFIG_PR_URL "$url"
-  elif [ "${RAISE_OUTCOME:-}" = raised ]; then
-    announce=yes # raised, and main already required it: nothing to propose, but the raise is news
+    # A separate worktree, so the clone this script runs from never changes under it.
+    tree="$(mktemp -d)"
+    git worktree add -q --detach "$tree" FETCH_HEAD
+    cp "$proposed" "$tree/$CONFIG"
+    git -C "$tree" add -- "$CONFIG"
+    git -C "$tree" -c user.name=circleci-bot -c user.email=ci@dmarket.com \
+      commit -q -m "config(prod): require extension $target — the store serves ${served:-it}"
+    if git -C "$tree" push -q origin HEAD:refs/heads/main; then
+      sha="$(git -C "$tree" rev-parse HEAD)"
+      result=pushed
+    fi
+    git worktree remove --force "$tree"
+    if [ "$result" = pushed ]; then
+      echo "Pushed $sha to main."
+      export_env CONFIG_COMMIT_URL "https://github.com/${REPO_SLUG}/commit/$sha"
+      break
+    fi
+    # Usually another commit landed on main first (the other raise path, or anyone): read main again.
+    echo "main refused the push (attempt $attempt)." >&2
+  done
+  if [ "$result" = failed ]; then
+    echo "ERROR: could not push the raised minimum to main. A rule violation above means the release-writer" >&2
+    echo "App is not a bypass actor on main's ruleset; set web.minExtensionVersion to $target in $CONFIG by hand." >&2
+    if [ "${RAISE_OUTCOME:-}" = raised ]; then
+      export_env CONFIG_PUSH_FAILED 1 # announce the raise first; `finish` fails the job after the notice
+      return 0
+    fi
+    exit 1
   fi
-  [ "$announce" = yes ] || halt_job "Nothing to announce: this run opened no pull request, or the minimum was already raised."
+  [ "${RAISE_OUTCOME:-}" = raised ] || halt_job "Nothing to announce: the other run raised the live document."
 }
 
 cmd_finish() {
-  if [ "${CONFIG_PR_FAILED:-}" = 1 ]; then
-    echo "ERROR: the minimum is raised, but the pull request was not opened: ${CONFIG_PR_URL:-?}" >&2
+  if [ "${CONFIG_PUSH_FAILED:-}" = 1 ]; then
+    echo "ERROR: the minimum is raised in the live document, but main was not updated." >&2
     exit 1
   fi
   echo "Done."
@@ -422,12 +395,11 @@ case "${1:-}" in
   approve) cmd_approve ;;
   raise) cmd_raise ;;
   load) shift; cmd_load "$@" ;;
-  branch) cmd_branch ;;
-  pr) cmd_pr ;;
+  push) cmd_push ;;
   finish) cmd_finish ;;
   notice-env) shift; cmd_notice_env "$@" ;;
   *)
-    echo "usage: force-update.sh watch|poll|approve|raise|load <state.json>|branch|pr|finish|notice-env <served|expired|raised>" >&2
+    echo "usage: force-update.sh watch|poll|approve|raise|load <state.json>|push|finish|notice-env <served|expired|raised>" >&2
     exit 2
     ;;
 esac

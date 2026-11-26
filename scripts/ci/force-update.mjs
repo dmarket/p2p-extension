@@ -20,13 +20,10 @@
 //   trigger <outcome> <force> <served>
 //                                start the `store_release` pipeline: outcome `served|expired`, force `yes|no`
 //   unschedule <schedule-id>     delete that schedule — the watch's last act
-//   state-write <file> <outcome> write what the raise job hands to the propose job (version, served version,
+//   state-write <file> <outcome> write what the raise job hands to the push job (version, served version,
 //                                outcome `raised|unchanged`, and the release for the notice, from the environment)
 //   state-read <file> [version]  validate that file (and that it is about <version>, when given) and print it as
 //                                NAME=value lines for $BASH_ENV
-//   pull-request <branch> <version> [served]
-//                                open the pull request that carries a raised config from <branch> into `main`, or
-//                                find the one already open; prints `created <url>` or `kept <url>`
 //   lowered-minimum <live> <local>
 //                                exit 4 when publishing <local> over <live> would lower the live minimum
 //                                (buckets/upload.sh refuses that), 0 when it keeps it
@@ -52,14 +49,11 @@
 // the bucket is shared with the frontend. The upload carries `ifGenerationMatch`, so a publish that landed
 // after the download is never overwritten; and the same `Cache-Control` / `Content-Type` as buckets/upload.sh.
 //
-// THE PULL REQUEST. The raised minimum goes back to git as a pull request into `main`, never as a push to it:
-// `main` takes no change without a review, and nothing in CI may bypass that. force-update.sh pushes the branch
-// with the `release-writer` GitHub App (contents: write, no pull-request permission), and this script opens the
-// pull request with org-global's GITHUB_TOKEN — read access to the repository, but its owner is a member of the
-// organisation, which is what GitHub asks of whoever opens a pull request in an organisation's public repository.
+// GIT. The raised minimum goes back to git as one commit that force-update.sh pushes straight to `main` with the
+// `release-writer` GitHub App, a bypass actor on `main`'s review ruleset. This script takes no part in it.
 //
 // TWO JOBS. The raise runs `npm ci` and vitest; the App key must never share a job with dependency code. So the
-// raise job writes a small state file (`state-write`) to the workspace, and the propose job, which installs
+// raise job writes a small state file (`state-write`) to the workspace, and the push job, which installs
 // nothing, reads it back through `state-read`, which accepts plain data only.
 //
 // THE KEY. A service-account key made by devops, in the project env var `P2P_EXTENSION_DEPLOY_SA_KEY`; the client
@@ -78,7 +72,6 @@
 //   RELEASE_ACTOR          schedule: the release it watches for (the job sets them from CIRCLE_*)
 //   STORE_WATCH_VERSION,
 //   STORE_WATCH_UNTIL      trigger: the watched version and deadline, forwarded with the RELEASE_* above
-//   GITHUB_TOKEN           pull-request: org-global's token (read access, owner in the organisation)
 //   STORE_WATCH_VERSION,
 //   STORE_SERVED_VERSION,
 //   RELEASE_LABEL, RELEASE_SHA, RELEASE_ACTOR,
@@ -103,7 +96,6 @@ export const FORCE_APPROVAL_JOB = 'hold_force_update';
 /** How long a release may wait for the store before its schedule gives up. Review can take a month. */
 export const SCHEDULE_LIFETIME_DAYS = 45;
 const CIRCLE_API = 'https://circleci.com/api/v2';
-const GITHUB_API = 'https://api.github.com';
 const EXIT = { OK: 0, HTTP: 1, USAGE: 2, RACE: 3, LOWERS: 4 };
 
 /** A numeric Chrome version, the only form this pipeline handles (`1.0.6`, never `1.0.6-beta`). */
@@ -149,7 +141,7 @@ export function raiseMinimum(text, version) {
 
 /**
  * The minimum a publish of `localText` over `liveText` would lower, or `null` when it keeps it. A forced raise
- * reaches git as a pull request, so until that is merged the file in git lags behind the live document, and
+ * reaches git in a second job, after the live document, so when that push fails the file in git lags behind, and
  * publishing it would quietly lift the forced update. A live document with no minimum, or one that does not
  * parse, has nothing to lower.
  */
@@ -381,7 +373,7 @@ export async function isWatched({ token, slug, version, fetch: f = fetch }) {
   return schedules.some((s) => compareVersions(s.version, version) >= 0);
 }
 
-// ── The hand-off from the raise job to the propose job ───────────────────────────────────────────
+// ── The hand-off from the raise job to the push job ───────────────────────────────────────────
 
 const STATE_FIELDS = {
   version: (v) => isChromeVersion(v),
@@ -438,85 +430,13 @@ export function stateExports(state) {
   ];
 }
 
-// ── The pull request into main ───────────────────────────────────────────────────────────────────
-
-function githubToken(env = process.env) {
-  const token = (env.GITHUB_TOKEN ?? '').trim();
-  if (!token) throw new UsageError('GITHUB_TOKEN must be set (org-wide context org-global)');
-  return token;
-}
-
-async function github(f, token, method, path, body) {
-  const res = await f(`${GITHUB_API}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-  const text = await res.text();
-  if (!res.ok) throw new HttpError(`GitHub ${method} ${path}`, res.status, text.slice(0, 500));
-  return text ? JSON.parse(text) : {};
-}
-
-/** Where to open the pull request by hand when the API refuses to. */
-export function compareUrl(slug, branch) {
-  return `https://github.com/${slug}/compare/main...${branch}?expand=1`;
-}
-
-/** The title and body of the pull request that carries a raised minimum into `main`. */
-export function pullRequestContent({ version, served }) {
-  return {
-    title: `config(prod): require extension ${version}`,
-    body: [
-      `A forced release raised \`web.minExtensionVersion\` to \`${version}\` in the live prod config` +
-        (served ? ` once Chrome's update server served ${served}.` : '.'),
-      '',
-      'The live document is already published. This sets the same minimum in `buckets/prod/p2p/extension-config.json`;',
-      'nothing else in the file changes. Until it is merged, `buckets/upload.sh prod` refuses to publish a document',
-      'that would lower the live minimum.',
-      '',
-      'Opened by `scripts/ci/force-update.sh`.',
-    ].join('\n'),
-  };
-}
-
-/**
- * Open the pull request from `branch` into `main`, or return the one already open for that branch — the two
- * paths that raise (`approve` and the store watch) can both get here for one release, even at the same moment:
- * a 422 on the create means the other one won, and its pull request is returned. Resolves to
- * `{ outcome: 'created' | 'kept', url }`.
- */
-export async function ensurePullRequest({ token, slug, branch, version, served, fetch: f = fetch }) {
-  const owner = slug.split('/')[0];
-  const head = encodeURIComponent(`${owner}:${branch}`);
-  const findOpen = async () => {
-    const open = await github(f, token, 'GET', `/repos/${slug}/pulls?state=open&base=main&head=${head}`);
-    return Array.isArray(open) && open.length > 0 ? open[0].html_url : null;
-  };
-  const existing = await findOpen();
-  if (existing) return { outcome: 'kept', url: existing };
-  const { title, body } = pullRequestContent({ version, served });
-  try {
-    const created = await github(f, token, 'POST', `/repos/${slug}/pulls`, { title, body, head: branch, base: 'main' });
-    return { outcome: 'created', url: created.html_url };
-  } catch (e) {
-    const raced = e instanceof HttpError && e.status === 422 ? await findOpen() : null;
-    if (raced) return { outcome: 'kept', url: raced };
-    throw e;
-  }
-}
-
 // ── CLI ───────────────────────────────────────────────────────────────────────────────────────────
 
 const USAGE =
   'usage: force-update.mjs served | raise <file> <version> | gcs-get <file> | gcs-put <file> <generation>' +
   ' | schedule <version> | approved <workflow-id> | trigger <served|expired> <yes|no> <served-version>' +
   ' | unschedule <schedule-id> | watching <version> | state-write <file> <outcome> | state-read <file> [version]' +
-  ' | pull-request <branch> <version> [served] | lowered-minimum <live> <local>';
+  ' | lowered-minimum <live> <local>';
 
 function repoSlug() {
   const slug = process.env.REPO_SLUG;
@@ -576,13 +496,6 @@ async function main() {
       const parameters = storeReleaseParameters({ outcome: args[0], force: args[1] === 'yes', served: args[2] });
       const number = await triggerPipeline({ token: circleToken(), slug: repoSlug(), parameters });
       console.log(`Started pipeline ${number}: ${JSON.stringify(parameters)}`);
-      return EXIT.OK;
-    }
-    if (cmd === 'pull-request' && (args.length === 2 || args.length === 3)) {
-      const [branch, version, served = ''] = args;
-      if (!isChromeVersion(version)) throw new UsageError(`not a numeric extension version: ${JSON.stringify(version)}`);
-      const result = await ensurePullRequest({ token: githubToken(), slug: repoSlug(), branch, version, served });
-      console.log(`${result.outcome} ${result.url}`);
       return EXIT.OK;
     }
     if (cmd === 'state-write' && args.length === 2) {

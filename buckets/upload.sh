@@ -4,9 +4,10 @@
 # Validates the file first, shows the diff against what is live, asks before touching prod, and uploads with
 # `--if-generation-match` so a change someone else published after the diff is never overwritten.
 #
-# Refuses to lower the live `web.minExtensionVersion`. A forced release raises it in the live document and brings
-# git level through a pull request (scripts/ci/force-update.sh); until that is merged, the file here lags behind,
-# and publishing it would quietly lift the forced update. ALLOW_LOWER_MIN=1 lowers it on purpose.
+# Refuses to lower the live `web.minExtensionVersion`. A forced release raises it in the live document and then
+# pushes the same line to `main` (scripts/ci/force-update.sh); until you pull that, or when that push failed, the
+# file here lags behind, and publishing it would quietly lift the forced update. ALLOW_LOWER_MIN=1 lowers it on
+# purpose.
 . "$(dirname "$0")/common.sh"
 
 env="${1:?usage: buckets/upload.sh stage|prod [--yes]}"
@@ -31,7 +32,7 @@ if [ -n "$generation" ]; then
   fi
   diff -u --label "live $dst" --label "local $src" "$live" "$src" || true
   if [ "${ALLOW_LOWER_MIN:-}" != 1 ] && ! node scripts/ci/force-update.mjs lowered-minimum "$live" "$src"; then
-    echo "$env: refusing to lower the live minimum — merge the open config/min-extension-* pull request" >&2
+    echo "$env: refusing to lower the live minimum — pull main (CI commits the forced minimum there)" >&2
     echo "or run buckets/download.sh $env first; ALLOW_LOWER_MIN=1 lowers it on purpose." >&2
     exit 1
   fi

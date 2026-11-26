@@ -361,7 +361,7 @@ async function run(proof: ProofPayload): Promise<NotaryProveReply> {
   } catch (e) {
     // Logged whole (stack included) because this realm's console is the only place a full stack exists.
     // Safe: the request carries ids only, and neither token is part of it.
-    console.error(`[notary/worker] proof ${proofId} failed`, e);
+    console.error('[notary/worker] proof %s failed', proofId, e);
     const error = describeFailure(e);
     // A trap that was CAUGHT here is still a trap — the instance is just as dead as one that escaped.
     return {

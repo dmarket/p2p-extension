@@ -112,8 +112,8 @@ a generation precondition, so a change someone else published after the diff is 
 install below it asks Chrome for the update once, reloads onto it when Chrome has it, and reports its
 progress to dmarket.com in the presence `pong` as `update: { required, minVersion, state }` — the page
 renders that and compares nothing itself. The published documents carry no minimum until a release is
-forced; CI then raises it in the live document and opens a pull request that brings
-`buckets/prod/p2p/extension-config.json` level with it (see below). Until that pull request is merged,
+forced; CI then raises it in the live document and commits the same line to
+`buckets/prod/p2p/extension-config.json` on `main` (see below). Until that commit is in your checkout,
 `config:upload:*` refuses to publish a document that would lower the live minimum (`ALLOW_LOWER_MIN=1`
 lowers it on purpose).
 
@@ -207,10 +207,10 @@ Leaving it unapproved is the normal answer; the pipeline then stays "On Hold".
 
 Every write to this repository goes through the `release-writer` context: `.circleci/release-writer.sh`
 mints a GitHub App token scoped to this repository (contents: write) for the one step that needs it, in
-`release`, `pack_crx`, `delete_release_branch` and `propose_min_version`. None of those jobs runs
-`npm ci`, and none may: the App key reaches every step of a job that lists the context. `GITHUB_TOKEN`
-from the org-wide `org-global` context has read access only; `propose_min_version` uses it to open its
-pull request. Everything else is a project-level environment variable:
+`release`, `pack_crx`, `delete_release_branch` and `push_min_version`. None of those jobs runs
+`npm ci`, and none may: the App key reaches every step of a job that lists the context. The App is a
+bypass actor on `main`'s review ruleset, so `push_min_version` can commit the forced minimum there.
+Everything else is a project-level environment variable:
 
 | Variables | Used by |
 |---|---|
@@ -311,12 +311,10 @@ store was faster still works. Leaving the approval alone is the normal answer: t
 build instead of being throttled for hours.
 
 The raise is two jobs. The raise job publishes the live document; it runs `npm ci` and vitest, so it holds
-no GitHub credential. `propose_min_version` then installs nothing, reads the raise job's result from the
-workspace as plain data, and proposes the same minimum to git as a pull request into `main`: the
-`release-writer` App pushes `config/min-extension-<version>`, which changes only the minimum line of
-`main`'s file, and org-global's `GITHUB_TOKEN` opens the pull request. Nothing in CI pushes to `main`; a
-human reviews and merges it. The Slack notice links the pull request. If GitHub refuses to open it, the
-notice says so with a link to open it by hand, and the job fails after the notice.
+no GitHub credential. `push_min_version` then installs nothing, reads the raise job's result from the
+workspace as plain data, and pushes the same minimum straight to `main` through the `release-writer` App:
+one commit that changes only the minimum line of `main`'s file, with no pull request. The Slack notice
+links the commit. If GitHub refuses the push, the notice says so, and the job fails after the notice.
 
 A push whose version is already tagged releases nothing, so re-pushing a release branch is safe;
 `[skip release]` in the commit message skips it explicitly. `main` still runs `check` and both builds

@@ -1,8 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { generateKeyPairSync } from 'node:crypto';
 import {
-  compareUrl,
-  ensurePullRequest,
   ensureSchedule,
   forceApproved,
   gcsGet,
@@ -76,7 +74,7 @@ describe('raising the minimum', () => {
 describe('publishing over a raised minimum (buckets/upload.sh)', () => {
   const doc = (min) => JSON.stringify({ tracker: {}, web: min === undefined ? {} : { minExtensionVersion: min } });
 
-  it('refuses a document that drops or lowers the live minimum — the merge of its PR has not happened yet', () => {
+  it('refuses a document that drops or lowers the live minimum — the push to main has not happened yet', () => {
     expect(loweredMinimum(doc('1.0.7'), doc(undefined))).toEqual({ live: '1.0.7', local: null });
     expect(loweredMinimum(doc('1.0.7'), doc('1.0.6'))).toEqual({ live: '1.0.7', local: '1.0.6' });
     expect(loweredMinimum(doc('1.0.7'), doc('1.0.6-beta'))).toEqual({ live: '1.0.7', local: null });
@@ -339,72 +337,7 @@ describe('starting the store_release pipeline', () => {
   });
 });
 
-describe('the pull request that brings git level with the live document', () => {
-  const pulls = (items) => new Response(JSON.stringify(items), { status: 200 });
-
-  it('opens one from the branch into main when none is open', async () => {
-    const f = vi
-      .fn()
-      .mockResolvedValueOnce(pulls([]))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ html_url: 'https://github.com/o/r/pull/7' }), { status: 201 }));
-    const result = await ensurePullRequest({ token: 't', slug: 'o/r', branch: 'config/min-extension-1.0.7', version: '1.0.7', served: '1.0.7', fetch: f });
-    expect(result).toEqual({ outcome: 'created', url: 'https://github.com/o/r/pull/7' });
-
-    const [listUrl, listInit] = f.mock.calls[0];
-    expect(listUrl).toBe('https://api.github.com/repos/o/r/pulls?state=open&base=main&head=o%3Aconfig%2Fmin-extension-1.0.7');
-    expect(listInit.method).toBe('GET');
-    expect(listInit.headers.Authorization).toBe('Bearer t');
-
-    const [createUrl, createInit] = f.mock.calls[1];
-    expect(createUrl).toBe('https://api.github.com/repos/o/r/pulls');
-    expect(createInit.method).toBe('POST');
-    const body = JSON.parse(createInit.body);
-    expect(body).toMatchObject({ head: 'config/min-extension-1.0.7', base: 'main', title: 'config(prod): require extension 1.0.7' });
-    expect(body.body).toContain('`1.0.7`');
-  });
-
-  it('returns the open one instead of opening a second — both raise paths can get here for one release', async () => {
-    const f = vi.fn().mockResolvedValueOnce(pulls([{ html_url: 'https://github.com/o/r/pull/7' }]));
-    await expect(
-      ensurePullRequest({ token: 't', slug: 'o/r', branch: 'config/min-extension-1.0.7', version: '1.0.7', fetch: f }),
-    ).resolves.toEqual({ outcome: 'kept', url: 'https://github.com/o/r/pull/7' });
-    expect(f).toHaveBeenCalledTimes(1);
-  });
-
-  it('returns the other path’s pull request when both create at once (422), and fails when there is none', async () => {
-    const taken = new Response('{"message":"A pull request already exists"}', { status: 422 });
-    const raced = vi
-      .fn()
-      .mockResolvedValueOnce(pulls([]))
-      .mockResolvedValueOnce(taken)
-      .mockResolvedValueOnce(pulls([{ html_url: 'https://github.com/o/r/pull/8' }]));
-    await expect(
-      ensurePullRequest({ token: 't', slug: 'o/r', branch: 'b', version: '1.0.7', fetch: raced }),
-    ).resolves.toEqual({ outcome: 'kept', url: 'https://github.com/o/r/pull/8' });
-
-    const lone = vi
-      .fn()
-      .mockResolvedValueOnce(pulls([]))
-      .mockResolvedValueOnce(new Response('{"message":"Validation Failed"}', { status: 422 }))
-      .mockResolvedValueOnce(pulls([]));
-    await expect(ensurePullRequest({ token: 't', slug: 'o/r', branch: 'b', version: '1.0.7', fetch: lone })).rejects.toThrow(/HTTP 422/);
-  });
-
-  it('fails loudly when GitHub refuses, and names where to open it by hand', async () => {
-    const f = vi
-      .fn()
-      .mockResolvedValueOnce(pulls([]))
-      .mockResolvedValueOnce(new Response('{"message":"Resource not accessible by integration"}', { status: 403 }));
-    await expect(
-      ensurePullRequest({ token: 't', slug: 'o/r', branch: 'b', version: '1.0.7', fetch: f }),
-    ).rejects.toThrow(/HTTP 403/);
-    expect(compareUrl('o/r', 'config/min-extension-1.0.7')).toBe(
-      'https://github.com/o/r/compare/main...config/min-extension-1.0.7?expand=1',
-    );
-  });
-});
-
-describe('the hand-off from the raise job to the propose job', () => {
+describe('the hand-off from the raise job to the push job', () => {
   it('names the release from the release pipeline’s own variables when it raised after an approval', () => {
     const env = { STORE_WATCH_VERSION: '1.0.7', STORE_SERVED_VERSION: '1.0.7', CIRCLE_BRANCH: 'release/v1.0.7-beta', CIRCLE_SHA1: 'abc123', CIRCLE_USERNAME: 'oleks' };
     expect(raiseState({ outcome: 'raised', env })).toEqual({
@@ -433,7 +366,7 @@ describe('the hand-off from the raise job to the propose job', () => {
     expect(() => parseRaiseState('nope')).toThrow(/not JSON/);
   });
 
-  it('exports the names the propose steps read', () => {
+  it('exports the names the push steps read', () => {
     const state = { version: '1.0.7', served: '', outcome: 'raised', label: '1.0.7', sha: '', actor: '' };
     expect(stateExports(state)).toEqual([
       'STORE_WATCH_VERSION=1.0.7',
