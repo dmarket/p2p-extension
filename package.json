@@ -50,7 +50,7 @@
     "wxt": "0.21.5"
   },
   "dependencies": {
-    "@dmarket/p2p-tracker-core": "1.5.1-SNAPSHOT-development.340",
+    "@dmarket/p2p-tracker-core": "1.5.1-SNAPSHOT-development.342",
     "@fontsource/montserrat": "^5.3.0",
     "@fontsource/squada-one": "^5.3.0",
     "preact": "11.1.0"
